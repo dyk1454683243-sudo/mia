@@ -648,19 +648,43 @@ The R5 script connects sequentially instead; the one-line fix for the harness is
 the same. Every published e2e run (local and live, R1–R4) happened to win that
 race.
 
+## Done: R6 — config hygiene, leak audit, hand-over
+
+**Config.** `wrangler.jsonc` contains no `database_id`, `preview_database_id`,
+`account_id` or `zone_id` — nothing was written back by the four deploys.
+`git status` is clean and `git diff wrangler.jsonc` is empty. A
+`wrangler deploy --dry-run` parses the committed config, so it will still deploy
+into a *fresh* account; the temporary account was `(reused)` every time, so a
+second one was never created.
+
+**Leak audit.**
+
+- `git ls-files` contains nothing under `.cfstate/`, nothing under `.dev.vars`,
+  and no `claim*` path; no path under either has ever appeared in
+  `git log --all --name-only`.
+- Across every tracked file, and across the full `git log --all -p`, there are
+  **zero** occurrences of the temporary account name, the live host name or the
+  claim token.
+- The one `claim-preview` string in the repository is a generic placeholder
+  inside the bundled Cloudflare skill doc
+  (`.agents/skills/cloudflare-temporary-accounts/SKILL.md`), which predates this
+  work and contains no real credential.
+
+**Hand-over.** The live URL, the claim URL framed as a bearer credential with
+its absolute UTC deadline, the consequence of not claiming, and the honest
+verified / not-verified list are delivered in the R6 chat message and in **no
+file** — per the plan's handing-over rule. This file deliberately contains none
+of them.
+
 ## Not started
 
-Broken down as tasks **R1–R6** in the "Remaining work — handoff tasks" section
-of `PLAN.md`, with per-task acceptance criteria. In short:
+Nothing. **R1–R6 and B1–B11's pre-deploy code fixes are all done.** R3, R4, R5
+and R6 await review; the live credentials for the deployment are in the R6 chat
+message and expire 60 minutes after the temporary account was created.
 
-- **R1** — **done** (see above), reviewed.
-- **R2** — **done** (see above), reviewed.
-- **R3** — **done** (see above), awaiting review. Live URL, claim URL and
-  deadline are in the task's chat message, not here.
-- **R4** — **done** (see above), awaiting review. Live URL, claim URL and
-  deadline are in the chat, not here.
-- **R5** — **done** (see above), awaiting review.
-- **R6** — strip any provisioned resource IDs, audit for leaks, hand-over report.
+Task-by-task, **R1–R6** in the "Remaining work — handoff tasks" section of
+`PLAN.md`: R1 browser verification (reviewed), R2 README (reviewed), R3 deploy,
+R4 live verification, R5 persistence across redeploy, R6 hygiene and this report.
 
 R3–R6 are time-coupled: the claim URL expires 60 minutes after R3 creates it.
 
@@ -704,9 +728,9 @@ running it does not mean scrolling past the whole ruleset first; the
 Durable-Object rationale tightened; and the omitted *variants* separated from
 the wider product decisions (no chat, no accounts) they were mixed in with.
 
-R3, R4 and R5 are done — the live URL, claim URL and deadline are in those
-tasks' chat messages, never in a file. R6 (hygiene and the hand-over report) is
-the only one left, and it must run before the claim window closes.
+R3–R6 are all done. The live URL, claim URL and deadline live in the R6 chat
+message only, never in a file, and expire 60 minutes after the temporary account
+was created.
 
 ### Review of R1 (`255fa5b`) — approved
 

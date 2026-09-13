@@ -334,7 +334,7 @@ A task is **Done** only once it has been reviewed.
 | R3 — `wrangler deploy --temporary` | Done, awaiting review | Live + claim URL in the task chat only |
 | R4 — verify the live URL | Done, awaiting review | 25/25 harness + 35/35 browser live |
 | R5 — redeploy, prove persistence | Done, awaiting review | `(reused)`/`(inherited)`; D1 + DO identical |
-| R6 — config hygiene, hand-over | Open | Claim clock running |
+| R6 — config hygiene, hand-over | Done, awaiting review | No IDs, no leaks; report in chat only |
 | B1 — abandoned-table alarm loop | **Done** — `ea28513`, reviewed | Follow-ups in B11 |
 | B2 — finishing places from seat order | **Done** — `07fb73e`, reviewed | |
 | B3 — lost result write | **Done** — `eb8d1db`, reviewed | Follow-ups in B10, B11 |
