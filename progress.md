@@ -120,6 +120,44 @@ restores the roster and leaves the cup where it was.
 
 `npx vitest run`: 45 passing (39 unit + 6 workers). Both typechecks clean.
 
+## Fixed: B1 — abandoned tables entered a permanent alarm loop
+
+`maybeReapEmptyRoom` was only reachable from `alarm()` when
+`this.state === null`, so a table that had ever had a player was never reaped:
+`EMPTY_TABLE_TTL_MS` was dead code. A finished table whose sockets had all gone
+then matched no phase branch and fell through to `ensureAlarm`, which
+rescheduled the same unchanged `emptySince + TTL` — a timestamp already in the
+past — so the alarm refired immediately, forever, deleting nothing.
+
+- `alarm()` now checks "no sockets and nothing left to play" **before** the
+  phase dispatch, independent of whether state exists, and runs the reaper. A
+  game still mid-turn with nobody connected is not dropped mid-game: a due
+  turn, reveal or round-start counts as pending work, so it auto-plays to its
+  end as before and is reaped afterwards.
+- Every alarm this class arms goes through `scheduleAlarm`/`clampAlarmTime`,
+  which nudges an already-past target to `now + 1s` instead of handing it to
+  `setAlarm`. A genuine future deadline is passed through untouched.
+- The empty timestamp is now **persisted** (`emptySince` key) as well as
+  cached. Without that, the object hibernating between the disconnect and the
+  reap alarm would cold-start with a null timestamp, roll the TTL forward and
+  never free the storage — the leak would survive the fix.
+- Reaping deletes the alarm as well as all storage, so the object goes dormant.
+- `autoPlay` now always ends in `ensureAlarm` (it used to return early on game
+  over), so a game that finishes by server auto-play still schedules its own
+  reap.
+
+Verified: `npx vitest run` **47 passing (39 unit + 8 workers)**; both
+typechecks clean. Two new workers tests: `clampAlarmTime` never returns a
+target at or before now, and a two-player game driven to game over with both
+sockets closed is reaped past a shortened TTL, asserting the `room` key is
+gone and `getAlarm()` is null. Note the test shortens the TTL through a private
+field; it does not exercise a real 60-minute wait, and it does not exercise an
+actual hibernation between the disconnect and the reap.
+
+Not verified: any of this against a live deployment (nothing is deployed yet),
+and the reap path has not been observed end to end through `wrangler dev` —
+only in the workers pool.
+
 ## Not started
 
 Broken down as tasks **R1–R6** in the "Remaining work — handoff tasks" section
@@ -136,11 +174,11 @@ of `PLAN.md`, with per-task acceptance criteria. In short:
 
 R3–R6 are time-coupled: the claim URL expires 60 minutes after R3 creates it.
 
-A code review at `fc507d3` added tasks **B1–B10** in the same file. **B1–B5 are
-pre-deploy**: an unreachable table reaper that leaves abandoned tables in a
-permanent alarm loop, finishing places computed from seat order, a lost result
-write on a transient D1 error, a frozen turn countdown, and a host who closes
-their tab leaving the table permanently unstartable.
+A code review at `fc507d3` added tasks **B1–B10** in the same file. **B1 is
+fixed** (see above). **B2–B5 are still pre-deploy**: finishing places computed
+from seat order, a lost result write on a transient D1 error, a frozen turn
+countdown, and a host who closes their tab leaving the table permanently
+unstartable.
 
 ## Environment notes (this sandbox)
 

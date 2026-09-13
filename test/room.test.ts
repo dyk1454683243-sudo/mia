@@ -8,7 +8,7 @@ import type { Die, MiaState } from "../src/shared/mia";
 import type { ServerMessage, StateView } from "../src/shared/protocol";
 import { ensureSchema } from "../src/worker/db";
 import { signCookie } from "../src/worker/session";
-import type { TableRoom } from "../src/worker/table-room";
+import { clampAlarmTime, type TableRoom } from "../src/worker/table-room";
 
 declare module "cloudflare:test" {
   interface ProvidedEnv extends Env {}
@@ -154,6 +154,28 @@ async function setLives(tableId: string, playerId: string, lives: number): Promi
     // Committing through the seam persists the change without rolling new dice.
     await room.__setDiceForTest(playerId, player.dice ?? [1, 1]);
   });
+}
+
+/** Shorten the empty-table TTL so reaping can be watched in real time. */
+async function setEmptyTtl(tableId: string, ms: number): Promise<void> {
+  await inRoom(tableId, (room) => {
+    (room as unknown as { emptyTtlMs: number }).emptyTtlMs = ms;
+  });
+}
+
+async function socketCount(tableId: string): Promise<number> {
+  return await runInDurableObject(stubFor(tableId), (_instance, state) => state.getWebSockets().length);
+}
+
+async function storedRoom(tableId: string): Promise<MiaState | null> {
+  return await runInDurableObject(
+    stubFor(tableId),
+    async (_instance, state) => (await state.storage.get<MiaState>("room")) ?? null,
+  );
+}
+
+async function scheduledAlarm(tableId: string): Promise<number | null> {
+  return await runInDurableObject(stubFor(tableId), (_instance, state) => state.storage.getAlarm());
 }
 
 async function waitFor(
@@ -426,5 +448,59 @@ describe("TableRoom", () => {
 
     annaSocket.close();
     boSocket.close();
+  });
+
+  it("never clamps an alarm target into the past", () => {
+    const now = Date.now();
+    // A stale target is the hot loop's fuel: it must be nudged forward.
+    expect(clampAlarmTime(now - 60_000, now)).toBeGreaterThan(now);
+    expect(clampAlarmTime(now, now)).toBeGreaterThan(now);
+    // A genuine future deadline is left exactly alone.
+    expect(clampAlarmTime(now + 5_000, now)).toBe(now + 5_000);
+  });
+
+  it("reaps an abandoned finished table and schedules no further alarm", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const tableId = await createTableRow("Abandoned", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    await annaSocket.nextState((view) => view.state.players.length === 2);
+
+    // Take a two-player table all the way to game over.
+    annaSocket.send({ type: "start" });
+    const started = await annaSocket.nextState((view) => view.state.round === 1);
+    const starterId = started.state.turnPlayerId!;
+    const openerSocket = starterId === anna.id ? annaSocket : boSocket;
+    const otherSocket = starterId === anna.id ? boSocket : annaSocket;
+    await setLives(tableId, starterId, 1);
+    await waitFor(async () => (await readState(tableId))?.phase === "deciding");
+    openerSocket.send({ type: "roll" });
+    await openerSocket.nextState((view) => view.state.phase === "announcing");
+    await forceDice(tableId, starterId, [3, 1]);
+    openerSocket.send({ type: "announce", value: 65 });
+    await openerSocket.nextState((view) => view.state.lastAnnouncement?.value === 65);
+    otherSocket.send({ type: "doubt" });
+    const finished = await openerSocket.nextState((view) => view.state.gameOver !== null, 6_000);
+    expect(finished.state.phase).toBe("finished");
+
+    // A short TTL, then both players close the tab without sending `leave` —
+    // exactly the case the old phase dispatch could never reap.
+    await setEmptyTtl(tableId, 1_500);
+    annaSocket.close();
+    boSocket.close();
+    await waitFor(async () => (await socketCount(tableId)) === 0);
+
+    // The room now holds a real finished game, and its reap alarm is armed in
+    // the future — never in the past, which is what made it spin.
+    expect(await storedRoom(tableId)).not.toBeNull();
+    const armed = await scheduledAlarm(tableId);
+    expect(armed).not.toBeNull();
+    expect(armed!).toBeGreaterThan(Date.now());
+
+    // Past the TTL the storage is gone and nothing is scheduled to wake the
+    // object again.
+    await waitForValue(async () => ((await storedRoom(tableId)) === null ? true : null), 8_000);
+    expect(await scheduledAlarm(tableId)).toBeNull();
   });
 });

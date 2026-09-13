@@ -25,8 +25,22 @@ import type { ClientMessage, ServerMessage, StateView } from "../shared/protocol
 import { recordGame, updateTable, type FinalPlayer } from "./db";
 
 const STATE_KEY = "room";
+/**
+ * When the room last had zero live sockets. Persisted, not just in-memory:
+ * this object hibernates between the disconnect and the reap alarm, and an
+ * in-memory timestamp would reset on every cold start, so the TTL would roll
+ * forward forever and storage would never actually be freed.
+ */
+const EMPTY_SINCE_KEY = "emptySince";
 /** How long an emptied table is kept before its storage is dropped. */
 const EMPTY_TABLE_TTL_MS = 60 * 60 * 1000;
+/**
+ * Floor for an alarm whose target time has already passed. `setAlarm` with a
+ * past timestamp fires immediately, and because the target is recomputed from
+ * an unchanged deadline it fires immediately again — the abandoned-table hot
+ * loop. Nudging forward breaks the cycle while still waking promptly.
+ */
+const MIN_ALARM_DELAY_MS = 1_000;
 const MAX_PLAYERS = 8;
 
 interface SocketAttachment {
@@ -41,18 +55,25 @@ export class TableRoom extends DurableObject<Env> {
   private timings: Timings = DEFAULT_TIMINGS;
   /** Epoch ms at which the room last had zero live sockets. */
   private emptySince: number | null = null;
+  /** How long an empty room is kept before its storage is dropped. */
+  private emptyTtlMs = EMPTY_TABLE_TTL_MS;
   /** Guards the one-shot D1 write when a game finishes. */
   private resultsWritten = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    // The only persisted key is `room`, so every write is atomic.
+    // `room` is the only game key, so every game write is atomic; the empty
+    // timestamp is a second, independent key that `deleteAll` clears with it.
     ctx.blockConcurrencyWhile(async () => {
-      const stored = await ctx.storage.get<MiaState>(STATE_KEY);
+      const [stored, emptySince] = await Promise.all([
+        ctx.storage.get<MiaState>(STATE_KEY),
+        ctx.storage.get<number>(EMPTY_SINCE_KEY),
+      ]);
       if (stored && stored.tableId) {
         this.state = stored;
         this.resultsWritten = stored.gameOver !== null;
       }
+      if (typeof emptySince === "number") this.emptySince = emptySince;
     });
   }
 
@@ -90,7 +111,7 @@ export class TableRoom extends DurableObject<Env> {
   }
 
   private async handleConnect(playerId: string, name: string, tableName: string, tableId: string): Promise<void> {
-    this.emptySince = null;
+    await this.clearEmptySince();
     const state = this.state;
 
     if (state === null) {
@@ -203,7 +224,6 @@ export class TableRoom extends DurableObject<Env> {
   }
 
   private async afterDisconnect(): Promise<void> {
-    if (this.ctx.getWebSockets().length === 0) this.emptySince = Date.now();
     await this.broadcast();
     await this.ensureAlarm();
   }
@@ -214,8 +234,19 @@ export class TableRoom extends DurableObject<Env> {
 
   override async alarm(): Promise<void> {
     const now = Date.now();
-    const state = this.state;
 
+    // An alarm with nobody connected and nothing left to service is the
+    // abandonment case. This check comes *before* the phase dispatch on
+    // purpose: a finished (or long-quiet) table matches no phase branch, and
+    // falling through would reschedule the same stale deadline forever. It is
+    // also independent of whether state still exists, so the reaper runs for
+    // real tables and not just for rooms storage has already been dropped in.
+    if (this.ctx.getWebSockets().length === 0 && !this.hasPendingWork(now)) {
+      await this.maybeReapEmptyRoom(now);
+      return;
+    }
+
+    const state = this.state;
     if (state === null) {
       await this.maybeReapEmptyRoom(now);
       return;
@@ -240,7 +271,7 @@ export class TableRoom extends DurableObject<Env> {
     if (state.phase === "deciding" || state.phase === "announcing") {
       const deadline = state.deadlineAt;
       if (deadline !== null && deadline > now) {
-        await this.ctx.storage.setAlarm(deadline);
+        await this.scheduleAlarm(deadline);
         return;
       }
       await this.autoPlay(now);
@@ -248,6 +279,31 @@ export class TableRoom extends DurableObject<Env> {
     }
 
     await this.ensureAlarm();
+  }
+
+  /**
+   * True when the alarm still has something to do: a deadline in the future,
+   * or a phase whose beat is due (an expired turn, a reveal to resolve, a round
+   * start to hand off to) and therefore has to be serviced.
+   */
+  private hasPendingWork(now: number): boolean {
+    const state = this.state;
+    if (state === null) return false;
+    if (state.deadlineAt !== null && state.deadlineAt > now) return true;
+    if (state.roundEndsAt !== null && state.roundEndsAt > now) return true;
+    return this.needsImmediateWake(state);
+  }
+
+  /**
+   * A phase that is due now and must be serviced by a single wake. Callers
+   * reach this only after the future-deadline checks have already failed, so a
+   * `deciding`/`announcing` turn here is one whose clock has run out.
+   */
+  private needsImmediateWake(state: MiaState): boolean {
+    if (state.phase === "revealing" || state.phase === "deciding" || state.phase === "announcing") return true;
+    // A `roundStart` with no `roundEndsAt` is the pre-game lobby, which has
+    // nothing to play and must not wake on a loop.
+    return state.phase === "roundStart" && state.roundEndsAt !== null;
   }
 
   /** The idle player's safest legal move — the game must never stall. */
@@ -273,7 +329,7 @@ export class TableRoom extends DurableObject<Env> {
         break;
       }
       await this.commit(result.state);
-      if (result.state.gameOver || result.state.phase === "revealing") return;
+      if (result.state.gameOver || result.state.phase === "revealing") break;
     }
     await this.playOnBehalfOfTurn(now);
     await this.ensureAlarm();
@@ -310,17 +366,33 @@ export class TableRoom extends DurableObject<Env> {
 
   private async maybeReapEmptyRoom(now: number): Promise<void> {
     if (this.ctx.getWebSockets().length > 0) {
-      this.emptySince = null;
+      await this.clearEmptySince();
       return;
     }
-    this.emptySince ??= now;
-    if (now - this.emptySince > EMPTY_TABLE_TTL_MS) {
+    if (this.emptySince === null) {
+      // Persist the moment the room emptied so the TTL survives hibernation.
+      this.emptySince = now;
+      await this.ctx.storage.put(EMPTY_SINCE_KEY, now);
+    }
+    if (now - this.emptySince >= this.emptyTtlMs) {
+      // Drop the state and schedule nothing: the alarm that woke us is
+      // one-shot, so the object goes dormant and stops billing wakes. This is
+      // the only place table storage is ever freed.
       await this.ctx.storage.deleteAll();
+      await this.ctx.storage.deleteAlarm();
       this.state = null;
+      this.resultsWritten = false;
       this.emptySince = null;
       return;
     }
-    await this.ctx.storage.setAlarm(this.emptySince + EMPTY_TABLE_TTL_MS);
+    await this.scheduleAlarm(this.emptySince + this.emptyTtlMs);
+  }
+
+  /** A socket is back: forget that the room was ever empty. */
+  private async clearEmptySince(): Promise<void> {
+    if (this.emptySince === null) return;
+    this.emptySince = null;
+    await this.ctx.storage.delete(EMPTY_SINCE_KEY);
   }
 
   // -------------------------------------------------------------------------
@@ -597,33 +669,52 @@ export class TableRoom extends DurableObject<Env> {
     this.timings = timings;
   }
 
+  /** The only way this class arms an alarm, so no target can be in the past. */
+  private async scheduleAlarm(target: number): Promise<void> {
+    await this.ctx.storage.setAlarm(clampAlarmTime(target, Date.now()));
+  }
+
   private async ensureAlarm(): Promise<void> {
     const state = this.state;
     const now = Date.now();
-    if (state === null) {
-      this.emptySince ??= now;
-      await this.ctx.storage.setAlarm(this.emptySince + EMPTY_TABLE_TTL_MS);
-      return;
+
+    if (state !== null) {
+      if (state.deadlineAt !== null && state.deadlineAt > now) {
+        await this.scheduleAlarm(state.deadlineAt);
+        return;
+      }
+      if (state.roundEndsAt !== null && state.roundEndsAt > now) {
+        await this.scheduleAlarm(state.roundEndsAt);
+        return;
+      }
+      if (this.needsImmediateWake(state)) {
+        // The beat is already due — its deadline passed without an alarm, or
+        // auto-play handed the turn to a seat nobody is sitting at. Wake once,
+        // just ahead of now rather than in the past.
+        await this.scheduleAlarm(now);
+        return;
+      }
     }
-    if (state.deadlineAt !== null && state.deadlineAt > now) {
-      await this.ctx.storage.setAlarm(state.deadlineAt);
-      return;
-    }
-    if (state.roundEndsAt !== null && state.roundEndsAt > now) {
-      await this.ctx.storage.setAlarm(state.roundEndsAt);
-      return;
-    }
+
     if (this.ctx.getWebSockets().length === 0) {
-      this.emptySince ??= now;
-      await this.ctx.storage.setAlarm(this.emptySince + EMPTY_TABLE_TTL_MS);
+      // Nobody connected and nothing to play: keep exactly one reap alarm
+      // pending. This is the only path that can compute a stale target, so it
+      // goes through `scheduleAlarm` rather than `setAlarm` directly.
+      await this.maybeReapEmptyRoom(now);
       return;
     }
-    if (state.phase === "deciding" || state.phase === "announcing" || state.phase === "roundStart") {
-      await this.ctx.storage.setAlarm(now + 1_000);
-      return;
-    }
+
     await this.ctx.storage.deleteAlarm();
   }
+}
+
+/**
+ * Never hand `setAlarm` a timestamp in the past. A past alarm fires at once,
+ * and if the target is recomputed from an unchanged deadline it fires at once
+ * again, forever. Clamp forward by a small floor instead.
+ */
+export function clampAlarmTime(target: number, now: number): number {
+  return target > now ? target : now + MIN_ALARM_DELAY_MS;
 }
 
 /**
