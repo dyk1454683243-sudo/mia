@@ -526,13 +526,20 @@ step is accurate rather than assumed. Also verified: `npm run e2e` 25/25,
 `npm run bots -- <id> 2` seats two bots, and `wrangler deploy --dry-run` builds.
 No claim URL, token or account id anywhere in the file.
 
-Two non-blocking notes recorded in `PLAN.md`: a fresh `npm install` warns about
-uncovered install scripts under npm 11 (harmless — the fresh clone runs real
-workerd and passes — but worth a reassuring line); and the doubt-resolution
-bullets use `<`/`≥`, which read as arithmetic when the comparison is by rank
-over the hardcoded table. Treating it as arithmetic is exactly the bug fixed in
-the first commit, so one clarifying clause is worth adding — in this plan too,
-which is where the phrasing came from.
+Both review notes were then applied to the README directly:
+
+- The doubt-resolution bullets now say to compare by **position in the ranking
+  table, never arithmetically**, with `66` and `11` both beating a claimed `65`
+  as the worked examples (checked against `outranks` — treating it as arithmetic
+  is exactly the bug fixed in the first commit). `PLAN.md`'s ruleset, where the
+  phrasing originated, is corrected the same way.
+- The npm 11 install-script warning is now called out as expected and safe to
+  ignore.
+
+Three further edits for clarity: a two-line quick start under the intro, so
+running it does not mean scrolling past the whole ruleset first; the
+Durable-Object rationale tightened; and the omitted *variants* separated from
+the wider product decisions (no chat, no accounts) they were mixed in with.
 
 R3 (deploy) is now blocked on nothing.
 

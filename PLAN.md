@@ -66,9 +66,10 @@ Local toolchain verified: Node v26.8.2, npm 11.19.1, wrangler 4.131.1, and the m
   - **believes** — takes the cup, rolls blind, and must then announce a value **strictly
     higher** than the standing announcement (so a low roll forces a bluff); or
   - **doubts** — calls the previous player a liar and reveals that player's actual dice.
-- Resolution of a doubt:
-  - actual **<** announced (bluff caught) → the **announcer** loses 1 life;
-  - actual **≥** announced → the **doubter** loses 1 life;
+- Resolution of a doubt — compare by **position in the ranking table**, never
+  arithmetically (`66` beats a claimed `65`, and so does `11`):
+  - the roll ranks **below** what was announced (bluff caught) → the **announcer** loses 1 life;
+  - it **equals or outranks** the announcement → the **doubter** loses 1 life;
   - the announcement was Mia **and** the dice really are 21 → the **doubter loses 2**.
 - The player who lost the life starts the next round (the next living player after them if
   that loss eliminated them).

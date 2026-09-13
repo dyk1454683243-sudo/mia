@@ -7,6 +7,13 @@ their phone, and the last player with lives wins.
 
 Built on Cloudflare Workers, Static Assets, D1 and one Durable Object per table.
 
+```sh
+npm install && npm run types
+npm run dev                    # then open http://127.0.0.1:8787
+```
+
+No Cloudflare account is needed to run or test it locally.
+
 ---
 
 ## The rules implemented
@@ -29,9 +36,12 @@ left out — see below.
   - **believe** — take the cup, roll blind, and then announce a value
     **strictly higher** than the one standing (a low roll forces a bluff); or
   - **doubt** — call the previous player a liar and turn their dice over.
-- **Resolution of a doubt:**
-  - actual **<** announced (bluff caught) → the **announcer** loses 1 life;
-  - actual **≥** announced → the **doubter** loses 1 life;
+- **Resolution of a doubt.** Compare the two by **position in the ranking
+  above**, never arithmetically — `66` beats a claimed `65`, and `11` beats a
+  claimed `65`:
+  - the roll ranks **below** what was announced (bluff caught) → the
+    **announcer** loses 1 life;
+  - it **equals or outranks** the announcement → the **doubter** loses 1 life;
   - the announcement was Mia **and** the dice really are `21` → the **doubter
     loses 2**.
 - **Next round.** Whoever lost the life starts it; if that knocked them out, the
@@ -42,11 +52,12 @@ left out — see below.
   can be announced, otherwise believe and announce the minimum legal value — so
   a dropped phone never stalls the game.
 
-**Deliberately not implemented** (all common variants): passing or relaying the
-cup; accepting a stated Mia without turning the dice over; "rolling your own Mia
-ends the round". There is also no chat and no accounts: identity is just a
-long-lived cookie, and opening a table that has already started tells you so
-instead of seating you.
+**Variants deliberately left out:** passing or relaying the cup; accepting a
+stated Mia without turning the dice over; "rolling your own Mia ends the round".
+
+There is no chat and there are no accounts — identity is just a long-lived
+cookie — and a table that has already started tells you so rather than seating
+you late.
 
 ---
 
@@ -68,12 +79,12 @@ browser ──HTTP──► Worker ──► D1          (identity, table direct
   real 404 instead of an HTML page.
 - **D1** — players, the lobby directory, and **only finished games**: a game's
   result rows are written once at game over. Live game state never touches it.
-- **One Durable Object per table** (`TableRoom`) — why: a turn-based game needs
-  exactly-once ordering of "who acted when" without a database round-trip per
-  move, and each table is an independent, naturally serialised unit. The DO
-  keeps the live state plus the table's WebSockets, using the **WebSocket
-  Hibernation API** so a table nobody is touching costs nothing, and a **single
-  alarm** that drives both the 60-second turn clock and the reveal/round beats.
+- **One Durable Object per table** (`TableRoom`) — a turn-based game needs
+  exactly-once ordering of who acted when, and a table is an independent,
+  naturally serialised unit, so each one gets its own object and needs no
+  database round-trip per move. It holds the live state and the table's
+  WebSockets, hibernating when nobody is touching it, and drives both the
+  60-second turn clock and the reveal/round beats from a **single alarm**.
 - **Identity** is a `mia_pid` cookie: the player id plus an HMAC-SHA256
   signature, `HttpOnly`, `SameSite=Lax`, verified in constant time. The signing
   key lives in a D1 `app_config` row, so there is no secret to provision and a
@@ -103,6 +114,10 @@ npm run types        # generates worker-configuration.d.ts, which tsc needs
 `worker-configuration.d.ts` is generated and gitignored, so a fresh clone does
 not have it and `npm run typecheck` fails without it (TS2688). Re-run
 `npm run types` after any change to `wrangler.jsonc`.
+
+npm 11 warns that install scripts for `workerd`, `esbuild`, `sharp` and
+`fsevents` are "not yet covered by allowScripts". That is expected and safe to
+ignore — the packages still work, and `npm test` runs the real workerd runtime.
 
 To also run the browser check, fetch its Chromium once (it lands in
 `.playwright-browsers/`, which is gitignored):
