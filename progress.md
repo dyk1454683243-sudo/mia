@@ -173,6 +173,53 @@ fixed in place:
 - B1's test reaps a *finished* table; the commoner abandoned **pre-game** table
   is untested: folded into **B5**.
 
+## Fixed: B2 — finishing places came from seat order
+
+`writeResults` computed `place: winner ? 1 : index + 2` from the player's index
+in the roster, which has nothing to do with who survived longest. A winner in a
+middle seat therefore wrote places with a gap: won from seat 2 of 4, the others
+were recorded as 2, 3 and 5.
+
+- `MiaPlayer` carries `eliminationIndex: number | null`, assigned once in
+  `resolveEliminations`; the winner stays null.
+- New pure `finalStandings(state)` (`src/shared/mia.ts`) returns every player
+  with a place — winner 1st, then the eliminated in reverse elimination order,
+  so the last player out finishes highest.
+- `writeResults` maps `finalStandings` straight onto the `game_players` rows;
+  the seat-index formula is gone.
+- **Tie rule, stated:** a single life-loss event can only knock out one player,
+  so simultaneous elimination cannot happen in normal play. If a resolution
+  ever finds two players at zero lives at once, roster order decides — the
+  earlier seat is recorded as eliminated first and therefore finishes lower.
+
+Verified: `npx vitest run` **50 passing (41 unit + 9 workers)**; both
+typechecks clean. New tests:
+
+- unit — a 4-player game where Anna and Bo are caught bluffing and Dan's doubt
+  of Cara's honest 66 costs Dan his life: Cara wins from seat 2 and the
+  standings are Cara 1, Dan 2, Bo 3, Anna 4.
+- unit — two players brought to zero lives in the same resolution get
+  `eliminationIndex` 1 and 2 in roster order (the tie rule).
+- workers — the same 4-player shape driven over real WebSockets, asserting the
+  live `eliminationIndex` values and the `game_players` places 1–4 with no gap.
+
+The workers test was run against the old formula and does fail it, reproducing
+the seat-index output including the skipped place 5; it passes with
+`finalStandings`.
+
+Also verified end to end: `scripts/e2e.ts` against `wrangler dev` still reaches
+**25/25**, and its freshly finished 3-player game wrote places 1, 2 and 3 to
+`game_players` (winner first, then the two eliminated players), read back with
+`wrangler d1 execute --local`. The same local dev database still holds an older
+3-player row set from before the fix with places 1, 2 and 4 — the gap this task
+removes. That is stale local data, not something this build wrote.
+
+Not verified: nothing is deployed, so places have only been observed in the
+workers pool and against local `wrangler dev`, never live. A game state
+persisted before this change has no `eliminationIndex`, so a player already
+eliminated then would sort as if eliminated first; since nothing is deployed,
+only local dev storage could hold such a state.
+
 ## Not started
 
 Broken down as tasks **R1–R6** in the "Remaining work — handoff tasks" section
@@ -194,8 +241,8 @@ reviewing B1's fix added **B11**. `PLAN.md` opens with a **status board** —
 that table is the authoritative list of what is left, and a task counts as done
 only once it has been reviewed.
 
-**B1 is done** (`ea28513`, reviewed). **B2–B5 are still pre-deploy**: finishing
-places computed from seat order, a lost result write on a transient D1 error, a
+**B1 is done** (`ea28513`, reviewed). **B2 is fixed** (awaiting review);
+**B3–B5 are still pre-deploy**: a lost result write on a transient D1 error, a
 frozen turn countdown, and a host who closes their tab leaving the table
 permanently unstartable.
 

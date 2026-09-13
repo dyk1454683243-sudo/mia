@@ -335,7 +335,7 @@ A task is **Done** only once it has been reviewed.
 | R5 — redeploy, prove persistence | Open | Blocked on R4 |
 | R6 — config hygiene, hand-over report | Open | Blocked on R5 |
 | B1 — abandoned-table alarm loop | **Done** — `ea28513`, reviewed | Follow-ups in B11 |
-| B2 — finishing places from seat order | Open | Pre-deploy |
+| B2 — finishing places from seat order | Fixed, awaiting review | Pre-deploy |
 | B3 — lost result write | Open | Pre-deploy |
 | B4 — frozen turn countdown | Open | Pre-deploy |
 | B5 — host tab-close bricks the table | Open | Pre-deploy |

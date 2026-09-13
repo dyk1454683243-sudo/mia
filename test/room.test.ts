@@ -16,6 +16,12 @@ declare module "cloudflare:test" {
 
 /** Fast clock for tests: a turn expires in a second. */
 const FAST = { turnMs: 1_000, revealMs: 400, roundStartMs: 150 };
+/**
+ * Human-paced clock: a real turn length so the server never auto-plays while a
+ * test is driving seats by hand, with a quick reveal beat. The round-start beat
+ * is not configurable and is always 2 seconds.
+ */
+const DRIVE = { turnMs: 60_000, revealMs: 200, roundStartMs: 2_000 };
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -161,6 +167,35 @@ async function setEmptyTtl(tableId: string, ms: number): Promise<void> {
   await inRoom(tableId, (room) => {
     (room as unknown as { emptyTtlMs: number }).emptyTtlMs = ms;
   });
+}
+
+/** Wait until it is `playerId`'s turn to decide. */
+async function waitForTurn(tableId: string, playerId: string, timeoutMs = 15_000): Promise<void> {
+  await waitFor(async () => {
+    const state = await readState(tableId);
+    return state?.phase === "deciding" && state.turnPlayerId === playerId;
+  }, timeoutMs);
+}
+
+/**
+ * Drive one round by hand: the starter rolls `dice`, announces `value`, and the
+ * doubter calls it. Whether the starter loses (a caught bluff) or the doubter
+ * loses (an honest claim) is left to the dice.
+ */
+async function driveRound(
+  tableId: string,
+  starterSocket: TestSocket,
+  doubterSocket: TestSocket,
+  starterId: string,
+  dice: [Die, Die],
+  value: number,
+): Promise<void> {
+  starterSocket.send({ type: "roll" });
+  await waitFor(async () => (await readState(tableId))?.phase === "announcing", 5_000);
+  await forceDice(tableId, starterId, dice);
+  starterSocket.send({ type: "announce", value });
+  await waitFor(async () => (await readState(tableId))?.lastAnnouncement?.value === value, 5_000);
+  doubterSocket.send({ type: "doubt" });
 }
 
 async function socketCount(tableId: string): Promise<number> {
@@ -503,4 +538,63 @@ describe("TableRoom", () => {
     await waitForValue(async () => ((await storedRoom(tableId)) === null ? true : null), 8_000);
     expect(await scheduledAlarm(tableId)).toBeNull();
   });
+
+  it("records finishing places in elimination order, not seat order", async () => {
+    const players = [];
+    for (const name of ["Anna", "Bo", "Cara", "Dan"]) players.push(await makePlayer(name));
+    const tableId = await createTableRow("Places", players[0]!.id);
+    const sockets: TestSocket[] = [];
+    for (const player of players) sockets.push(await connect(tableId, player));
+    await sockets[0]!.nextState((view) => view.state.players.length === 4);
+
+    await setTimings(tableId, DRIVE);
+    sockets[0]!.send({ type: "start" });
+
+    // Round 1: Anna (seat 0) bluffs, Bo catches it. Anna is out first.
+    await waitForTurn(tableId, players[0]!.id);
+    await setLives(tableId, players[0]!.id, 1);
+    await driveRound(tableId, sockets[0]!, sockets[1]!, players[0]!.id, [3, 1], 65);
+
+    // Round 2: Bo (seat 1) bluffs, Cara catches it. Bo is out second.
+    await waitForTurn(tableId, players[1]!.id);
+    await setLives(tableId, players[1]!.id, 1);
+    await driveRound(tableId, sockets[1]!, sockets[2]!, players[1]!.id, [3, 1], 65);
+
+    // Round 3: Cara (seat 2) really holds 66 but announces low, so Dan's doubt
+    // costs Dan the life. Dan is out third and Cara wins — from the middle seat
+    // that used to be recorded as places 2, 3 and 5 with a skipped 4.
+    await waitForTurn(tableId, players[2]!.id);
+    await setLives(tableId, players[3]!.id, 1);
+    await driveRound(tableId, sockets[2]!, sockets[3]!, players[2]!.id, [6, 6], 31);
+
+    await waitFor(async () => (await readState(tableId))?.gameOver !== null, 15_000);
+    const finished = await readState(tableId);
+    expect(finished?.gameOver?.winnerId).toBe(players[2]!.id);
+    expect(finished?.players.map((player) => [player.id, player.eliminationIndex])).toEqual([
+      [players[0]!.id, 1],
+      [players[1]!.id, 2],
+      [players[2]!.id, null],
+      [players[3]!.id, 3],
+    ]);
+
+    const gameId = finished!.gameId;
+    const rows = await waitForValue(async () => {
+      const result = await env.DB.prepare(
+        `SELECT player_id, place FROM game_players WHERE game_id = ?1 ORDER BY place ASC`,
+      )
+        .bind(gameId)
+        .all<{ player_id: string; place: number }>();
+      return (result.results?.length ?? 0) === 4 ? result.results! : null;
+    });
+    // Winner 1st, then everyone else in reverse elimination order — places 1-4
+    // with no gap, not the seat-index 1, 2, 3, 5 the old formula produced.
+    expect(rows.map((row) => [row.player_id, row.place])).toEqual([
+      [players[2]!.id, 1],
+      [players[3]!.id, 2],
+      [players[1]!.id, 3],
+      [players[0]!.id, 4],
+    ]);
+
+    for (const socket of sockets) socket.close();
+  }, 45_000);
 });

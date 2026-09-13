@@ -113,6 +113,12 @@ export interface MiaPlayer {
   dice: [Die, Die] | null;
   roundsPlayed: number;
   eliminated: boolean;
+  /**
+   * 1-based order in which this player was knocked out, or null while they are
+   * still in the game (the winner stays null). Final places are derived from
+   * this in reverse: the last player eliminated finishes highest of the rest.
+   */
+  eliminationIndex: number | null;
 }
 
 export interface Announcement {
@@ -257,6 +263,7 @@ export function createGameState(
       dice: null,
       roundsPlayed: 0,
       eliminated: false,
+      eliminationIndex: null,
     })),
     turnPlayerId: null,
     turnStartedAt: null,
@@ -637,9 +644,15 @@ function applyDoubt(state: MiaState, playerId: string, timings: Timings, now: nu
 }
 
 function resolveEliminations(state: MiaState, now: number): void {
+  // Roster order breaks a tie. A single life-loss event can only knock out one
+  // player today, but if a resolution ever finds two players at zero lives at
+  // once, the earlier seat is recorded as eliminated first and therefore
+  // finishes lower. That is the documented tie rule.
+  let nextIndex = state.players.filter((player) => player.eliminationIndex !== null).length + 1;
   for (const player of state.players) {
     if (!player.eliminated && player.lives <= 0) {
       player.eliminated = true;
+      player.eliminationIndex = nextIndex++;
       pushEvent(state, now, "eliminated", `${player.name} is out of the game.`, { playerId: player.id });
     }
   }
@@ -676,6 +689,45 @@ export function resolveReveal(state: MiaState, timings: Timings, now = Date.now(
   startRound(next, starter, now);
   next.roundEndsAt = next.deadlineAt;
   return next;
+}
+
+export interface Standing {
+  player: MiaPlayer;
+  /** 1 is the winner; the last player eliminated finishes highest of the rest. */
+  place: number;
+}
+
+/**
+ * Final standings, ordered best to worst. The winner is 1st, then everyone else
+ * in reverse elimination order — surviving longer means finishing higher.
+ * Players eliminated in the same resolution tie-break on roster order: the
+ * earlier seat was recorded as eliminated first, so it places lower. Every
+ * player is placed, even if the game somehow has no recorded winner.
+ */
+export function finalStandings(state: MiaState): Standing[] {
+  const standings: Standing[] = [];
+  const placed = new Set<string>();
+  const add = (player: MiaPlayer): void => {
+    if (placed.has(player.id)) return;
+    placed.add(player.id);
+    standings.push({ player, place: standings.length + 1 });
+  };
+
+  const winner = state.players.find((player) => player.id === state.gameOver?.winnerId);
+  if (winner) add(winner);
+  // Any other survivor outranks everyone eliminated. In a finished game the
+  // winner is the only survivor, so this normally adds nobody.
+  for (const player of state.players) {
+    if (!player.eliminated) add(player);
+  }
+  // `sort` is stable, so players with no recorded index keep roster order.
+  const eliminated = state.players
+    .filter((player) => player.eliminated)
+    .sort((a, b) => (b.eliminationIndex ?? 0) - (a.eliminationIndex ?? 0));
+  for (const player of eliminated) add(player);
+  // Anything still unplaced keeps roster order, so every player has a place.
+  for (const player of state.players) add(player);
+  return standings;
 }
 
 /**

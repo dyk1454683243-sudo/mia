@@ -9,6 +9,7 @@ import {
   beginRoundPlay,
   buildView,
   createGameState,
+  finalStandings,
   formatValue,
   isRankedValue,
   legalAnnouncements,
@@ -396,6 +397,64 @@ describe("rounds, elimination and winning", () => {
     expect(state.gameOver?.winnerName).toBe("anna");
     expect(state.phase).toBe("finished");
     expect(state.deadlineAt).toBeNull();
+  });
+
+  it("places finishers by elimination order, not seat order", () => {
+    // Seats: anna, bo, cara, dan. Anna and Bo bluff and are caught; Dan doubts
+    // Cara's honest low claim and loses. Cara wins from seat 2 — the exact seat
+    // whose win used to record places 2, 3 and 5 with a skipped 4.
+    let state = createGameState("t1", "Test table", seats("anna", "bo", "cara", "dan"), T0);
+    beginRoundPlay(state, TIMINGS, T0);
+
+    playerById(state, "anna")!.lives = 1;
+    state = rollAs(state, "anna", [3, 1]);
+    state = announce(state, "anna", 65);
+    state = must(applyAction(state, { type: "doubt", playerId: "bo" }, TIMINGS, T0));
+    expect(playerById(state, "anna")!.eliminationIndex).toBe(1);
+    expect(state.gameOver).toBeNull();
+
+    state = resolveReveal(state, TIMINGS, T0 + TIMINGS.revealMs);
+    beginRoundPlay(state, TIMINGS, T0 + TIMINGS.revealMs);
+    playerById(state, "bo")!.lives = 1;
+    state = rollAs(state, "bo", [3, 1]);
+    state = announce(state, "bo", 65);
+    state = must(applyAction(state, { type: "doubt", playerId: "cara" }, TIMINGS, T0));
+    expect(playerById(state, "bo")!.eliminationIndex).toBe(2);
+    expect(state.gameOver).toBeNull();
+
+    state = resolveReveal(state, TIMINGS, T0 + TIMINGS.revealMs);
+    beginRoundPlay(state, TIMINGS, T0 + TIMINGS.revealMs);
+    playerById(state, "dan")!.lives = 1;
+    state = rollAs(state, "cara", [6, 6]);
+    state = announce(state, "cara", 31); // honest: 66 outranks 31
+    state = must(applyAction(state, { type: "doubt", playerId: "dan" }, TIMINGS, T0));
+    expect(playerById(state, "dan")!.eliminationIndex).toBe(3);
+    expect(state.gameOver?.winnerId).toBe("cara");
+
+    expect(finalStandings(state).map(({ player, place }) => [player.id, place])).toEqual([
+      ["cara", 1],
+      ["dan", 2],
+      ["bo", 3],
+      ["anna", 4],
+    ]);
+  });
+
+  it("breaks a simultaneous elimination tie on roster order", () => {
+    // One life-loss event can only knock out one player in normal play, so a
+    // simultaneous elimination is constructed directly. The documented rule:
+    // the earlier seat is treated as eliminated first and so finishes lower.
+    let state = playing("anna", "bo", "cara", "dan");
+    playerById(state, "cara")!.lives = 0;
+    playerById(state, "dan")!.lives = 0;
+
+    state = rollAs(state, "anna", [3, 1]);
+    state = announce(state, "anna", 65);
+    state = must(applyAction(state, { type: "doubt", playerId: "bo" }, TIMINGS, T0));
+
+    expect(playerById(state, "cara")!.eliminated).toBe(true);
+    expect(playerById(state, "dan")!.eliminated).toBe(true);
+    expect(playerById(state, "cara")!.eliminationIndex).toBe(1);
+    expect(playerById(state, "dan")!.eliminationIndex).toBe(2);
   });
 
   it("refuses further actions once the game is over", () => {

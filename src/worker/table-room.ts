@@ -13,6 +13,7 @@ import {
   createGameState,
   DEFAULT_TIMINGS,
   type Die,
+  finalStandings,
   type MiaAction,
   type MiaState,
   playerById,
@@ -145,6 +146,7 @@ export class TableRoom extends DurableObject<Env> {
         dice: null,
         roundsPlayed: 0,
         eliminated: false,
+        eliminationIndex: null,
       });
       state.tableName = tableName;
     } else if (existing.name !== name) {
@@ -165,7 +167,17 @@ export class TableRoom extends DurableObject<Env> {
       startedAt: null,
       phase: "roundStart",
       round: 0,
-      players: [{ id: playerId, name, lives: STARTING_LIVES, dice: null, roundsPlayed: 0, eliminated: false }],
+      players: [
+        {
+          id: playerId,
+          name,
+          lives: STARTING_LIVES,
+          dice: null,
+          roundsPlayed: 0,
+          eliminated: false,
+          eliminationIndex: null,
+        },
+      ],
       turnPlayerId: null,
       turnStartedAt: null,
       deadlineAt: null,
@@ -524,10 +536,12 @@ export class TableRoom extends DurableObject<Env> {
   private async writeResults(state: MiaState): Promise<void> {
     const gameOver = state.gameOver;
     if (this.resultsWritten || gameOver === null) return;
-    const players: FinalPlayer[] = state.players.map((player, index) => ({
+    // Places come from the engine's elimination order, never from the seat the
+    // player happened to occupy in the roster.
+    const players: FinalPlayer[] = finalStandings(state).map(({ player, place }) => ({
       playerId: player.id,
       name: player.name,
-      place: player.id === gameOver.winnerId ? 1 : index + 2,
+      place,
       livesLeft: player.lives,
       roundsPlayed: player.roundsPlayed,
     }));
