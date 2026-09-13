@@ -577,6 +577,77 @@ cleaned up, and `hostName` still reads `"someone"` (the documented dead field).
 - **Fresh D1.** The live database was created by the deploy, so the lazy
   `ensureSchema` ran on the very first live request; it worked.
 
+## Done: R5 — redeployed and proved persistence
+
+Two redeploys into the same temporary account, both with the same command.
+
+**The account was reused and the bindings inherited** (quoted from the deploy
+output of the first redeploy):
+
+```
+Temporary account ready:
+	Account: Irradiated Methane (reused)
+...
+Binding                     Resource
+env.DB (inherited)          D1 Database
+```
+
+A fresh version ID each time (`5a9fd3e1…`, then `64ec77ae…`, then `2f50cac9…`)
+and the same `workers.dev` URL, so the cache survived — the claim URL from R3 is
+still the one that owns the account.
+
+### D1: identical before and after
+
+The finished game from R4, `mu022dhg-3de0f3c3`:
+
+| field | before redeploy | after redeploy |
+| --- | --- | --- |
+| winner | Zero Gravitas | Zero Gravitas |
+| started / finished | 1789318550212 / 1789318669515 | same |
+| place 1 | Zero Gravitas, 2 lives, 15 rounds | same |
+| place 2 | Ultimate Ship The Second, 0 lives, 15 rounds | same |
+| place 3 | Not Invented Here, 0 lives, 11 rounds | same |
+
+Its `tables` row was also byte-identical: `status finished`, `playerCount 3`,
+`updatedAt 1789318669560`. `/` still returned 200.
+
+### Durable Object: the live game survived
+
+A fresh three-player game was started, played into round 2, and the *last move
+was made immediately before the redeploy* so a fresh clock was armed and nothing
+could auto-play inside the window:
+
+```
+[R5] before redeploy : {"round":2,"phase":"roundStart","lives":"Resistance=6 You'll=6 Charitable=5",
+                        "cup":"-","turn":"e268c48f…","logSeq":10}
+[R5] after  reconnect : {"round":2,"phase":"deciding",  "lives":"Resistance=6 You'll=6 Charitable=5",
+                        "cup":"-","turn":"e268c48f…","logSeq":10}
+[R5] phase roundStart -> deciding (roundStart->deciding is the 2s beat)
+[R5] PASS — same round, logSeq, lives, cup and turn after the redeploy
+```
+
+Round, `logSeq`, every player's lives, the cup and the turn holder are all
+identical. The only change is `roundStart → deciding`, which is the server's own
+2-second beat firing while the redeploy ran — the game is live, so that is
+expected, not drift.
+
+The first attempt at this went differently and is worth recording: I left a 20s
+idle before redeploying, and during it the 60-second clock auto-played a doubt,
+resolved the round and started the next one — so the before/after comparison
+showed `round 2 → 3` and a lost life. That is the timer working, not a
+persistence failure; the test window was simply too long.
+
+### One flake found in the harness (recorded, not fixed here)
+
+`playGame` in `scripts/e2e.ts` connects its clients with `Promise.all`, so
+against a live account the D1 host is not reliably the Durable Object's first
+seat. Twice here the server then correctly refused the start with *"Only the
+player who opened the table can start."*, because whoever connected first owned
+seat 0. It is the B10 host-identity mismatch showing up in test infrastructure.
+The R5 script connects sequentially instead; the one-line fix for the harness is
+the same. Every published e2e run (local and live, R1–R4) happened to win that
+race.
+
 ## Not started
 
 Broken down as tasks **R1–R6** in the "Remaining work — handoff tasks" section
@@ -588,7 +659,7 @@ of `PLAN.md`, with per-task acceptance criteria. In short:
   deadline are in the task's chat message, not here.
 - **R4** — **done** (see above), awaiting review. Live URL, claim URL and
   deadline are in the chat, not here.
-- **R5** — redeploy into the same cached account; prove D1 and DO state survive.
+- **R5** — **done** (see above), awaiting review.
 - **R6** — strip any provisioned resource IDs, audit for leaks, hand-over report.
 
 R3–R6 are time-coupled: the claim URL expires 60 minutes after R3 creates it.
@@ -633,8 +704,9 @@ running it does not mean scrolling past the whole ruleset first; the
 Durable-Object rationale tightened; and the omitted *variants* separated from
 the wider product decisions (no chat, no accounts) they were mixed in with.
 
-R3 (deploy) is done — live URL, claim URL and deadline are in that task's chat
-message. R4–R6 must run before the claim window closes.
+R3, R4 and R5 are done — the live URL, claim URL and deadline are in those
+tasks' chat messages, never in a file. R6 (hygiene and the hand-over report) is
+the only one left, and it must run before the claim window closes.
 
 ### Review of R1 (`255fa5b`) — approved
 
