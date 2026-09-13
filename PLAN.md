@@ -337,7 +337,7 @@ A task is **Done** only once it has been reviewed.
 | B1 — abandoned-table alarm loop | **Done** — `ea28513`, reviewed | Follow-ups in B11 |
 | B2 — finishing places from seat order | **Done** — `07fb73e`, reviewed | |
 | B3 — lost result write | **Done** — `eb8d1db`, reviewed | Follow-ups in B10, B11 |
-| B4 — frozen turn countdown | Fixed, awaiting review | Pre-deploy |
+| B4 — frozen turn countdown | **Done** — `c0f396b`, reviewed | Re-render note in R1 |
 | B5 — host tab-close bricks the table | Open | Pre-deploy |
 | B6 — duplicate redaction implementations | Open | |
 | B7 — session key creation race | Open | |
@@ -423,7 +423,12 @@ copy-pasting them). Usage: `node scripts/bots.ts <tableId> [count]`.
 6. **Phone fitness**: no horizontal scroll at 375px, tap targets comfortably
    thumb-sized, text legible without zoom, and a check at 768px that nothing
    collapses.
-7. **Console**: no errors or unhandled rejections at any point.
+7. **The countdown** (`c0f396b`): confirm it visibly ticks down once a second
+   through a whole turn, and that the once-per-second full-page re-render it now
+   triggers is not perceptible — no flicker, no scroll jump, no tap landing on a
+   replaced node, no interrupted animation. If it is perceptible, update the
+   countdown's text node directly instead of calling `render()`.
+8. **Console**: no errors or unhandled rejections at any point.
 
 **Acceptance criteria.** Screenshots of the lobby, each of the five table
 phases, and game over at 375×812. An explicit defect list with fixes applied, or
@@ -688,25 +693,33 @@ Review notes, carried forward:
 
 ---
 
-## B4 — The turn countdown is frozen; it never counts down
+## B4 — The turn countdown is frozen — **DONE** (`c0f396b`)
 
-**Severity: medium.** Visible to every player on every turn.
+`secondsLeft` measured the drift and consumed it in the same expression, so
+`deadline - (Date.now() - (Date.now() - serverTime))` collapsed to
+`deadline - serverTime` — constant for the life of a snapshot.
 
-`secondsLeft` (`client/src/net.ts:134`) computes
-`drift = Date.now() - serverTime` and then
-`deadlineAt - (Date.now() - drift)`. Both `Date.now()` calls happen in the same
-expression, so that second term reduces to `serverTime` and the whole thing
-collapses to `ceil((deadlineAt - serverTime) / 1000)` — a constant for a given
-snapshot. `client/src/table.ts:367` ticks it on an interval, but the value never
-changes between broadcasts, so a 60-second turn shows a fixed number and then
-jumps.
+Fixed with a pure `TurnClock` (`src/shared/clock.ts`) whose `sync()` is the only
+place the drift is measured, once per snapshot, and whose `secondsLeft()`
+evaluates against a live `Date.now()` on every call. The old helper in
+`client/src/net.ts` is gone.
 
-**Do.** Capture the drift **once**, when a snapshot arrives, and compute
-remaining time against a live `Date.now()` on each tick.
+**Reviewed and approved.** Verified independently: 58 tests pass, both
+typechecks and `vite build` clean, e2e 25/25. Reproducing the original
+arithmetic faithfully (storing `serverTime` and re-deriving the drift per call)
+breaks three of the four new tests, reporting exactly the constant 60 the author
+described. The author correctly noted that e2e is protocol-level and cannot
+exercise a client-only fix — it is a non-regression check only.
 
-**Acceptance.** A unit test with a mocked clock asserting the value decreases
-across ticks with no new snapshot, and that a client clock skewed by minutes
-still produces a sane countdown.
+Review note, carried forward to **R1**: fixing this **activated a once-per-second
+full-page re-render**. `table.ts:371` re-renders whenever the integer changes,
+which previously meant roughly once per snapshot, because the value never moved.
+It now means every second of every turn, and `render()` replaces the whole page
+with `app.innerHTML`. There are no inner scroll containers to reset, so this is
+a "confirm it feels right" item rather than a known breakage — but text
+selection, CSS transitions and in-flight taps are all discarded each second, on
+a phone. The targeted fix is to update the countdown's own text node in the
+interval and reserve `render()` for real state changes.
 
 ---
 

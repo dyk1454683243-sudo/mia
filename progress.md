@@ -336,9 +336,27 @@ reviewing B1's fix added **B11**. `PLAN.md` opens with a **status board** —
 that table is the authoritative list of what is left, and a task counts as done
 only once it has been reviewed.
 
-**B1** (`ea28513`), **B2** (`07fb73e`) and **B3** (`eb8d1db`) are done and
-reviewed. **B4 is fixed** (awaiting review); **B5 is still pre-deploy**: a host
+**B1** (`ea28513`), **B2** (`07fb73e`), **B3** (`eb8d1db`) and **B4**
+(`c0f396b`) are done and reviewed. **B5 is the last pre-deploy item**: a host
 who closes their tab leaving the table permanently unstartable.
+
+### Review of B4 (`c0f396b`) — approved
+
+Independently confirmed: 58 tests pass (45 unit + 13 workers), both typechecks
+and `vite build` clean, e2e 25/25. Reproducing the original arithmetic
+faithfully — storing `serverTime` and re-deriving the drift on each call —
+breaks three of the four new tests and reports exactly the constant 60 the
+author described. The write-up is candid that e2e is protocol-level and cannot
+exercise a client-only fix.
+
+One follow-up, added to **R1**'s checklist rather than fixed here: making the
+countdown tick **activated a once-per-second full-page re-render**. The interval
+re-renders whenever the integer changes, which previously meant about once per
+snapshot because the value never moved; it now means every second of every turn,
+and `render()` replaces the whole page via `app.innerHTML`. No inner scroll
+containers exist to reset, so this needs eyes rather than a fix on
+principle — but text selection, CSS transitions and in-flight taps are
+discarded each second on a phone. Nobody has yet seen this page in a browser.
 
 ### Review of B3 (`eb8d1db`) — approved
 
