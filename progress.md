@@ -894,6 +894,49 @@ Verified: `npx vitest run` **72 passing (47 unit + 25 workers)**, both
 typechecks and `vite build` clean, `scripts/e2e.ts` **27/27**, `npm run
 ui-check` **42/42**, both against `wrangler dev`.
 
+## Fixed: B11 — residual alarm-scheduling gaps
+
+All three, plus the acceptance test each one asked for:
+
+- **A wedged auto-play can no longer bill a 1 Hz loop forever.** `alarm()` now
+  fingerprints the state it woke to (`logSeq:round:phase`) and counts wakes that
+  changed nothing. `needsImmediateWake` used to run *before* the no-sockets
+  branch, so a perpetually-due beat never reached the reaper; past
+  `MAX_STAGNANT_WAKES` (5) the two cases are split the way the task asked —
+  **no sockets** hands the room to `maybeReapEmptyRoom`, **sockets present**
+  logs and stops re-arming rather than spinning. A new connection resets the
+  counter, since it is genuine new information rather than another no-op wake.
+- **The reveal-stall fix is pinned.** The test drives a table to a reveal purely
+  through `autoPlay` — nobody calls `doubt` — and asserts the alarm is armed and
+  the reveal resolves into the next round. It fails against the old early
+  `return`, which is the only reason to keep it.
+- **An unwritable result is now bounded in time, not just in frequency.** The
+  window is 6 hours from the *first* failure (`resultsFirstFailedAt`), persisted
+  under `resultsFirstFailedAt` so hibernating between 5-minute retries does not
+  restart the clock. On expiry `giveUpOnResults` logs the whole recoverable
+  payload — `tableId`, `gameOver` and the final standings via
+  `finalStandings` — clears the retry alarm and flips `resultsGivenUp`, so
+  `hasPendingResults()` goes false and the reaper can collect the room. The
+  window lives in `retryResults`/`writeResults`, deliberately **not** in
+  `hasPendingResults()`: an earlier attempt put the check there and the room
+  then never retried at all, so it never reached the code that gives up.
+  `__resetResultsWrite` clears every flag and key.
+- The reveal path also gained a second `ensureAlarm()` after `handleConnect`'s
+  `commit`, so a joiner cannot leave a due beat unarmed.
+
+Verified: `npx vitest run` **75 passing (47 unit + 28 workers)**, both
+typechecks and `vite build` clean, `scripts/e2e.ts` **27/27** and `npm run
+ui-check` **41/41** against `wrangler dev`, zero console errors. The ui-check
+total moves between runs because the in-game checks repeat once per observed
+snapshot; 41 and 42 are the same suite at different game lengths, not a
+dropped check.
+
+Two mutation checks, because a passing test is not evidence on its own:
+restoring the early `return` in `autoPlay` fails the reveal test, and setting
+`MAX_STAGNANT_WAKES` to infinity makes the wedge test time out. Both behave as
+the task predicted. Not verified against a live deployment — B11 is a local
+robustness fix, and nothing about it depends on the network.
+
 ## Not started
 
 Nothing. **R1–R6, B1–B11's pre-deploy fixes and B12 are all done.** R3–R6 and

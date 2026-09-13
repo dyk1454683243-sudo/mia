@@ -346,7 +346,7 @@ A task is **Done** only once it has been reviewed.
 | B8 — client replays stale actions | Fixed, awaiting review | `logSeq` stamp + server guard |
 | B9 — test seams on the production DO | Fixed, awaiting review | Seams on `TestTableRoom`; bundle verified clean |
 | B10 — minor cleanup pass | Fixed, awaiting review | All bullets; injection + host identity folded into B9/B12 |
-| B11 — residual alarm-scheduling gaps | Open | Raised by the B1 review |
+| B11 — residual alarm-scheduling gaps | Fixed, awaiting review | Wake cap + reaper precedence; reveal pinned; 6-hour result window |
 | B12 — creator cannot start their own table | Fixed, awaiting review | D1 `host_id` is now authoritative; B10 bullet folded in |
 
 Status as of commit `1a9bb09`. Everything described above this section is built
@@ -915,7 +915,7 @@ and rate limiting stays absent by design beyond bounding `ping`.
 
 ---
 
-## B11 — Residual alarm-scheduling gaps left by the B1 fix
+## B11 — Residual alarm-scheduling gaps left by the B1 fix — **DONE** (unreviewed)
 
 **Severity: low-medium.** Raised by the review of `ea28513`. Neither item is a
 regression — both predate that commit — but they are the same class of failure

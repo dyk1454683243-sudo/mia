@@ -1125,4 +1125,98 @@ describe("TableRoom", () => {
     boSocket.close();
     caraSocket.close();
   }, 20_000);
+
+  it("stops re-arming a wedged auto-play and lets the room be reaped", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const tableId = await createTableRow("Wedge", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    await annaSocket.nextState((view) => view.state.players.length === 2);
+    annaSocket.send({ type: "start" });
+    await annaSocket.nextState((view) => view.state.round === 1);
+
+    // The wedge: an unknown player is on the clock with an expired deadline, so
+    // `autoPlay` finds no move and changes nothing on every wake. That is the
+    // 1 Hz loop the alarm used to run forever.
+    await inRoom(tableId, async (room) => {
+      const state = await room.__stateForTest();
+      if (!state) throw new Error("no state");
+      state.turnPlayerId = "ghost";
+      state.phase = "deciding";
+      state.deadlineAt = Date.now() - 1_000;
+    });
+    await setEmptyTtl(tableId, 200);
+    annaSocket.close();
+    boSocket.close();
+    await waitFor(async () => (await socketCount(tableId)) === 0, 5_000);
+
+    // Past the cap it stops re-arming, hands the room to the reaper, and the
+    // storage goes. Without the cap this never happens.
+    await waitForValue(async () => ((await storedRoom(tableId)) === null ? true : null), 25_000);
+    expect(await scheduledAlarm(tableId)).toBeNull();
+  }, 40_000);
+
+  it("resolves an auto-played reveal into the next round", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const tableId = await createTableRow("Auto reveal", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    await annaSocket.nextState((view) => view.state.players.length === 2);
+    await setTimings(tableId, FAST);
+    annaSocket.send({ type: "start" });
+    const started = await annaSocket.nextState((view) => view.state.round === 1);
+    const starterId = started.state.turnPlayerId!;
+    const starter = starterId === anna.id ? annaSocket : boSocket;
+
+    // The opener claims a real Mia, then nobody acts: the idle player's clock
+    // auto-plays the doubt, so the reveal is reached through `autoPlay` rather
+    // than a player's move. The old early return skipped `ensureAlarm` there and
+    // the table sat in `revealing` with no clock to resolve it.
+    await waitFor(async () => (await readState(tableId))?.phase === "deciding");
+    starter.send({ type: "roll" });
+    await starter.nextState((view) => view.state.phase === "announcing");
+    await forceDice(tableId, starterId, [2, 1]);
+    starter.send({ type: "announce", value: 21 });
+    await starter.nextState((view) => view.state.lastAnnouncement?.value === 21);
+
+    const revealed = await starter.nextState((view) => view.state.phase === "revealing", 10_000);
+    expect(revealed.state.pendingDoubt?.verdict).toBe("doubter");
+    expect(await scheduledAlarm(tableId)).not.toBeNull();
+
+    await waitFor(async () => (await readState(tableId))?.round === 2, 15_000);
+
+    annaSocket.close();
+    boSocket.close();
+  }, 30_000);
+
+  it("gives up on a result that never lands and lets the room go", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const tableId = await createTableRow("Give up", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    await annaSocket.nextState((view) => view.state.players.length === 2);
+
+    // A short retry window and a D1 that never recovers. The sockets stay open
+    // so the room stays warm and the injected failures are not lost.
+    await inRoom(tableId, (room) => room.__setResultRetryWindowForTest(50));
+    await setEmptyTtl(tableId, 150);
+    await armResultWriteFailures(tableId, 1_000_000);
+    const gameId = await finishTwoPlayerGame(tableId, anna.id, [annaSocket, boSocket]);
+
+    // The first failure arms a retry; when it fails past the window the room
+    // gives up: the payload is logged and no further retry is armed.
+    await waitFor(async () => (await resultWriteInternals(tableId)).retryAt !== null, 5_000);
+    await waitFor(async () => (await resultWriteInternals(tableId)).retryAt === null, 10_000);
+    expect((await resultWriteInternals(tableId)).written).toBe(false);
+    expect(await countResultRows(gameId)).toBe(0);
+
+    // With nothing pending, the reaper can finally collect the room.
+    annaSocket.close();
+    boSocket.close();
+    await waitForValue(async () => ((await storedRoom(tableId)) === null ? true : null), 20_000);
+    expect(await scheduledAlarm(tableId)).toBeNull();
+  }, 40_000);
 });

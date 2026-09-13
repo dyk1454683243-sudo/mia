@@ -41,6 +41,19 @@ const EMPTY_SINCE_KEY = "emptySince";
  * same is what silently dropped a result after a transient D1 error.
  */
 const RESULTS_WRITTEN_KEY = "resultsWritten";
+/**
+ * When the result write first failed. Persisted, so a room that hibernates
+ * between retries still measures the window from the start of the outage
+ * rather than from its last cold start.
+ */
+const RESULTS_FIRST_FAILED_KEY = "resultsFirstFailedAt";
+/** Give up on a result after this long; the payload is logged instead. */
+const RESULT_RETRY_WINDOW_MS = 6 * 60 * 60 * 1000;
+/**
+ * Consecutive alarm wakes that changed nothing. A wedged auto-play would
+ * otherwise reschedule `now + 1s` forever; past this many, the alarm stops.
+ */
+const MAX_STAGNANT_WAKES = 5;
 /** How long an emptied table is kept before its storage is dropped. */
 const EMPTY_TABLE_TTL_MS = 60 * 60 * 1000;
 /**
@@ -75,6 +88,18 @@ export class TableRoom extends DurableObject<Env> {
   private resultsRetryAt: number | null = null;
   /** Total result-write attempts made by this room, for diagnostics. */
   protected resultWriteAttempts = 0;
+  /** How long a result may keep failing before the room gives up on it. */
+  protected resultRetryWindowMs = RESULT_RETRY_WINDOW_MS;
+  /** Epoch ms of the first failed result write in this outage, if any. */
+  private resultsFirstFailedAt: number | null = null;
+  /** Guards the one-off "giving up" log. */
+  private resultsGaveUpLogged = false;
+  /** Set once the retry window has elapsed and the write has been abandoned. */
+  private resultsGivenUp = false;
+  /** Consecutive alarm wakes that produced no state change. */
+  private stagnantWakes = 0;
+  /** State fingerprint at the previous wake, for the wedge detector. */
+  private lastWakeFingerprint = "";
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -82,10 +107,11 @@ export class TableRoom extends DurableObject<Env> {
     // timestamp and the written marker are independent keys that `deleteAll`
     // clears with it.
     ctx.blockConcurrencyWhile(async () => {
-      const [stored, emptySince, written] = await Promise.all([
+      const [stored, emptySince, written, firstFailed] = await Promise.all([
         ctx.storage.get<MiaState>(STATE_KEY),
         ctx.storage.get<number>(EMPTY_SINCE_KEY),
         ctx.storage.get<boolean>(RESULTS_WRITTEN_KEY),
+        ctx.storage.get<number>(RESULTS_FIRST_FAILED_KEY),
       ]);
       if (stored && stored.tableId) {
         this.state = stored;
@@ -93,6 +119,7 @@ export class TableRoom extends DurableObject<Env> {
         this.resultsWritten = stored.gameOver !== null && written === true;
       }
       if (typeof emptySince === "number") this.emptySince = emptySince;
+      if (typeof firstFailed === "number") this.resultsFirstFailedAt = firstFailed;
       // A finished game whose write never landed retries the moment we wake.
       if (this.hasPendingResults()) await this.scheduleAlarm(Date.now());
     });
@@ -142,6 +169,9 @@ export class TableRoom extends DurableObject<Env> {
     hostId: string | null,
   ): Promise<void> {
     await this.clearEmptySince();
+    // A connection is fresh information: give a room that had stopped re-arming
+    // another chance to make progress.
+    this.stagnantWakes = 0;
     const state = this.state;
 
     if (state === null) {
@@ -150,6 +180,7 @@ export class TableRoom extends DurableObject<Env> {
       this.state = this.newLobbyState(playerId, name, tableName, tableId, hostId);
       await this.persistAndBroadcast();
       await this.syncTableRow();
+      await this.ensureAlarm();
       return;
     }
 
@@ -193,6 +224,7 @@ export class TableRoom extends DurableObject<Env> {
     // nothing about the game changes.
     await this.commit(next);
     await this.syncTableRow();
+    await this.ensureAlarm();
   }
 
   private newLobbyState(
@@ -312,6 +344,7 @@ export class TableRoom extends DurableObject<Env> {
 
   override async alarm(): Promise<void> {
     const now = Date.now();
+    this.noteWake();
 
     // An unwritten result outranks everything else, including the reaper: it is
     // the only record that the game happened. Retry it until D1 takes it.
@@ -391,9 +424,46 @@ export class TableRoom extends DurableObject<Env> {
     return state.phase === "roundStart" && state.roundEndsAt !== null;
   }
 
+  /**
+   * Count alarm wakes that changed nothing. A wedged auto-play — a phase whose
+   * beat is perpetually due because `applyAction` keeps rejecting the move —
+   * would otherwise reschedule `now + 1s` forever and never reach the reaper.
+   */
+  private noteWake(): void {
+    const state = this.state;
+    const fingerprint = state === null ? "none" : [state.logSeq, state.round, state.phase].join(":");
+    if (fingerprint === this.lastWakeFingerprint) {
+      this.stagnantWakes += 1;
+    } else {
+      this.stagnantWakes = 0;
+      this.lastWakeFingerprint = fingerprint;
+    }
+  }
+
   /** True while a finished game's result still has not reached D1. */
   private hasPendingResults(): boolean {
-    return this.state !== null && this.state.gameOver !== null && !this.resultsWritten;
+    return (
+      this.state !== null && this.state.gameOver !== null && !this.resultsWritten && !this.resultsGivenUp
+    );
+  }
+
+  /**
+   * Stop trying, loudly. The payload goes to the logs so a human can recover it
+   * by hand, the retry stops being armed, and the room becomes collectable —
+   * a durably broken D1 must not keep a finished table alive forever.
+   */
+  private async giveUpOnResults(state: MiaState, now: number): Promise<void> {
+    const started = this.resultsFirstFailedAt ?? now;
+    this.resultsGivenUp = true;
+    this.resultsRetryAt = null;
+    if (!this.resultsGaveUpLogged) {
+      this.resultsGaveUpLogged = true;
+      console.error(
+        `giving up on game ${state.gameId} after ${Math.round((now - started) / 1000)}s of failed writes; payload follows`,
+        JSON.stringify({ tableId: state.tableId, gameOver: state.gameOver, players: finalStandings(state) }),
+      );
+    }
+    await this.ctx.storage.deleteAlarm();
   }
 
   /** Retry the D1 result write once its backoff is due, then reschedule. */
@@ -403,7 +473,13 @@ export class TableRoom extends DurableObject<Env> {
       return;
     }
     const state = this.state;
-    if (state !== null) await this.writeResults(state);
+    if (state !== null) {
+      if (this.resultsFirstFailedAt !== null && now - this.resultsFirstFailedAt > this.resultRetryWindowMs) {
+        await this.giveUpOnResults(state, now);
+      } else {
+        await this.writeResults(state);
+      }
+    }
     await this.ensureAlarm();
   }
 
@@ -730,10 +806,24 @@ export class TableRoom extends DurableObject<Env> {
       this.resultsWritten = true;
       this.resultsAttempts = 0;
       this.resultsRetryAt = null;
+      this.resultsFirstFailedAt = null;
+      this.resultsGivenUp = false;
+      await this.ctx.storage.delete(RESULTS_FIRST_FAILED_KEY);
     } catch (error) {
+      const now = Date.now();
+      if (this.resultsFirstFailedAt === null) {
+        this.resultsFirstFailedAt = now;
+        await this.ctx.storage.put(RESULTS_FIRST_FAILED_KEY, now);
+      }
       this.resultsAttempts += 1;
+      // The first failure starts the window; past it the room gives up rather
+      // than keeping a finished table alive forever.
+      if (now - this.resultsFirstFailedAt > this.resultRetryWindowMs) {
+        await this.giveUpOnResults(state, now);
+        return;
+      }
       const backoff = resultWriteBackoffMs(this.resultsAttempts);
-      this.resultsRetryAt = Date.now() + backoff;
+      this.resultsRetryAt = now + backoff;
       console.error(
         `failed to record game result (attempt ${this.resultsAttempts}); retrying in ${backoff}ms`,
         describe(error),
@@ -760,7 +850,11 @@ export class TableRoom extends DurableObject<Env> {
     this.resultsAttempts = 0;
     this.resultsRetryAt = null;
     this.resultWriteAttempts = 0;
+    this.resultsFirstFailedAt = null;
+    this.resultsGaveUpLogged = false;
+    this.resultsGivenUp = false;
     await this.ctx.storage.delete(RESULTS_WRITTEN_KEY);
+    await this.ctx.storage.delete(RESULTS_FIRST_FAILED_KEY);
   }
 
   /** Keep the D1 lobby directory in step with this table. */
@@ -882,6 +976,20 @@ export class TableRoom extends DurableObject<Env> {
         return;
       }
       if (this.needsImmediateWake(state)) {
+        if (this.stagnantWakes >= MAX_STAGNANT_WAKES) {
+          // Several wakes have changed nothing: the beat is wedged. With nobody
+          // connected, let the reaper have the room; otherwise stop re-arming
+          // and say so, rather than billing a 1 Hz loop forever.
+          if (this.ctx.getWebSockets().length === 0) {
+            await this.maybeReapEmptyRoom(now);
+            return;
+          }
+          console.error(
+            `alarm stopped re-arming: ${this.stagnantWakes} wakes with no progress at round ${state.round} phase ${state.phase}`,
+          );
+          await this.ctx.storage.deleteAlarm();
+          return;
+        }
         // The beat is already due — its deadline passed without an alarm, or
         // auto-play handed the turn to a seat nobody is sitting at. Wake once,
         // just ahead of now rather than in the past.

@@ -57,6 +57,11 @@ export class TestTableRoom extends TableRoom {
     return this.resultWriteAttempts;
   }
 
+  /** Shorten the result-retry window so giving up can be exercised. */
+  async __setResultRetryWindowForTest(ms: number): Promise<void> {
+    this.resultRetryWindowMs = ms;
+  }
+
   protected override shouldFailResultWrite(): boolean {
     if (this.resultWriteFailures > 0) {
       this.resultWriteFailures -= 1;
