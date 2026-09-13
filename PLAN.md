@@ -965,57 +965,32 @@ collected.
 
 ---
 
-## B12 — The table's creator can be locked out of starting it
+## B12 — The creator can be locked out of starting — **DONE** (`4f858ce`)
 
-**Severity: medium-high, user-facing.** Found against the live deployment while
-reviewing R3–R6; **not reproducible locally**, which is why every prior check
-missed it.
+`handleStart` treated `players[0]` — WebSocket arrival order — as the host,
+while D1 recorded the real creator. Over a network, whoever opened the link
+first owned seat 0, so the creator was refused with a false message and the
+friend could start instead.
 
-`handleStart` treats `state.players[0]` as the host
-(`src/worker/table-room.ts:539`), and the Durable Object's roster is in
-**WebSocket arrival order**. D1 separately records the real creator in
-`tables.host_id` (`src/worker/db.ts:193`) and nothing reconciles the two.
+Fixed by making D1's `tables.host_id` authoritative: the Worker forwards
+`X-Mia-Host-Id` on the upgrade, `MiaState` carries `hostId` (backfilled with
+`??=` so rooms persisted before the change learn it), and `handleStart` compares
+against it. B5's case is preserved — if the creator is not connected, anyone
+seated may start — and the refusal now names the actual creator.
 
-So in the ordinary flow — create a table, share the link, a friend opens it
-before your own table page finishes connecting — the friend becomes
-`players[0]`. The creator is then told **"Only the player who opened the table
-can start"**, which is false, and the friend, who did not create the table, can
-start it instead.
+**Reviewed and approved.** Validated where the bug was found, not just locally:
 
-Reproduced deterministically on the live URL, three times out of three, by
-connecting the second player first:
+- 65 tests pass, both typechecks and `vite build` clean.
+- Reverting `handleStart` to `players[0]` breaks exactly the new test.
+- The original failing scenario — friend connects first — now passes **3/3 on a
+  live deployment**, and `e2e` against it is 25/25.
+- **The header is not forgeable.** Authority moved onto a request header, so I
+  tried to claim it: a client sending its own `X-Mia-Host-Id` (and
+  `X-Mia-Player`) is overwritten by the Worker's `.set()` and correctly refused.
+  Worth keeping in mind for any future header the DO trusts.
 
-```
-D1 says host is   : creator
-DO roster order   : [ 'Grey Area', 'Better Days' ]     # friend first
-creator starts?   : Only the player who opened the table can start.
-friend starts?    : OK — game started
-```
+Note: `scripts/e2e.ts` now connects creator-first and so no longer exercises the
+racy ordering at all. That is the right call for a deterministic harness, but it
+means e2e can no longer catch a B12 regression — the workers test and the
+two-browser-context checks in `ui-check` are what cover it now.
 
-Locally the sockets connect in microseconds and effectively always in issue
-order, so the creator wins the race every time. Over a real network the order is
-arbitrary. This is the same divergence already listed in **B10** ("host identity
-disagrees between layers"), which the B5 review downgraded to "misleading error
-message" — that was wrong: it blocks the creator from starting their own table.
-Fold the B10 bullet into this task.
-
-**Do.** Make one layer authoritative. The straightforward fix is to pass the
-creator's id into the Durable Object (the Worker already forwards
-`X-Mia-Table-Name` and `X-Mia-Table-Id` on the upgrade, so add the host id),
-store it in the room state, and have `handleStart` compare against that rather
-than `players[0]`. Keep B5's behaviour for the case that motivated it: if the
-recorded host is not connected, let any connected player start, and say so in
-the message rather than naming the opener.
-
-**Acceptance.** A workers test where the non-creator connects first and the
-creator can still start; a test that a disconnected host does not block the
-table (B5's case, preserved); and the live-style ordering exercised rather than
-assumed — the harness must connect its clients **sequentially in a defined
-order**, or the race stays invisible.
-
-### Also fix the harness
-
-`scripts/e2e.ts` connects its three clients with `Promise.all` and then assumes
-`clients[0]` is the host. That is why the live run crashes rather than reporting
-a clean failure. It should connect the creator first and await it before the
-others — and once B12 is fixed, the assumption becomes true rather than lucky.

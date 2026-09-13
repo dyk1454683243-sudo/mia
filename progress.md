@@ -935,3 +935,35 @@ it should connect the creator first.
 This is the same divergence B10 listed and the B5 review downgraded to "a
 misleading error message". That downgrade was mine and it was wrong: it blocks
 the creator from starting their own table.
+
+## Review of B12 (`4f858ce`) — approved, validated on a fresh deployment
+
+D1's `tables.host_id` is now authoritative: the Worker forwards
+`X-Mia-Host-Id` on the upgrade, `MiaState` carries `hostId` (backfilled with
+`??=` for rooms persisted before the change), and `handleStart` compares
+against it, keeping B5's rule that a table is not blocked by an absent creator.
+
+Verified independently:
+
+- 65 tests pass, both typechecks and `vite build` clean.
+- Reverting `handleStart` to `players[0]` breaks exactly the new test.
+- The scenario that failed 3/3 before — friend connects first — now passes
+  **3/3 against a live deployment**, with `e2e` 25/25 against it.
+- **Forgery attempt refused.** The fix moves authority onto a request header, so
+  a client sending its own `X-Mia-Host-Id` and `X-Mia-Player` was tried: the
+  Worker's `.set()` overwrites both and the attacker is told who the real
+  creator is. Worth remembering for any future header the DO trusts.
+
+The old temporary account had lapsed, so this ran on a fresh one — the
+disposable-deployment path working as intended. `wrangler.jsonc` was not written
+back to (the only `database_id` match is the comment saying there is none), and
+the tree stayed clean through the deploy.
+
+**Live now: `https://mia.malleable-gum.workers.dev`** (unclaimed and disposable;
+it will stop working when the account lapses, and the fix for that is another
+`npm run deploy:temporary`).
+
+One consequence to keep in view: `scripts/e2e.ts` now connects creator-first and
+no longer exercises the racy ordering, so it can no longer catch a B12
+regression. The dedicated workers test and `ui-check`'s two browser contexts are
+what cover it.
