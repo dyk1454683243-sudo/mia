@@ -241,10 +241,23 @@ reviewing B1's fix added **B11**. `PLAN.md` opens with a **status board** —
 that table is the authoritative list of what is left, and a task counts as done
 only once it has been reviewed.
 
-**B1 is done** (`ea28513`, reviewed). **B2 is fixed** (awaiting review);
-**B3–B5 are still pre-deploy**: a lost result write on a transient D1 error, a
-frozen turn countdown, and a host who closes their tab leaving the table
-permanently unstartable.
+**B1** (`ea28513`) and **B2** (`07fb73e`) are done and reviewed. **B3–B5 are
+still pre-deploy**: a lost result write on a transient D1 error, a frozen turn
+countdown, and a host who closes their tab leaving the table permanently
+unstartable.
+
+### Review of B2 (`07fb73e`) — approved
+
+Independently confirmed: 50 tests pass (41 unit + 9 workers), both typechecks
+clean, e2e 25/25, and the workers test genuinely fails when the seat-index
+formula is restored. Places written by a live run read back dense (1, 2, 3).
+
+One follow-up, recorded in `PLAN.md` rather than fixed here: `eliminationIndex`
+is the first change to the persisted `MiaState` shape and there is no state
+versioning. Old-shaped records degrade gracefully — standings stay dense and the
+winner is right — but the next-index counter treats `undefined` as
+already-indexed and inflates. Logged in **B10**, with a caution added to **R5**,
+the step that actually redeploys across a live game.
 
 ## Environment notes (this sandbox)
 

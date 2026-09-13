@@ -335,7 +335,7 @@ A task is **Done** only once it has been reviewed.
 | R5 — redeploy, prove persistence | Open | Blocked on R4 |
 | R6 — config hygiene, hand-over report | Open | Blocked on R5 |
 | B1 — abandoned-table alarm loop | **Done** — `ea28513`, reviewed | Follow-ups in B11 |
-| B2 — finishing places from seat order | Fixed, awaiting review | Pre-deploy |
+| B2 — finishing places from seat order | **Done** — `07fb73e`, reviewed | |
 | B3 — lost result write | Open | Pre-deploy |
 | B4 — frozen turn countdown | Open | Pre-deploy |
 | B5 — host tab-close bricks the table | Open | Pre-deploy |
@@ -520,6 +520,12 @@ state actually survive a new version, which is the claim worth making.
    confirm the Durable Object still holds the live game (correct round, phase,
    lives, and cup holder).
 
+**Watch the persisted state shape.** `07fb73e` added `eliminationIndex` to
+`MiaState.players`, and there is no state versioning or migration anywhere. This
+step is the one that actually exercises a redeploy across a shape change, so if
+a future task changes the shape again, a game started before the redeploy and
+finished after it is the case to check — including the places it writes.
+
 **Acceptance criteria.** Explicit before/after evidence for both D1 and the
 Durable Object — the actual values compared, not a claim that they matched. The
 `(reused)`/`(inherited)` lines quoted from the deploy output.
@@ -626,26 +632,26 @@ Review notes, carried forward rather than lost:
 
 ---
 
-## B2 — Finishing places are computed from seat order, not elimination order
+## B2 — Finishing places from seat order — **DONE** (`07fb73e`)
 
-**Severity: high.** This is the only game data that reaches D1.
+Places came from the player's index in the roster, so a winner in a middle seat
+recorded the others as 2, 3 and 5 — a skipped place, in an arbitrary order.
 
-`table-room.ts:456`: `place: player.id === gameOver.winnerId ? 1 : index + 2`.
-Place comes from the player's index in the roster array, which has nothing to do
-with who survived longest. With the winner seated at index 2 of 4, the others
-are recorded as places 2, 3 and 5 — a skipped 4, and an order that is arbitrary.
+Fixed by recording a 1-based `eliminationIndex` on each player in
+`resolveEliminations` and deriving places from a new pure `finalStandings(state)`
+— winner first, then everyone else in reverse elimination order. `writeResults`
+maps it straight onto the `game_players` rows.
 
-The state has no way to compute this correctly: `MiaPlayer.eliminated` is a
-boolean with no ordering (`src/shared/mia.ts:115`).
+**Reviewed and approved.** Verified independently: 50 tests pass, both
+typechecks clean, e2e 25/25, and the workers test genuinely fails when the
+seat-index formula is restored. Places written by a live run read back dense
+(1, 2, 3). The simultaneous-elimination tie rule is documented in the code and
+tested, and is unreachable in normal play — one doubt can only cost one player
+lives.
 
-**Do.** Record elimination order in the engine — an incrementing
-`eliminatedAt`/`eliminationIndex` set in `resolveEliminations`
-(`src/shared/mia.ts`) — and derive `place` from it: winner 1, then eliminated
-players in reverse elimination order. Two players eliminated by the same
-double-Mia penalty need a defined tie rule; state it.
-
-**Acceptance.** A unit test pinning places for a 4-player game with a known
-elimination order, and a workers test asserting the `game_players` rows match.
+Review note, carried forward: `eliminationIndex` is the **first change to the
+persisted `MiaState` shape**, and there is no state versioning. See the
+follow-ups in **B10** and the caution added to **R5**.
 
 ---
 
@@ -815,6 +821,18 @@ workers tests still pass.
 
 ## B10 — Minor gaps, worth one cleanup pass
 
+- **`eliminationIndex` counter miscounts old-shaped records.**
+  `resolveEliminations` (`src/shared/mia.ts`) computes the next index with
+  `filter((p) => p.eliminationIndex !== null)`, and `undefined !== null` is
+  true — so a player record persisted before `07fb73e` counts as already
+  indexed and inflates the counter. Verified harmless in practice: standings
+  stay dense and the winner is right, because `finalStandings` sorts on
+  `?? 0`; only the relative order of players eliminated *before* the upgrade
+  degrades to seat order. Use `!= null`, or normalise the field when loading
+  state.
+- **The e2e harness does not assert places.** `scripts/e2e.ts` only checks the
+  per-player row *count*. It finishes a real game every run, so asserting that
+  places are dense, start at 1, and put the winner first is nearly free.
 - **Unbounded scan per new player.** `listPlayerNames` (`db.ts:118`) does
   `SELECT name FROM players` with no limit, on every first visit, only to avoid
   a duplicate ship name. Bound it — sample recent names, or retry on a unique
