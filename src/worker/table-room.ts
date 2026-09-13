@@ -33,6 +33,13 @@ const STATE_KEY = "room";
  * forward forever and storage would never actually be freed.
  */
 const EMPTY_SINCE_KEY = "emptySince";
+/**
+ * Set once a finished game's result has actually reached D1. Persisted, and
+ * deliberately *not* inferred from `state.gameOver`: a game being over says
+ * nothing about whether its result was written, and treating the two as the
+ * same is what silently dropped a result after a transient D1 error.
+ */
+const RESULTS_WRITTEN_KEY = "resultsWritten";
 /** How long an emptied table is kept before its storage is dropped. */
 const EMPTY_TABLE_TTL_MS = 60 * 60 * 1000;
 /**
@@ -60,21 +67,34 @@ export class TableRoom extends DurableObject<Env> {
   private emptyTtlMs = EMPTY_TABLE_TTL_MS;
   /** Guards the one-shot D1 write when a game finishes. */
   private resultsWritten = false;
+  /** Consecutive failed result-write attempts; drives the retry backoff. */
+  private resultsAttempts = 0;
+  /** Epoch ms of the next scheduled result-write retry, or null if none. */
+  private resultsRetryAt: number | null = null;
+  /** Total result-write attempts made by this room, for tests and diagnostics. */
+  private resultWriteAttempts = 0;
+  /** Test-only fault injection: the next N result writes throw, like a flaky D1. */
+  private resultWriteFailures = 0;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     // `room` is the only game key, so every game write is atomic; the empty
-    // timestamp is a second, independent key that `deleteAll` clears with it.
+    // timestamp and the written marker are independent keys that `deleteAll`
+    // clears with it.
     ctx.blockConcurrencyWhile(async () => {
-      const [stored, emptySince] = await Promise.all([
+      const [stored, emptySince, written] = await Promise.all([
         ctx.storage.get<MiaState>(STATE_KEY),
         ctx.storage.get<number>(EMPTY_SINCE_KEY),
+        ctx.storage.get<boolean>(RESULTS_WRITTEN_KEY),
       ]);
       if (stored && stored.tableId) {
         this.state = stored;
-        this.resultsWritten = stored.gameOver !== null;
+        // Only the persisted marker proves D1 has the result.
+        this.resultsWritten = stored.gameOver !== null && written === true;
       }
       if (typeof emptySince === "number") this.emptySince = emptySince;
+      // A finished game whose write never landed retries the moment we wake.
+      if (this.hasPendingResults()) await this.scheduleAlarm(Date.now());
     });
   }
 
@@ -247,6 +267,13 @@ export class TableRoom extends DurableObject<Env> {
   override async alarm(): Promise<void> {
     const now = Date.now();
 
+    // An unwritten result outranks everything else, including the reaper: it is
+    // the only record that the game happened. Retry it until D1 takes it.
+    if (this.hasPendingResults()) {
+      await this.retryResults(now);
+      return;
+    }
+
     // An alarm with nobody connected and nothing left to service is the
     // abandonment case. This check comes *before* the phase dispatch on
     // purpose: a finished (or long-quiet) table matches no phase branch, and
@@ -318,6 +345,22 @@ export class TableRoom extends DurableObject<Env> {
     return state.phase === "roundStart" && state.roundEndsAt !== null;
   }
 
+  /** True while a finished game's result still has not reached D1. */
+  private hasPendingResults(): boolean {
+    return this.state !== null && this.state.gameOver !== null && !this.resultsWritten;
+  }
+
+  /** Retry the D1 result write once its backoff is due, then reschedule. */
+  private async retryResults(now: number): Promise<void> {
+    if (this.resultsRetryAt !== null && this.resultsRetryAt > now) {
+      await this.scheduleAlarm(this.resultsRetryAt);
+      return;
+    }
+    const state = this.state;
+    if (state !== null) await this.writeResults(state);
+    await this.ensureAlarm();
+  }
+
   /** The idle player's safest legal move — the game must never stall. */
   private async autoPlay(now: number): Promise<void> {
     const state = this.state;
@@ -380,6 +423,17 @@ export class TableRoom extends DurableObject<Env> {
     if (this.ctx.getWebSockets().length > 0) {
       await this.clearEmptySince();
       return;
+    }
+    // An unwritten result outlives the empty-table TTL. Try the write now and,
+    // while it is still pending, keep the room alive rather than deleting the
+    // only copy of a finished game.
+    if (this.hasPendingResults()) {
+      const state = this.state;
+      if (state !== null) await this.writeResults(state);
+      if (this.hasPendingResults()) {
+        await this.ensureAlarm();
+        return;
+      }
     }
     if (this.emptySince === null) {
       // Persist the moment the room emptied so the TTL survives hibernation.
@@ -466,7 +520,7 @@ export class TableRoom extends DurableObject<Env> {
 
     const seats: Seat[] = state.players.map((player) => ({ id: player.id, name: player.name }));
     const next = createGameState(this.tableId(), state.tableName, seats);
-    this.resultsWritten = false;
+    await this.resetResultsWrite();
     await this.commit(next);
     await this.syncTableRow("playing");
     await this.ensureAlarm();
@@ -523,7 +577,9 @@ export class TableRoom extends DurableObject<Env> {
   private async commit(next: MiaState): Promise<void> {
     await this.ctx.storage.put(STATE_KEY, next);
     this.state = next;
-    if (!next.gameOver) this.resultsWritten = false;
+    // A state that is not finished cannot have a written result; clear any
+    // bookkeeping the previous game left behind.
+    if (!next.gameOver && this.resultsWritten) await this.resetResultsWrite();
     await this.broadcast();
     if (next.gameOver) await this.writeResults(next);
   }
@@ -533,6 +589,12 @@ export class TableRoom extends DurableObject<Env> {
     await this.broadcast();
   }
 
+  /**
+   * Write the finished game to D1. Idempotent (`recordGame` is
+   * `ON CONFLICT DO NOTHING`), so a retry after a partial failure is safe.
+   * A failure arms the next retry on the alarm; it never gives up silently and
+   * it never reports success it did not have.
+   */
   private async writeResults(state: MiaState): Promise<void> {
     const gameOver = state.gameOver;
     if (this.resultsWritten || gameOver === null) return;
@@ -545,7 +607,13 @@ export class TableRoom extends DurableObject<Env> {
       livesLeft: player.lives,
       roundsPlayed: player.roundsPlayed,
     }));
+    this.resultWriteAttempts += 1;
     try {
+      // Test-only fault injection, so the retry path can be driven on purpose.
+      if (this.resultWriteFailures > 0) {
+        this.resultWriteFailures -= 1;
+        throw new Error("stubbed D1 failure");
+      }
       await recordGame(this.env, {
         id: state.gameId,
         tableId: state.tableId,
@@ -556,16 +624,39 @@ export class TableRoom extends DurableObject<Env> {
         winnerName: gameOver.winnerName,
         players,
       });
-      await this.syncTableRow("finished");
+      // Unlike the routine lobby syncs, a failure here must keep the retry
+      // alive: otherwise the lobby keeps advertising a finished table.
+      await this.syncTableRow("finished", true);
+      // The marker goes down only after D1 has actually taken the rows.
+      await this.ctx.storage.put(RESULTS_WRITTEN_KEY, true);
       this.resultsWritten = true;
+      this.resultsAttempts = 0;
+      this.resultsRetryAt = null;
     } catch (error) {
-      // Leave resultsWritten false: the next load retries the write.
-      console.error("failed to record game result", describe(error));
+      this.resultsAttempts += 1;
+      const backoff = resultWriteBackoffMs(this.resultsAttempts);
+      this.resultsRetryAt = Date.now() + backoff;
+      console.error(
+        `failed to record game result (attempt ${this.resultsAttempts}); retrying in ${backoff}ms`,
+        describe(error),
+      );
+      // Arm the retry here as well as through `ensureAlarm`: a caller that
+      // returns immediately on game over never reaches `ensureAlarm`.
+      await this.scheduleAlarm(this.resultsRetryAt);
     }
   }
 
+  /** Clear the result-write bookkeeping, e.g. when a fresh game starts. */
+  private async resetResultsWrite(): Promise<void> {
+    this.resultsWritten = false;
+    this.resultsAttempts = 0;
+    this.resultsRetryAt = null;
+    this.resultWriteAttempts = 0;
+    await this.ctx.storage.delete(RESULTS_WRITTEN_KEY);
+  }
+
   /** Keep the D1 lobby directory in step with this table. */
-  private async syncTableRow(status?: RoomStatus): Promise<void> {
+  private async syncTableRow(status?: RoomStatus, throwOnError = false): Promise<void> {
     const state = this.state;
     if (state === null) return;
     try {
@@ -576,6 +667,7 @@ export class TableRoom extends DurableObject<Env> {
       });
     } catch (error) {
       console.error("failed to sync table row", describe(error));
+      if (throwOnError) throw error;
     }
   }
 
@@ -692,6 +784,13 @@ export class TableRoom extends DurableObject<Env> {
     const state = this.state;
     const now = Date.now();
 
+    if (state !== null && state.gameOver !== null && !this.resultsWritten) {
+      // Keep the room awake until its result reaches D1. Nothing else matters
+      // once the game is over, and the retry must outrank the reaper.
+      await this.scheduleAlarm(this.resultsRetryAt ?? now);
+      return;
+    }
+
     if (state !== null) {
       if (state.deadlineAt !== null && state.deadlineAt > now) {
         await this.scheduleAlarm(state.deadlineAt);
@@ -729,6 +828,17 @@ export class TableRoom extends DurableObject<Env> {
  */
 export function clampAlarmTime(target: number, now: number): number {
   return target > now ? target : now + MIN_ALARM_DELAY_MS;
+}
+
+/**
+ * Backoff for a failed result write: 1s, 2s, 4s ... capped at five minutes.
+ * Capped rather than unbounded so a recovered D1 is picked up promptly, and
+ * never zero so a hard failure cannot spin the alarm.
+ */
+export function resultWriteBackoffMs(attempts: number): number {
+  const base = 1_000;
+  const cap = 5 * 60 * 1000;
+  return Math.min(base * 2 ** Math.max(0, attempts - 1), cap);
 }
 
 /**

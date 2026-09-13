@@ -2,13 +2,13 @@
  * TableRoom integration tests: real Durable Object, real D1, real WebSockets,
  * driven inside workerd by @cloudflare/vitest-pool-workers.
  */
-import { env, runInDurableObject, SELF } from "cloudflare:test";
+import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Die, MiaState } from "../src/shared/mia";
 import type { ServerMessage, StateView } from "../src/shared/protocol";
 import { ensureSchema } from "../src/worker/db";
 import { signCookie } from "../src/worker/session";
-import { clampAlarmTime, type TableRoom } from "../src/worker/table-room";
+import { clampAlarmTime, resultWriteBackoffMs, type TableRoom } from "../src/worker/table-room";
 
 declare module "cloudflare:test" {
   interface ProvidedEnv extends Env {}
@@ -196,6 +196,80 @@ async function driveRound(
   starterSocket.send({ type: "announce", value });
   await waitFor(async () => (await readState(tableId))?.lastAnnouncement?.value === value, 5_000);
   doubterSocket.send({ type: "doubt" });
+}
+
+/**
+ * Play a two-player table to game over with a single caught bluff, and return
+ * the game id. `sockets[0]` must be the host (the first seat).
+ */
+async function finishTwoPlayerGame(
+  tableId: string,
+  hostId: string,
+  sockets: TestSocket[],
+): Promise<string> {
+  sockets[0]!.send({ type: "start" });
+  const started = await sockets[0]!.nextState((view) => view.state.round === 1, 5_000);
+  const starterId = started.state.turnPlayerId!;
+  const starterIndex = starterId === hostId ? 0 : 1;
+  await setLives(tableId, starterId, 1);
+  await waitFor(async () => (await readState(tableId))?.phase === "deciding", 5_000);
+  await driveRound(tableId, sockets[starterIndex]!, sockets[1 - starterIndex]!, starterId, [3, 1], 65);
+  const finished = await sockets[starterIndex]!.nextState((view) => view.state.gameOver !== null, 6_000);
+  return finished.state.gameId;
+}
+
+/** Arm the next `times` result writes to fail, as a flaky D1 would. */
+async function armResultWriteFailures(tableId: string, times: number): Promise<void> {
+  await inRoom(tableId, (room) => {
+    (room as unknown as { resultWriteFailures: number }).resultWriteFailures = times;
+  });
+}
+
+interface ResultWriteInternals {
+  attempts: number;
+  retryAt: number | null;
+  failures: number;
+  written: boolean;
+}
+
+/** Read the private result-write bookkeeping, the way `setEmptyTtl` writes one. */
+async function resultWriteInternals(tableId: string): Promise<ResultWriteInternals> {
+  return await inRoom(tableId, (room) => {
+    const internals = room as unknown as {
+      resultWriteAttempts: number;
+      resultsRetryAt: number | null;
+      resultWriteFailures: number;
+      resultsWritten: boolean;
+    };
+    return {
+      attempts: internals.resultWriteAttempts,
+      retryAt: internals.resultsRetryAt,
+      failures: internals.resultWriteFailures,
+      written: internals.resultsWritten,
+    };
+  });
+}
+
+/** Make the pending result retry due now and run the alarm out of band. */
+async function runResultRetry(tableId: string): Promise<boolean> {
+  await inRoom(tableId, (room) => {
+    (room as unknown as { resultsRetryAt: number | null }).resultsRetryAt = null;
+  });
+  return await runDurableObjectAlarm(stubFor(tableId));
+}
+
+async function tableStatus(tableId: string): Promise<string | undefined> {
+  const row = await env.DB.prepare(`SELECT status FROM tables WHERE id = ?1`)
+    .bind(tableId)
+    .first<{ status: string }>();
+  return row?.status;
+}
+
+async function countResultRows(gameId: string): Promise<number> {
+  const row = await env.DB.prepare(`SELECT COUNT(*) AS n FROM game_players WHERE game_id = ?1`)
+    .bind(gameId)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
 }
 
 async function socketCount(tableId: string): Promise<number> {
@@ -597,4 +671,150 @@ describe("TableRoom", () => {
 
     for (const socket of sockets) socket.close();
   }, 45_000);
+
+  it("backs a failed result write off without ever spinning", () => {
+    expect(resultWriteBackoffMs(1)).toBe(1_000);
+    expect(resultWriteBackoffMs(2)).toBe(2_000);
+    expect(resultWriteBackoffMs(3)).toBe(4_000);
+    expect(resultWriteBackoffMs(20)).toBe(5 * 60 * 1000);
+  });
+
+  it("retries a failed result write until it lands", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const tableId = await createTableRow("Flaky D1", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    await annaSocket.nextState((view) => view.state.players.length === 2);
+
+    // The game-over write and the first retry both fail; the second retry lands.
+    await armResultWriteFailures(tableId, 2);
+    const gameId = await finishTwoPlayerGame(tableId, anna.id, [annaSocket, boSocket]);
+
+    // The first attempt failed and armed a retry; D1 has nothing yet. The
+    // retries then run on the real alarm clock (1s, then 2s of backoff).
+    await waitFor(async () => (await resultWriteInternals(tableId)).retryAt !== null, 5_000);
+    expect((await resultWriteInternals(tableId)).written).toBe(false);
+    expect(await countResultRows(gameId)).toBe(0);
+    expect(await tableStatus(tableId)).not.toBe("finished");
+
+    const rows = await waitForValue(async () => {
+      const result = await env.DB.prepare(`SELECT place FROM game_players WHERE game_id = ?1 ORDER BY place ASC`)
+        .bind(gameId)
+        .all<{ place: number }>();
+      return result.results?.length === 2 ? result.results : null;
+    }, 10_000);
+    expect(rows.map((row) => row.place)).toEqual([1, 2]);
+
+    const internals = await resultWriteInternals(tableId);
+    expect(internals.written).toBe(true);
+    expect(internals.attempts).toBeGreaterThanOrEqual(3);
+    await waitFor(async () => (await tableStatus(tableId)) === "finished");
+
+    annaSocket.close();
+    boSocket.close();
+  }, 30_000);
+
+  it("never reaps a finished game whose result never reached D1", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const tableId = await createTableRow("Unwritable D1", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    await annaSocket.nextState((view) => view.state.players.length === 2);
+
+    // A D1 outage that outlasts the empty-table TTL.
+    await armResultWriteFailures(tableId, 1_000);
+    const gameId = await finishTwoPlayerGame(tableId, anna.id, [annaSocket, boSocket]);
+    await waitFor(async () => (await resultWriteInternals(tableId)).retryAt !== null, 5_000);
+
+    // Empty the room with a tiny TTL: the unwritten result must outlive it.
+    await setEmptyTtl(tableId, 150);
+    annaSocket.close();
+    boSocket.close();
+    await waitFor(async () => (await socketCount(tableId)) === 0, 5_000);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+
+    // Even a direct reap attempt on a room already past its TTL refuses while
+    // the result is unwritten: that guard is the only thing between the game
+    // and permanent loss.
+    await inRoom(tableId, (room) => {
+      (room as unknown as { emptySince: number | null }).emptySince = Date.now() - 10_000;
+    });
+    await inRoom(tableId, (room) =>
+      (room as unknown as { maybeReapEmptyRoom(now: number): Promise<void> }).maybeReapEmptyRoom(Date.now()),
+    );
+    expect(await storedRoom(tableId)).not.toBeNull();
+    expect(await tableStatus(tableId)).not.toBe("finished");
+    expect(await countResultRows(gameId)).toBe(0);
+    // Still awake and still retrying, rather than collected.
+    expect(await scheduledAlarm(tableId)).not.toBeNull();
+
+    // D1 recovers: the next retry writes the result and flips the table.
+    await armResultWriteFailures(tableId, 0);
+    expect(await runResultRetry(tableId)).toBe(true);
+    const rows = await waitForValue(async () => {
+      const result = await env.DB.prepare(`SELECT place FROM game_players WHERE game_id = ?1 ORDER BY place ASC`)
+        .bind(gameId)
+        .all<{ place: number }>();
+      return result.results?.length === 2 ? result.results : null;
+    });
+    expect(rows.map((row) => row.place)).toEqual([1, 2]);
+    await waitFor(async () => (await tableStatus(tableId)) === "finished");
+  }, 30_000);
+
+  it("retries a failed result write after the object reloads", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const tableId = await createTableRow("Reload", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    await annaSocket.nextState((view) => view.state.players.length === 2);
+
+    await armResultWriteFailures(tableId, 1);
+    const gameId = await finishTwoPlayerGame(tableId, anna.id, [annaSocket, boSocket]);
+    await waitFor(async () => (await resultWriteInternals(tableId)).retryAt !== null, 5_000);
+
+    // The finished game is persisted, but the written marker is not: D1 never
+    // took it.
+    const persisted = await runInDurableObject(stubFor(tableId), async (_instance, state) => ({
+      room: await state.storage.get<MiaState>("room"),
+      written: await state.storage.get<boolean>("resultsWritten"),
+    }));
+    expect(persisted.room?.gameOver).not.toBeNull();
+    expect(persisted.written).toBeUndefined();
+
+    // Evict the object, the way hibernation or a redeploy would. `abort`
+    // deliberately fails the in-flight call with its reason, so that rejection
+    // is expected here.
+    await runInDurableObject(stubFor(tableId), (_instance, state) => {
+      state.abort("test eviction");
+    }).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // The reloaded object still sees a pending result and arms its own retry,
+    // without waiting for a request.
+    const afterLoad = await runInDurableObject(stubFor(tableId), async (instance, state) => ({
+      pending: (instance as unknown as { hasPendingResults(): boolean }).hasPendingResults(),
+      written: await state.storage.get<boolean>("resultsWritten"),
+      alarm: await state.storage.getAlarm(),
+    }));
+    expect(afterLoad.pending).toBe(true);
+    expect(afterLoad.written).toBeUndefined();
+    expect(afterLoad.alarm).not.toBeNull();
+
+    // The injected failure did not survive the reload, so the retry lands.
+    expect(await runResultRetry(tableId)).toBe(true);
+    const rows = await waitForValue(async () => {
+      const result = await env.DB.prepare(`SELECT place FROM game_players WHERE game_id = ?1 ORDER BY place ASC`)
+        .bind(gameId)
+        .all<{ place: number }>();
+      return result.results?.length === 2 ? result.results : null;
+    });
+    expect(rows.map((row) => row.place)).toEqual([1, 2]);
+    await waitFor(async () => (await tableStatus(tableId)) === "finished");
+
+    annaSocket.close();
+    boSocket.close();
+  }, 30_000);
 });

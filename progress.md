@@ -220,6 +220,62 @@ persisted before this change has no `eliminationIndex`, so a player already
 eliminated then would sort as if eliminated first; since nothing is deployed,
 only local dev storage could hold such a state.
 
+## Fixed: B3 — a failed result write was lost
+
+`writeResults` caught a D1 failure and left `resultsWritten` false with a
+comment claiming the next load would retry. Nothing ever did: `writeResults` ran
+only from `commit`, and no commit follows game over. Worse, the constructor
+*inferred* `resultsWritten` from `state.gameOver !== null`, so a restart after a
+failed write marked the result as already written and lost it for good.
+
+- **Written is now its own persisted fact.** A `resultsWritten` key goes down
+  only after D1 has taken the rows, and the constructor reads it instead of
+  guessing from `gameOver`. Absent means "retry", which is safe because
+  `recordGame` is idempotent.
+- **Retry on the alarm, with backoff.** A failure arms `resultsRetryAt`
+  (1s, 2s, 4s … capped at 5 minutes) and schedules it. `alarm()` handles a
+  pending result *first*, ahead of the phase dispatch and the reaper, and the
+  failure path arms the alarm directly too, because `applyAndContinue` returns
+  on game over without reaching `ensureAlarm`.
+- **Load-time retry.** The constructor cannot do network I/O under
+  `blockConcurrencyWhile`, so it arms an immediate alarm instead and the next
+  `alarm()` performs the write. That is the "attempt the write on DO load" the
+  task asked for.
+- **The reaper defers to it.** `ensureAlarm` and `maybeReapEmptyRoom` both
+  refuse to collect a finished room whose result is unwritten: the write is
+  attempted first and only a success lets the room be reaped. This is the B1
+  interaction the task called out.
+- `syncTableRow("finished")` now rethrows so a failed `tables` update keeps the
+  retry alive rather than leaving the lobby advertising a finished table; the
+  routine lobby syncs still swallow errors exactly as before.
+
+A sustained outage is retried forever at the 5-minute cap rather than giving up
+— the result is the only copy of the game — and every attempt is logged.
+
+Verified: `npx vitest run` **54 passing (41 unit + 13 workers)**; both
+typechecks clean; `scripts/e2e.ts` **25/25** against `wrangler dev`. New workers
+tests:
+
+- the backoff grows 1s → 2s → 4s and caps at 5 minutes;
+- a game whose write fails twice is retried on the real alarm clock, and the
+  result rows plus the `finished` table row land on the third attempt;
+- a room already past its empty TTL is not deleted while its result is
+  unwritten (a direct reap attempt is refused), and the write completes once
+  D1 recovers;
+- after `state.abort()` evicts the object, the reloaded room still reports the
+  pending result, arms its own alarm, and writes it on the next wake.
+
+Each of the three behaviour tests was checked to fail against the code it
+replaces: removing the retry arming, removing the reaper guard, and restoring
+the old `resultsWritten = gameOver !== null` load line each break their test.
+
+Not verified: nothing is deployed, so this has only been exercised in the
+workers pool and against local `wrangler dev`. The failures are injected through
+private `resultWriteFailures` / `resultWriteAttempts` fields poked from the
+test — the same pattern B1's `emptyTtlMs` uses — not by failing a real D1
+binding. Both fields are extra test-only surface in the DO for **B9** to clean
+up.
+
 ## Not started
 
 Broken down as tasks **R1–R6** in the "Remaining work — handoff tasks" section
@@ -241,10 +297,9 @@ reviewing B1's fix added **B11**. `PLAN.md` opens with a **status board** —
 that table is the authoritative list of what is left, and a task counts as done
 only once it has been reviewed.
 
-**B1** (`ea28513`) and **B2** (`07fb73e`) are done and reviewed. **B3–B5 are
-still pre-deploy**: a lost result write on a transient D1 error, a frozen turn
-countdown, and a host who closes their tab leaving the table permanently
-unstartable.
+**B1** (`ea28513`) and **B2** (`07fb73e`) are done and reviewed. **B3 is fixed**
+(awaiting review); **B4–B5 are still pre-deploy**: a frozen turn countdown and a
+host who closes their tab leaving the table permanently unstartable.
 
 ### Review of B2 (`07fb73e`) — approved
 
