@@ -734,6 +734,14 @@ this is a local (workerd + Chromium) verification. The workers test drives the
 real Worker and Durable Object through `SELF.fetch`, and the browser check
 drives the real client, which is the same coverage R4 had minus the edge.
 
+Found in passing while reading the B12 screenshot (recorded for **B10**, not
+fixed): the local dev D1 now holds **359 players against a 61-name pool**, so
+`pickShipName` has fallen back to reusing names and two seats can share one —
+which is why that screenshot shows both players as "Of Course I Still Love
+You". That is the documented fallback rather than a regression (a fresh
+database avoids collisions), and it is the same `listPlayerNames` scan B10
+already flags as unbounded.
+
 ## Not started
 
 Nothing. **R1–R6, B1–B11's pre-deploy fixes and B12 are all done.** R3–R6 and
