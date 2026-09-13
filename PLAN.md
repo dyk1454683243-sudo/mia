@@ -347,7 +347,7 @@ A task is **Done** only once it has been reviewed.
 | B9 — test seams on the production DO | Fixed, awaiting review | Seams on `TestTableRoom`; bundle verified clean |
 | B10 — minor cleanup pass | Fixed, awaiting review | All bullets; injection + host identity folded into B9/B12 |
 | B11 — residual alarm-scheduling gaps | Fixed, awaiting review | Wake cap + reaper precedence; reveal pinned; 6-hour result window |
-| B12 — creator cannot start their own table | Fixed, awaiting review | D1 `host_id` is now authoritative; B10 bullet folded in |
+| B12 — creator cannot start their own table | **Done** — `4f858ce`, reviewed | D1 `host_id` is now authoritative; B10 bullet folded in |
 
 Status as of commit `1a9bb09`. Everything described above this section is built
 and verified except the tasks below. Each is sized for one agent session and is
