@@ -529,6 +529,54 @@ state across a redeploy.
 was created (between 16:43:13Z and 16:43:41Z), so the deadline is approximately
 **17:43Z UTC**. R4–R6 must run before it.
 
+## Done: R4 — verified the deployed URL
+
+Against the live deployment (URL in R3's chat message).
+
+**Protocol harness — 25/25, same as local.** `MIA_BASE=https://… node scripts/e2e.ts`:
+identity and the signed cookie, table creation, a full 15-round game with 14
+reveals and one double-Mia, hidden dice never leaked, a caught bluff and a
+failed doubt both charged correctly, a single winner, the `tables` row flipped to
+`finished`, the game and its three per-player rows in live D1 via `/api/history`,
+every error path, and a mid-game reconnect that restored the round, phase and cup.
+
+**Error paths on the live URL, explicitly:** unknown table **404**, over-long
+rename **400**, malformed JSON **400**, control-characters-only rename **400**,
+`DELETE /api/me` **405**, `PUT /api/tables` **405**, bare `/api` **200** (reached
+the Worker, not the asset binding), and an unknown path **404** — no SPA fallback
+swallowing it into an HTML 200.
+
+**Browser — 35/35, zero console errors.** `MIA_BASE=https://… npm run ui-check`
+with `MIA_UI_OUT=.r1-screenshots/live`: lobby rename, both share paths, a
+fresh-session join, a full game against `scripts/bots.ts` with every phase, no
+leaked dice, the countdown ticking without a per-second re-render, a mid-game
+reload, no horizontal scroll at 375px or 768px, and no console or page errors.
+Screenshots are in `.r1-screenshots/live/` (the lobby shot shows the harness's
+own tables in the live directory, which is how you can tell it is not local).
+
+**This wrote real rows into the live D1**, as the task said it would: one
+finished game with three per-player rows, plus the tables the harness and the
+browser check created. The harness's `Reconnect table` is left `playing` and
+will drop out of the lobby after the 30-minute staleness window. Nothing was
+cleaned up, and `hostName` still reads `"someone"` (the documented dead field).
+
+**Anything different from local?** Nothing in behaviour. Specifically:
+
+- **Timing.** Live requests carry real edge latency but no timeout was
+  approached; both games ran at the same pace as local (15 rounds, 14 reveals).
+- **Alarms.** The reveal (5s) and round-start (2s) beats fired throughout both
+  live games, so the single-alarm design works deployed, not just in miniflare.
+  The 60-second turn clock was never reached live either — actions were always
+  prompt — so its auto-play path remains covered only by `test/room.test.ts`.
+- **Hibernation.** Not directly observable from a client and not forced: the
+  longest idle window was the browser check's ~4s bot freeze, below the eviction
+  threshold. Nothing misbehaved across the reconnect, which is the closest
+  signal available.
+- **Edge propagation.** No `error code: 1042` or other post-deploy error page;
+  the URL answered 200 immediately.
+- **Fresh D1.** The live database was created by the deploy, so the lazy
+  `ensureSchema` ran on the very first live request; it worked.
+
 ## Not started
 
 Broken down as tasks **R1–R6** in the "Remaining work — handoff tasks" section
@@ -538,7 +586,8 @@ of `PLAN.md`, with per-task acceptance criteria. In short:
 - **R2** — **done** (see above), reviewed.
 - **R3** — **done** (see above), awaiting review. Live URL, claim URL and
   deadline are in the task's chat message, not here.
-- **R4** — verify the live URL (harness + browser).
+- **R4** — **done** (see above), awaiting review. Live URL, claim URL and
+  deadline are in the chat, not here.
 - **R5** — redeploy into the same cached account; prove D1 and DO state survive.
 - **R6** — strip any provisioned resource IDs, audit for leaks, hand-over report.
 
