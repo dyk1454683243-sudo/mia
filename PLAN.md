@@ -328,9 +328,9 @@ A task is **Done** only once it has been reviewed.
 
 | Task | Status | Notes |
 | --- | --- | --- |
-| R1 — browser verification at a phone viewport | Done, awaiting review | Delivered `scripts/bots.ts`, `scripts/ui-check.ts` |
+| R1 — browser verification at a phone viewport | **Done** — `255fa5b`, reviewed | Delivered `scripts/bots.ts`, `scripts/lib.ts`, `scripts/ui-check.ts` |
 | R2 — `README.md` | Open | |
-| R3 — `wrangler deploy --temporary` | Open | Blocked on R1, R2 only — B2–B5 all done |
+| R3 — `wrangler deploy --temporary` | Open | Blocked on R2 only |
 | R4 — verify the live URL | Open | Blocked on R3 |
 | R5 — redeploy, prove persistence | Open | Blocked on R4 |
 | R6 — config hygiene, hand-over report | Open | Blocked on R5 |
@@ -386,61 +386,50 @@ R6 hand-over report.
 
 ---
 
-## R1 — Verify the UI in a real browser at a phone viewport
+## R1 — Browser verification at a phone viewport — **DONE** (`255fa5b`)
 
-**Why.** `client/src/lobby.ts` (239 lines), `client/src/table.ts` (379) and
-`client/src/net.ts` (158) have never been rendered. Every verification so far is
-protocol-level: the e2e harness speaks HTTP and WebSocket directly and never
-loads the page. `vite build` succeeding proves the client compiles, not that it
-works, and certainly not that it is usable on a phone — which is the primary
-target.
+The client had never been rendered. It now runs in headless Chromium at 375×812
+and 768×1024 via Playwright, plays a full game against bots, and passes with
+zero console errors. Delivered `scripts/lib.ts` (shared harness internals),
+`scripts/bots.ts <tableId> [count]`, and `scripts/ui-check.ts`.
 
-**Deliverable first:** the harness plays all seats itself, so there is currently
-no way to be a human player. Write `scripts/bots.ts` that joins N bot players to
-an existing table id and plays them, reusing the `Client` class and
-`chooseAction` from `scripts/e2e.ts` (extract the shared pieces rather than
-copy-pasting them). Usage: `node scripts/bots.ts <tableId> [count]`.
+**Reviewed and approved.** Verified independently: I re-ran `ui-check` myself
+(36/36 — the count is game-dependent, so it is not a fixed number), re-ran e2e
+after the `lib.ts` refactor (25/25), drove `scripts/bots.ts` standalone against
+a fresh table, read the generated screenshots, and confirmed 63 tests and both
+typechecks. The UI is genuinely good on a phone.
 
-**Then verify, at 375×812:**
+Six defects were found and fixed, of which **#5 was game-breaking**:
+`legalMoves` allowed a bare `roll` while a claim stood. With Mia standing the UI
+offered "Roll the dice", and taking it left the roller in `announcing` with
+**no legal move at all** — I reproduced this directly: every flag false and
+`autoPlaySequence` returning `[]`. `canRoll` is now true only when nothing
+stands, which is the correct rule (only the round opener rolls; everyone after
+believes or doubts), and it is enforced server-side, not just hidden in the UI.
 
-1. **Lobby** (`/`): a ship name is shown; inline rename persists across a
-   reload; the table list renders; creating a named table works; the 3-second
-   poll (`client/src/lobby.ts:230`) refreshes without flicker, scroll jump, or
-   losing focus in the rename field.
-2. **Share** (`client/src/table.ts:81`): the `navigator.share` path and the
-   `navigator.clipboard` fallback with its toast. Confirm the copied link is the
-   `/t/:id` form and that opening it in a fresh session joins that table.
-3. **A full game**, browser as one player and `scripts/bots.ts` as the others.
-   Confirm every phase renders correctly: `roundStart`, `deciding`
-   (Believe/Doubt), `announcing` (the announce grid, with values at or below the
-   standing announcement non-tappable and Mia distinct), `revealing` (actual
-   dice beside the claim, plus the verdict line), `finished` (winner).
-4. **Secrecy in the UI**: your own dice appear only when you hold the cup; no
-   other player's dice are ever on screen before a reveal.
-5. **Reconnect**: background the tab and refresh mid-game; the socket's backoff
-   reconnect (`client/src/net.ts:101`) should restore the live state with no
-   duplicate seat.
-6. **Phone fitness**: no horizontal scroll at 375px, tap targets comfortably
-   thumb-sized, text legible without zoom, and a check at 768px that nothing
-   collapses.
-7. **The countdown** (`c0f396b`): confirm it visibly ticks down once a second
-   through a whole turn, and that the once-per-second full-page re-render it now
-   triggers is not perceptible — no flicker, no scroll jump, no tap landing on a
-   replaced node, no interrupted animation. If it is perceptible, update the
-   countdown's text node directly instead of calling `render()`.
-8. **Console**: no errors or unhandled rejections at any point.
+The B4 review's follow-up was also addressed properly: the interval now updates
+`[data-countdown]` text nodes instead of re-rendering the page, and the browser
+check asserts both that the countdown ticks and that the page is *not* re-rendered
+each second.
 
-**Acceptance criteria.** Screenshots of the lobby, each of the five table
-phases, and game over at 375×812. An explicit defect list with fixes applied, or
-an explicit statement that no defects were found. Zero console errors.
-`npx vitest run` still green and both typechecks clean. `scripts/bots.ts`
-committed and working.
+**Run it with the browser path set** — this is not optional:
+
+```
+PLAYWRIGHT_BROWSERS_PATH=$PWD/.playwright-browsers node scripts/ui-check.ts
+```
 
 ---
 
 ## R2 — Write README.md
 
 **Why.** It is currently 0 bytes.
+
+**Include the verification commands that actually work.** `node scripts/ui-check.ts`
+on its own fails with "Executable doesn't exist" — the browsers live in
+`.playwright-browsers/`, so every invocation needs
+`PLAYWRIGHT_BROWSERS_PATH=$PWD/.playwright-browsers`. Add npm scripts for
+`ui-check` and `bots` so the env var cannot be forgotten, and verify each
+documented command by running it.
 
 **Content.** What the game is and the exact ruleset implemented (the plain
 ruleset — say so, and note which common variants were deliberately left out).
@@ -906,6 +895,14 @@ workers tests still pass.
 **Severity: low-medium.** Raised by the review of `ea28513`. Neither item is a
 regression — both predate that commit — but they are the same class of failure
 it set out to eliminate, so they belong with it.
+
+**Update from the R1 review (`255fa5b`): this loop was reachable in ordinary
+play, not merely theoretical.** `legalMoves` let a player roll over a standing
+claim; with Mia standing that produced a state with no legal move and an empty
+`autoPlaySequence` — the exact precondition below — from one UI click. R1 fixed
+that trigger, so it can no longer be entered, but the defensive cap is still
+wanted: without it, the *next* logic gap becomes an unbounded billable loop
+instead of a caught error.
 
 **1. A 1 Hz alarm loop can still run forever with nobody connected.**
 `ensureAlarm` (`src/worker/table-room.ts`) checks `needsImmediateWake` *before*

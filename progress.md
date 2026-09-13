@@ -468,12 +468,36 @@ only once it has been reviewed.
 
 **B1** (`ea28513`), **B2** (`07fb73e`), **B3** (`eb8d1db`), **B4** (`c0f396b`)
 and **B5** (`083a695`) are done and reviewed — every pre-deploy code fix is
-complete. **R1 is done** (awaiting review) and delivered `scripts/bots.ts`;
-what remains is **R2 (README)**, then the time-coupled deploy series **R3–R6**.
-Screenshots from R1 are not committed (binary artifacts); rerun
-`scripts/ui-check.ts` to regenerate them.
+complete. **R1** (`255fa5b`) is done and reviewed.
+What remains is **R2 (README)**, then the time-coupled deploy series **R3–R6**.
+Screenshots from R1 are not committed (binary artifacts); regenerate them with
+`PLAYWRIGHT_BROWSERS_PATH=$PWD/.playwright-browsers node scripts/ui-check.ts`.
 
 R3 (deploy) is now blocked on nothing but R2.
+
+### Review of R1 (`255fa5b`) — approved
+
+Independently confirmed: I re-ran `ui-check` myself (36/36 — the count is
+game-dependent, so 35 is not a fixed expectation), re-ran `scripts/e2e.ts` after
+the `lib.ts` extraction (25/25), drove `scripts/bots.ts` standalone against a
+fresh table (two bots seated, `player_count` 2, waiting for a human), read the
+generated screenshots, and confirmed 63 tests with both typechecks clean. The
+page is genuinely good on a phone, and defects #2 and #3 are visibly fixed in
+the reveal and announce-grid screenshots.
+
+Defect **#5 was game-breaking and I reproduced it directly**: with a roll forced
+over a standing Mia, every flag in `legalMoves` is false and `autoPlaySequence`
+returns `[]` — a total deadlock, one UI click away whenever anyone announced
+Mia. The fix is the correct rule (only the round opener rolls) and is enforced
+server-side, not merely hidden in the UI. This also proves **B11**'s 1 Hz alarm
+loop was reachable in ordinary play rather than theoretical, as that task had
+assumed; B11 is updated.
+
+One reproducibility defect: `node scripts/ui-check.ts` as documented **fails** —
+the browsers live in `.playwright-browsers/`, so every run needs
+`PLAYWRIGHT_BROWSERS_PATH=$PWD/.playwright-browsers`. The install line carries
+the variable but the run line does not. R2 now owns adding npm scripts so it
+cannot be forgotten.
 
 ### Review of B5 (`083a695`) — approved
 
