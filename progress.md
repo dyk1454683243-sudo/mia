@@ -1162,3 +1162,44 @@ One consequence to keep in view: `scripts/e2e.ts` now connects creator-first and
 no longer exercises the racy ordering, so it can no longer catch a B12
 regression. The dedicated workers test and `ui-check`'s two browser contexts are
 what cover it.
+
+## Review of B6–B11 — all approved; one open flake recorded as B13
+
+Verified independently: **75 tests pass** (47 unit + 28 workers), both
+typechecks and `vite build` clean, **ui-check 41/41** with zero console errors.
+
+Mutation-tested each fix rather than trusting the suite:
+
+- **B6** — restoring the phase-based redaction fails exactly the new stray-dice
+  test. Deleting the DO's private copy so one `buildView` serves both is the
+  right shape: this boundary had already leaked once.
+- **B7** — restoring `DO UPDATE` fails exactly the write-once test.
+- **B9** — the claim is exact. `wrangler deploy --dry-run` then grepping the
+  bundle finds no `ForTest` and no `resultWriteFailures`. The two hits my wider
+  pattern caught are `shouldFailResultWrite`, the protected hook production
+  answers `false` — an empty extension point, not a usable seam.
+- **B11** — an unbounded `MAX_STAGNANT_WAKES` fails the wedge test.
+- **B8** — 0 stale refusals across 10 harness runs, so the strict
+  `stamp !== state.logSeq` guard is not rejecting legitimate moves.
+
+Two notes, neither blocking:
+
+- **The give-up window has two enforcement points and only one is load-bearing.**
+  Disabling the check in `retryResults` alone changes nothing — `writeResults`
+  still gives up and the test still passes. Disabling both fails it, so the
+  behaviour is pinned. The `retryResults` check is a real if minor optimisation
+  (it skips one doomed write past the window), but this is the third time a fix
+  has shipped redundant guards that no test can tell apart, after B1 and B3.
+- **B8's guard is strict equality on the current `logSeq`.** Correct today,
+  because nothing bumps `logSeq` during a player's own turn. Any future event
+  pushed mid-turn — a chat line, a "player reconnected" notice — would start
+  refusing legitimate moves. A turn-scoped or monotonic comparison would be
+  sturdier.
+
+**One failure worth keeping:** the first `e2e` run wedged with
+`no progress for 30000ms at round 2 phase revealing`. Not reproduced in 9
+further runs, the stagnant cap never fired, nothing was logged, and three
+restart-then-run trials were clean. I have not attributed it to B6–B11 and have
+not dismissed it — a game that freezes mid-reveal is invisible to a player until
+they give up. Recorded as **B13** with the instrumentation needed to catch a
+recurrence.

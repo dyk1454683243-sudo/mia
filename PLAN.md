@@ -341,12 +341,12 @@ A task is **Done** only once it has been reviewed.
 | B3 — lost result write | **Done** — `eb8d1db`, reviewed | Follow-ups in B10, B11 |
 | B4 — frozen turn countdown | **Done** — `c0f396b`, reviewed | Re-render note in R1 |
 | B5 — host tab-close bricks the table | **Done** — `083a695`, reviewed | |
-| B6 — duplicate redaction implementations | Fixed, awaiting review | DO calls shared `buildView`; stray-dice test |
-| B7 — session key creation race | Fixed, awaiting review | `DO NOTHING` + re-read; new session tests |
-| B8 — client replays stale actions | Fixed, awaiting review | `logSeq` stamp + server guard |
-| B9 — test seams on the production DO | Fixed, awaiting review | Seams on `TestTableRoom`; bundle verified clean |
-| B10 — minor cleanup pass | Fixed, awaiting review | All bullets; injection + host identity folded into B9/B12 |
-| B11 — residual alarm-scheduling gaps | Fixed, awaiting review | Wake cap + reaper precedence; reveal pinned; 6-hour result window |
+| B6 — duplicate redaction implementations | **Done** — `fccb8a8`, reviewed | DO calls shared `buildView` |
+| B7 — session key creation race | **Done** — `ff6f67a`, reviewed | `DO NOTHING` + re-read |
+| B8 — client replays stale actions | **Done** — `beb6e2c`, reviewed | `logSeq` stamp; no false rejections seen |
+| B9 — test seams on the production DO | **Done** — `25afbee`, reviewed | Bundle verified seam-free |
+| B10 — minor cleanup pass | **Done** — `009b1bb`, reviewed | All bullets |
+| B11 — residual alarm-scheduling gaps | **Done** — `ddcdd10`, reviewed | See **B13** |
 | B12 — creator cannot start their own table | **Done** — `4f858ce`, reviewed | D1 `host_id` is now authoritative; B10 bullet folded in |
 
 Status as of commit `1a9bb09`. Everything described above this section is built
@@ -846,7 +846,7 @@ workers tests still pass.
 
 ## B10 — Minor gaps, worth one cleanup pass
 
-**Fixed, awaiting review** — see `progress.md` for the per-bullet list. Two
+**DONE** (`009b1bb`), reviewed — see `progress.md` for the per-bullet list. Two
 bullets were folded into other tasks: the fault injection into **B9** (the
 counters moved to the test subclass) and the host-identity mismatch into
 **B12**. Two were verified rather than changed: the 101 does carry `Set-Cookie`,
@@ -1000,3 +1000,39 @@ racy ordering at all. That is the right call for a deterministic harness, but it
 means e2e can no longer catch a B12 regression — the workers test and the
 two-browser-context checks in `ui-check` are what cover it now.
 
+---
+
+## B13 — An intermittent wedge in the `revealing` phase
+
+**Severity: unknown — needs characterising before it can be judged.** Seen once
+while reviewing B6–B11; **not attributed to them**, and not reproduced.
+
+`scripts/e2e.ts` failed with:
+
+```
+no progress for 30000ms at round 2 phase revealing turn none standing 66
+```
+
+The table sat in `revealing` for 30 seconds. That beat is supposed to resolve
+from the alarm after `revealMs`, so an alarm either never fired or fired without
+resolving.
+
+What the evidence rules out:
+
+- **Not the new stagnant-wake cap.** `alarm stopped re-arming` never appears in
+  the server log for that run.
+- **Not a server error.** Nothing logged at all.
+- **Not cold start.** Three restart-then-run trials were clean.
+- **Not common.** 9 of 10 runs passed 27/27, including 6 consecutive
+  immediately afterwards.
+
+**Do.** Characterise before fixing. Run `e2e` in a loop (20+ iterations) to get
+a real rate; add a one-line log on every alarm entry and on `ensureAlarm`'s
+chosen target so a recurrence shows whether the alarm was armed, fired, or
+neither. The `revealing` branch in `alarm()` resolves unconditionally on any
+wake, so "armed but never fired" and "never armed" are the two cases to
+distinguish. If it cannot be reproduced, leave it recorded rather than closing
+it — a game that freezes mid-reveal is invisible to a player until they give up.
+
+**Acceptance.** Either a reproduction plus a fix with a regression test, or a
+documented rate and the instrumentation left in place to catch the next one.
