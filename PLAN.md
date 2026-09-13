@@ -331,10 +331,10 @@ A task is **Done** only once it has been reviewed.
 | --- | --- | --- |
 | R1 — browser verification at a phone viewport | **Done** — `255fa5b`, reviewed | Delivered `scripts/bots.ts`, `scripts/lib.ts`, `scripts/ui-check.ts` |
 | R2 — `README.md` | Done, awaiting review | Adds `npm run ui-setup` / `ui-check` / `bots` / `e2e` |
-| R3 — `wrangler deploy --temporary` | Done, awaiting review | Live + claim URL in the task chat only |
-| R4 — verify the live URL | Done, awaiting review | 25/25 harness + 35/35 browser live |
-| R5 — redeploy, prove persistence | Done, awaiting review | `(reused)`/`(inherited)`; D1 + DO identical |
-| R6 — config hygiene, hand-over | Done, awaiting review | No IDs, no leaks; report in chat only |
+| R3 — `wrangler deploy --temporary` | **Done** — `0d16d36`, reviewed | Live URL verified independently |
+| R4 — verify the live URL | **Done with a correction** — `8857e7c` | Its "no behavioural difference from local" is wrong: see **B12** |
+| R5 — redeploy, prove persistence | **Done** — `b6e3529`, reviewed | Live D1 still holds the games, places dense |
+| R6 — config hygiene, hand-over | **Done** — `d5568da`, reviewed | Leak audit independently re-run: clean |
 | B1 — abandoned-table alarm loop | **Done** — `ea28513`, reviewed | Follow-ups in B11 |
 | B2 — finishing places from seat order | **Done** — `07fb73e`, reviewed | |
 | B3 — lost result write | **Done** — `eb8d1db`, reviewed | Follow-ups in B10, B11 |
@@ -346,6 +346,7 @@ A task is **Done** only once it has been reviewed.
 | B9 — test seams on the production DO | Open | |
 | B10 — minor cleanup pass | Open | |
 | B11 — residual alarm-scheduling gaps | Open | Raised by the B1 review |
+| B12 — creator cannot start their own table | **Open — user-facing** | Found on the live deployment during the R3–R6 review |
 
 Status as of commit `1a9bb09`. Everything described above this section is built
 and verified except the tasks below. Each is sized for one agent session and is
@@ -958,3 +959,60 @@ reaper take the room.
 and the room is eventually reaped, one asserting an auto-played reveal resolves,
 one asserting a room whose result never lands is eventually given up on and
 collected.
+
+---
+
+## B12 — The table's creator can be locked out of starting it
+
+**Severity: medium-high, user-facing.** Found against the live deployment while
+reviewing R3–R6; **not reproducible locally**, which is why every prior check
+missed it.
+
+`handleStart` treats `state.players[0]` as the host
+(`src/worker/table-room.ts:539`), and the Durable Object's roster is in
+**WebSocket arrival order**. D1 separately records the real creator in
+`tables.host_id` (`src/worker/db.ts:193`) and nothing reconciles the two.
+
+So in the ordinary flow — create a table, share the link, a friend opens it
+before your own table page finishes connecting — the friend becomes
+`players[0]`. The creator is then told **"Only the player who opened the table
+can start"**, which is false, and the friend, who did not create the table, can
+start it instead.
+
+Reproduced deterministically on the live URL, three times out of three, by
+connecting the second player first:
+
+```
+D1 says host is   : creator
+DO roster order   : [ 'Grey Area', 'Better Days' ]     # friend first
+creator starts?   : Only the player who opened the table can start.
+friend starts?    : OK — game started
+```
+
+Locally the sockets connect in microseconds and effectively always in issue
+order, so the creator wins the race every time. Over a real network the order is
+arbitrary. This is the same divergence already listed in **B10** ("host identity
+disagrees between layers"), which the B5 review downgraded to "misleading error
+message" — that was wrong: it blocks the creator from starting their own table.
+Fold the B10 bullet into this task.
+
+**Do.** Make one layer authoritative. The straightforward fix is to pass the
+creator's id into the Durable Object (the Worker already forwards
+`X-Mia-Table-Name` and `X-Mia-Table-Id` on the upgrade, so add the host id),
+store it in the room state, and have `handleStart` compare against that rather
+than `players[0]`. Keep B5's behaviour for the case that motivated it: if the
+recorded host is not connected, let any connected player start, and say so in
+the message rather than naming the opener.
+
+**Acceptance.** A workers test where the non-creator connects first and the
+creator can still start; a test that a disconnected host does not block the
+table (B5's case, preserved); and the live-style ordering exercised rather than
+assumed — the harness must connect its clients **sequentially in a defined
+order**, or the race stays invisible.
+
+### Also fix the harness
+
+`scripts/e2e.ts` connects its three clients with `Promise.all` and then assumes
+`clients[0]` is the host. That is why the live run crashes rather than reporting
+a clean failure. It should connect the creator first and await it before the
+others — and once B12 is fixed, the assumption becomes true rather than lucky.

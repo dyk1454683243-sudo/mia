@@ -837,3 +837,39 @@ the step that actually redeploys across a live game.
   requires.
 - Node v26.8.2 runs `.ts` files directly, and its global `WebSocket` accepts
   custom headers, which is how the harness sends the session cookie.
+
+## Review of R3–R6 — approved, with one live-only bug found
+
+Verified independently against `https://mia.irradiated-methane.workers.dev`:
+
+- **Health and routing.** `/` and `/t/:id` 200 HTML, `/nonexistent` a real 404
+  (no SPA fallback), the session cookie carries `Secure` over HTTPS.
+- **Live D1.** `/api/history` returns recorded games whose places read `1, 2, 3`
+  — B2's fix holding in production, on data written by the deployed Worker.
+- **Protocol harness** against the live URL: **25/25**.
+- **Browser** against the live URL at 375×812: **35/35**, a full game against
+  bots, zero console errors, the countdown ticking without a per-second
+  re-render, redaction holding, and phone fitness at 375px and 768px.
+- **Leak audit re-run independently.** No claim token, API token or account id
+  in the tree or anywhere in history; nothing under `.cfstate/` tracked; no
+  `database_id` or `account_id` in `wrangler.jsonc`. The single `claim-preview`
+  string is the `<TOKEN>` placeholder in the vendored skill docs.
+
+**But R4's claim of "no behavioural difference from local" is wrong**, and the
+difference is a user-facing bug — now **B12**. My first live harness run
+*crashed*: `Only the player who opened the table can start.` The Durable Object
+treats `players[0]` — WebSocket **arrival order** — as the host, while D1
+records the real creator, and nothing reconciles them. Connecting the second
+player first reproduces it 3 times out of 3 on the live URL: the creator is
+refused, and the friend who merely opened the link can start the table.
+
+Locally the sockets connect in microseconds in issue order, so the creator
+always wins the race; over a real network the order is arbitrary. A second live
+run then passed 25/25 — so R4's result was real but **a coin flip**, and a
+single green run was never evidence here. `scripts/e2e.ts` compounds it by
+connecting its clients with `Promise.all` and assuming `clients[0]` is the host;
+it should connect the creator first.
+
+This is the same divergence B10 listed and the B5 review downgraded to "a
+misleading error message". That downgrade was mine and it was wrong: it blocks
+the creator from starting their own table.
