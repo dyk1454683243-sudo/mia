@@ -402,10 +402,10 @@ describe("TableRoom", () => {
     const boSocket = await connect(tableId, bo);
     await annaSocket.nextState((view) => view.state.players.length === 2);
 
-    // Starting is the opener's call.
+    // Starting is the creator's call, and the refusal names them.
     boSocket.send({ type: "start" });
     await waitFor(() => boSocket.errors.length > 0);
-    expect(boSocket.errors.join(" ")).toContain("opened the table");
+    expect(boSocket.errors.join(" ")).toContain("Only Anna");
 
     annaSocket.send({ type: "start" });
     const started = await annaSocket.nextState((view) => view.state.round === 1);
@@ -922,5 +922,55 @@ describe("TableRoom", () => {
     // is the commonest abandoned table of all: created, nobody joined, closed.
     await waitForValue(async () => ((await storedRoom(tableId)) === null ? true : null), 8_000);
     expect(await scheduledAlarm(tableId)).toBeNull();
+  }, 20_000);
+
+  it("lets the creator start even when someone else connected first", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    // Anna created the table in D1; the Durable Object learns that from the
+    // upgrade header, not from who gets a socket first.
+    const tableId = await createTableRow("Creator's table", anna.id);
+    const boSocket = await connect(tableId, bo);
+    await boSocket.nextState((view) => view.state.players.length === 1);
+    const annaSocket = await connect(tableId, anna);
+    await annaSocket.nextState((view) => view.state.players.length === 2);
+    expect((await readState(tableId))?.players[0]?.id).toBe(bo.id); // Bo is seat 0
+
+    // Bo is first in the roster but is not the creator: refused, and by name.
+    boSocket.send({ type: "start" });
+    await waitFor(() => boSocket.errors.length > 0);
+    expect(boSocket.errors.join(" ")).toContain("Only Anna");
+
+    // The creator can still start their own table.
+    annaSocket.send({ type: "start" });
+    const started = await annaSocket.nextState((view) => view.state.round === 1);
+    expect(started.state.players.map((player) => player.name).sort()).toEqual(["Anna", "Bo"]);
+
+    annaSocket.close();
+    boSocket.close();
+  }, 20_000);
+
+  it("lets anyone start once the creator has gone", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const cara = await makePlayer("Cara");
+    const tableId = await createTableRow("Creator leaves", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    const caraSocket = await connect(tableId, cara);
+    await caraSocket.nextState((view) => view.state.players.length === 3);
+
+    // The creator closes their tab; B5 drops the seat but `hostId` stays Anna's.
+    annaSocket.close();
+    await waitFor(async () => (await readState(tableId))?.players.length === 2);
+
+    // Bo is not the creator, but the creator is not connected, so Bo may start.
+    boSocket.send({ type: "start" });
+    const started = await boSocket.nextState((view) => view.state.round === 1);
+    expect(started.state.players.map((player) => player.name).sort()).toEqual(["Bo", "Cara"]);
+    expect(boSocket.errors).toEqual([]);
+
+    boSocket.close();
+    caraSocket.close();
   }, 20_000);
 });

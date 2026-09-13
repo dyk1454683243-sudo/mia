@@ -119,6 +119,9 @@ export class TableRoom extends DurableObject<Env> {
     // The Durable Object's own name is not reliably available, so the Worker
     // passes the canonical table id through with the upgrade.
     const tableId = request.headers.get("X-Mia-Table-Id") ?? "unknown";
+    // ...and the table's creator, from the D1 row, so "who starts" never depends
+    // on which socket happened to arrive first.
+    const hostId = request.headers.get("X-Mia-Host-Id") || null;
 
     const pair = new WebSocketPair();
     const client = pair[0];
@@ -127,22 +130,31 @@ export class TableRoom extends DurableObject<Env> {
     this.ctx.acceptWebSocket(server, [playerId]);
     server.serializeAttachment({ playerId, name: playerName } satisfies SocketAttachment);
 
-    await this.handleConnect(playerId, playerName, tableName, tableId);
+    await this.handleConnect(playerId, playerName, tableName, tableId, hostId);
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  private async handleConnect(playerId: string, name: string, tableName: string, tableId: string): Promise<void> {
+  private async handleConnect(
+    playerId: string,
+    name: string,
+    tableName: string,
+    tableId: string,
+    hostId: string | null,
+  ): Promise<void> {
     await this.clearEmptySince();
     const state = this.state;
 
     if (state === null) {
       // No game yet: this is a lobby seat. The roster lives in the DO so a
       // pre-game table keeps its list of who is waiting.
-      this.state = this.newLobbyState(playerId, name, tableName, tableId);
+      this.state = this.newLobbyState(playerId, name, tableName, tableId, hostId);
       await this.persistAndBroadcast();
       await this.syncTableRow();
       return;
     }
+
+    // A room persisted before `hostId` existed learns it on this connect.
+    if (hostId !== null) state.hostId ??= hostId;
 
     const existing = playerById(state, playerId);
     if (!existing) {
@@ -179,10 +191,18 @@ export class TableRoom extends DurableObject<Env> {
     await this.syncTableRow();
   }
 
-  private newLobbyState(playerId: string, name: string, tableName: string, tableId: string): MiaState {
+  private newLobbyState(
+    playerId: string,
+    name: string,
+    tableName: string,
+    tableId: string,
+    hostId: string | null,
+  ): MiaState {
     return {
       tableId,
       tableName,
+      // Without the header the first socket is all we have to go on.
+      hostId: hostId ?? playerId,
       gameId: "",
       startedAt: null,
       phase: "roundStart",
@@ -534,16 +554,23 @@ export class TableRoom extends DurableObject<Env> {
       await this.reportError(playerId, "You need at least 2 players to start.");
       return;
     }
-    // Dropping a disconnected seat keeps the opener at the front of the
-    // roster, so whoever is first here is the connected host.
-    const [host] = state.players;
-    if (host?.id !== playerId) {
-      await this.reportError(playerId, "Only the player who opened the table can start.");
+    // The table's creator starts. Arrival order is not authority: the D1 row
+    // names the creator and the Worker forwards that id on every upgrade. Only
+    // once the creator is not connected does anyone seated get to start — the
+    // abandoned-host case B5 fixed, kept.
+    const hostId = state.hostId ?? state.players[0]?.id ?? null;
+    if (hostId !== null && hostId !== playerId && this.isConnected(hostId)) {
+      const hostName = playerById(state, hostId)?.name;
+      await this.reportError(
+        playerId,
+        hostName ? `Only ${hostName} can start this table.` : "Only the table's creator can start this one.",
+      );
       return;
     }
 
     const seats: Seat[] = state.players.map((player) => ({ id: player.id, name: player.name }));
     const next = createGameState(this.tableId(), state.tableName, seats);
+    next.hostId = state.hostId ?? hostId;
     await this.resetResultsWrite();
     await this.commit(next);
     await this.syncTableRow("playing");

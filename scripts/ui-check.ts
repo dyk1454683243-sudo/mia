@@ -176,10 +176,66 @@ async function verifyShare(page: Page, context: BrowserContext, browser: Browser
   check("closing the fresh session frees its seat", true);
 }
 
+/**
+ * B12: the D1 creator owns the start button, whatever order the sockets arrive
+ * in. A friend opens the link first, so the friend is the Durable Object's
+ * seat 0; the creator must still be able to start.
+ */
+async function verifyCreatorCanStart(browser: Browser): Promise<void> {
+  section("The creator can start a table a friend opened first (B12)");
+  const creator = await createPlayer("creator");
+  const friend = await createPlayer("friend");
+  const created = await api("/api/tables", {
+    method: "POST",
+    player: creator,
+    body: JSON.stringify({ name: "B12 table" }),
+  });
+  const tableId = (created.body as { id: string }).id;
+  const url = `${BASE}/t/${tableId}`;
+  const session = (player: { cookie: string }): { name: string; value: string; url: string } => ({
+    name: "mia_pid",
+    value: player.cookie.replace(/^mia_pid=/, ""),
+    url: BASE,
+  });
+
+  const friendContext = await browser.newContext({ viewport: PHONE });
+  await friendContext.addCookies([session(friend)]);
+  const friendPage = await friendContext.newPage();
+  watch(friendPage);
+  await friendPage.goto(url, { waitUntil: "networkidle" });
+  await friendPage.waitForSelector(".roster-row");
+
+  const creatorContext = await browser.newContext({ viewport: PHONE });
+  await creatorContext.addCookies([session(creator)]);
+  const creatorPage = await creatorContext.newPage();
+  watch(creatorPage);
+  await creatorPage.goto(url, { waitUntil: "networkidle" });
+  await creatorPage.waitForFunction(() => document.querySelectorAll(".roster-row").length === 2);
+  await friendPage.waitForSelector(".waiting-line", { timeout: 10_000 });
+
+  const roster = await creatorPage.$$eval(".roster-row .name", (nodes) =>
+    nodes.map((node) => node.textContent?.trim() ?? ""),
+  );
+  check("the friend's socket is seat 0, so the race is real", roster[0]?.includes(friend.name) === true, JSON.stringify(roster));
+  check("the creator still sees the start button", (await creatorPage.$('[data-action="start"]')) !== null);
+  check("the friend is not offered the start button", (await friendPage.$('[data-action="start"]')) === null);
+  const waiting = ((await friendPage.textContent(".waiting-line")) ?? "").trim();
+  check("the waiting line names the creator", waiting.includes(creator.name), waiting);
+
+  await creatorPage.click('[data-action="start"]');
+  const started = await creatorPage
+    .waitForSelector(".players, .winner", { timeout: 10_000 })
+    .then(() => true)
+    .catch(() => false);
+  check("the creator can start their own table", started);
+  await shot(creatorPage, "12-creator-started");
+  await friendContext.close();
+  await creatorContext.close();
+}
+
 // ---------------------------------------------------------------------------
 // The game
 // ---------------------------------------------------------------------------
-
 interface Snapshot {
   phase: "roundStart" | "deciding" | "announcing" | "revealing" | "finished" | "unknown";
   round: number;
@@ -431,6 +487,7 @@ async function main(): Promise<void> {
   await shot(page, "02b-table-with-bots");
 
   await verifyShare(page, context, browser, tableId);
+  await verifyCreatorCanStart(browser);
 
   const game = await playGame(page, bots);
   check("every table phase rendered", ["roundStart", "deciding", "announcing", "revealing", "finished"].every((phase) => game.saw.has(phase)), [...game.saw].join(", "));

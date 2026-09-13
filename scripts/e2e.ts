@@ -75,7 +75,9 @@ async function playGame(players: Player[], tableName: string): Promise<{
   const tableId = (created.body as { id: string }).id;
 
   const clients = players.map((player) => new Client(player));
-  await Promise.all(clients.map((client) => client.connect(tableId)));
+  // Sequential and creator-first: the D1 host must be the Durable Object's first
+  // seat, or the live-only host race (B12) stays invisible.
+  for (const client of clients) await client.connect(tableId);
   await clients[0]!.waitFor((state) => state.players.length === players.length);
 
   clients[0]!.send({ type: "start" });

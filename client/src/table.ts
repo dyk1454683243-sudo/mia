@@ -116,31 +116,42 @@ function toast(message: string): void {
 
 function renderWaiting(view: StateView): string {
   const players = view.state.players;
-  const isHost = players.length > 0 && players[0]!.id === view.you;
+  // The creator is whoever D1 recorded, not whoever opened a socket first.
+  const hostId = view.state.hostId ?? players[0]?.id ?? null;
+  const host = players.find((player) => player.id === hostId);
+  const hostHere = hostId !== null && view.connected.includes(hostId);
+  const isHost = hostId !== null && hostId === view.you;
+  // If the creator is not around, anyone seated may start (B5's case).
+  const canStart = isHost || !hostHere;
   const enough = players.length >= 2;
   const rows = players
     .map(
       (player, index) => `<li class="roster-row">
         <span class="seat">${index + 1}</span>
         <span class="name">${escapeHtml(player.name)}${player.id === view.you ? " <em>(you)</em>" : ""}</span>
-        ${index === 0 ? '<span class="badge">opened</span>' : ""}
+        ${player.id === hostId ? '<span class="badge">opened</span>' : ""}
         ${view.connected.includes(player.id) ? "" : '<span class="badge muted">offline</span>'}
       </li>`,
     )
     .join("");
+
+  const controls = canStart
+    ? `<button class="primary big" data-action="start" ${enough ? "" : "disabled"}>
+         ${enough ? "Start the game" : "Waiting for at least 2 players…"}
+       </button>`
+    : `<p class="waiting-line">Waiting for ${escapeHtml(host?.name ?? "the table's creator")} to start…</p>`;
+  const hostAway =
+    !isHost && !hostHere
+      ? `<p class="muted small">The table's creator is away — anyone here can start it.</p>`
+      : "";
 
   return `
     <section class="card room-card">
       <h2>${escapeHtml(state.table?.name ?? view.state.tableName)}</h2>
       <p class="muted">${players.length} of 8 seats taken · ${STARTING_LIVES} lives each</p>
       <ul class="roster">${rows}</ul>
-      ${
-        isHost
-          ? `<button class="primary big" data-action="start" ${enough ? "" : "disabled"}>
-               ${enough ? "Start the game" : "Waiting for at least 2 players…"}
-             </button>`
-          : `<p class="waiting-line">Waiting for the table opener to start…</p>`
-      }
+      ${controls}
+      ${hostAway}
       <div class="row gap">
         <button class="ghost" data-action="share">Share join link</button>
         <a class="ghost link" href="/">Back to lobby</a>

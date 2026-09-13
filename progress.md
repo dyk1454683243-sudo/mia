@@ -676,15 +676,69 @@ verified / not-verified list are delivered in the R6 chat message and in **no
 file** — per the plan's handing-over rule. This file deliberately contains none
 of them.
 
+## Fixed: B12 — the creator was locked out of starting their own table
+
+Found on the live deployment during the R3–R6 review and **not reproducible
+locally**: `handleStart` treated `state.players[0]` as the host, and the
+Durable Object's roster is in WebSocket arrival order. Locally sockets arrive in
+microseconds and effectively in issue order, so the creator always won; over a
+real network, whoever opens the link first owns seat 0. The creator was then
+told *"Only the player who opened the table can start"*, which was false, and
+the friend could start instead.
+
+D1 already knew the truth — `tables.host_id` — so one layer is now authoritative:
+
+- **Worker** (`src/worker/index.ts`): the WebSocket upgrade already looked the
+  table row up, so it forwards `X-Mia-Host-Id` from `table.hostId` alongside the
+  existing `X-Mia-*` headers.
+- **State** (`src/shared/mia.ts`): `MiaState.hostId` holds the creator.
+  `newLobbyState` takes it from the header (falling back to the first socket only
+  if the header is absent) and `handleConnect` backfills it with `??=`, so a
+  room persisted before this change learns it on the next connect — the
+  no-state-versioning hazard the B2/R5 reviews flagged, handled rather than
+  assumed.
+- **`handleStart`** (`src/worker/table-room.ts`) compares against
+  `state.hostId`, not the roster. A non-creator is refused **by name**
+  (`Only <name> can start this table.`). If the creator is **not connected**,
+  anyone seated may start — B5's case, preserved exactly.
+- **Client** (`client/src/table.ts`): the waiting room now derives the host from
+  `view.state.hostId`, so the creator sees the start button even when they are
+  not seat 0, the "opened" badge marks the real creator, a non-creator is told
+  *"Waiting for &lt;creator&gt; to start…"*, and when the creator is away it says
+  *"The table's creator is away — anyone here can start it."*
+- **Harness** (`scripts/e2e.ts`): `playGame` now connects sequentially,
+  creator-first, so the live-style ordering is exercised instead of raced. This
+  is the flake R5 hit and recorded.
+
+Verified:
+
+- Two new workers tests: *"lets the creator start even when someone else
+  connected first"* (the friend is asserted to be seat 0, is refused by name, and
+  the creator then starts) and *"lets anyone start once the creator has gone"*
+  (B5 preserved); the pre-existing start-refusal test now asserts the message
+  names Anna.
+- The B12 test was confirmed to fail against the old logic: computing the host
+  from `state.players[0]` makes it time out, because the friend owns seat 0.
+- `npx vitest run` **65 passing (46 unit + 19 workers)**, both typechecks clean,
+  `vite build` clean.
+- `npm run e2e` **25/25** with the sequential connect.
+- `npm run ui-check` **40/40**, zero console errors. Five of those are new: a
+  second browser context opens the link first, so the friend is genuinely seat 0,
+  and it asserts the creator sees the start button, the friend does not, the
+  waiting line names the creator, and the creator can start the game. Screenshot
+  `12-creator-started.png`.
+
+Not verified: nothing new against a live deployment — the temporary account from
+R3 was disposable and its claim window had closed by the time B12 was fixed, so
+this is a local (workerd + Chromium) verification. The workers test drives the
+real Worker and Durable Object through `SELF.fetch`, and the browser check
+drives the real client, which is the same coverage R4 had minus the edge.
+
 ## Not started
 
-Nothing. **R1–R6 and B1–B11's pre-deploy code fixes are all done.** R3, R4, R5
-and R6 await review; the live credentials for the deployment are in the R6 chat
-message and expire 60 minutes after the temporary account was created.
-
-Task-by-task, **R1–R6** in the "Remaining work — handoff tasks" section of
-`PLAN.md`: R1 browser verification (reviewed), R2 README (reviewed), R3 deploy,
-R4 live verification, R5 persistence across redeploy, R6 hygiene and this report.
+Nothing. **R1–R6, B1–B11's pre-deploy fixes and B12 are all done.** R3–R6 and
+B12 await review; the live credentials for the temporary deployment are in the
+R6 chat message (and that account is disposable).
 
 R3–R6 are time-coupled: the claim URL expires 60 minutes after R3 creates it.
 

@@ -186,6 +186,8 @@ async function upgrade(
   forwarded.headers.set("X-Mia-Name", encodeURIComponent(session.name));
   forwarded.headers.set("X-Mia-Table-Name", encodeURIComponent(table.name));
   forwarded.headers.set("X-Mia-Table-Id", tableId);
+  // The creator is a property of the D1 row, not of who opens a socket first.
+  forwarded.headers.set("X-Mia-Host-Id", table.hostId);
   const response = await stub.fetch(forwarded);
   return respond(response);
 }

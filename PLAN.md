@@ -347,7 +347,7 @@ A task is **Done** only once it has been reviewed.
 | B9 — test seams on the production DO | Open | |
 | B10 — minor cleanup pass | Open | |
 | B11 — residual alarm-scheduling gaps | Open | Raised by the B1 review |
-| B12 — creator cannot start their own table | **Open — user-facing** | Found on the live deployment during the R3–R6 review |
+| B12 — creator cannot start their own table | Fixed, awaiting review | D1 `host_id` is now authoritative; B10 bullet folded in |
 
 Status as of commit `1a9bb09`. Everything described above this section is built
 and verified except the tasks below. Each is sized for one agent session and is
@@ -888,12 +888,8 @@ workers tests still pass.
 - **Mutation before persistence.** `handleConnect` (`table-room.ts:89`) mutates
   `this.state` in place and then calls `persistAndBroadcast`, against the
   persist-first rule the rest of the file follows.
-- **Host identity disagrees between layers.** D1 stores `host_id` at creation
-  (`db.ts:184`); the DO treats `players[0]` as host. A host who never connects
-  makes the error message false — and since `083a695` drops a disconnected
-  pre-game seat, `players[0]` is routinely *not* the opener, so "Only the player
-  who opened the table can start" is now misleading rather than merely
-  theoretical. Reword it, and reconcile the two layers.
+- **Host identity disagrees between layers.** Folded into **B12**, which made D1's
+  `host_id` authoritative and fixed the misleading message.
 - **No rematch.** `handleStart` refuses once `round > 0`, so a table is
   single-use. Reasonable, but the UI never says so — players at a finished table
   have no path forward except returning to the lobby.

@@ -179,6 +179,12 @@ export interface GameOver {
 export interface MiaState {
   tableId: string;
   tableName: string;
+  /**
+   * The player who created the table in D1, so "the creator starts" does not
+   * depend on who happened to open a socket first. Null only for a room whose
+   * upgrade never carried the header.
+   */
+  hostId: string | null;
   gameId: string;
   startedAt: number | null;
   phase: Phase;
@@ -252,6 +258,8 @@ export function createGameState(
   const state: MiaState = {
     tableId,
     tableName,
+    // The room fills this in from the table's D1 row; the engine only plays.
+    hostId: null,
     gameId: newGameId(now),
     startedAt: now,
     phase: "roundStart",
