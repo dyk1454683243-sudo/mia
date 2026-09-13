@@ -9,3 +9,6 @@ worker-configuration.d.ts
 *.tsbuildinfo
 .playwright-browsers/
 .r1-screenshots/
+
+# Local Claude Code settings (may contain the repo-scoped GH token)
+.claude/settings.local.json
