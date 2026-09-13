@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "mia",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-09-12",
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS",
+    // Serve the real files and nothing else: no SPA fallback (which would hand
+    // index.html back with a 200 for API routes) and no .html-to-clean-URL
+    // redirects (which would strip the table id out of /t/:id).
+    "html_handling": "none",
+    "not_found_handling": "none"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "TABLE", "class_name": "TableRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TableRoom"] }],
+  // database_name but NO database_id, so a temporary account auto-provisions it
+  "d1_databases": [{ "binding": "DB", "database_name": "mia-db" }],
+  "observability": {
+    "enabled": true,
+    "traces": { "enabled": true }
+  }
+}

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.wrangler/
+.cfstate/
+.dev.vars
+.DS_Store
+worker-configuration.d.ts
+.npm-cache/
+*.tsbuildinfo

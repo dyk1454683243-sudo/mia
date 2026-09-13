@@ -1,0 +1,26 @@
+{
+  "name": "mia",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "npm run build && concurrently -n vite,wrangler -c cyan,yellow \"vite build --watch\" \"wrangler dev\"",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:workers": "vitest run --project workers",
+    "typecheck": "tsc --noEmit -p tsconfig.worker.json && tsc --noEmit -p tsconfig.client.json",
+    "types": "wrangler types",
+    "deploy": "npm run build && wrangler deploy",
+    "deploy:temporary": "npm run build && wrangler deploy --temporary"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.9.0",
+    "@types/node": "^22.20.2",
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.11",
+    "vitest": "~3.0.0",
+    "wrangler": "^4.131.1"
+  }
+}
