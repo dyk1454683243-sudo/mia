@@ -10,6 +10,7 @@ import {
   applyAction,
   autoPlaySequence,
   beginRoundPlay,
+  buildView,
   createGameState,
   DEFAULT_TIMINGS,
   type Die,
@@ -743,7 +744,7 @@ export class TableRoom extends DurableObject<Env> {
     if (state === null) return null;
     return {
       type: "state",
-      state: redactFor(state, viewerId),
+      state: buildView(state, viewerId),
       you: viewerId,
       deadlineAt: state.deadlineAt,
       serverTime: Date.now(),
@@ -764,7 +765,7 @@ export class TableRoom extends DurableObject<Env> {
       if (!attachment) continue;
       this.send(socket, {
         type: "state",
-        state: redactFor(state, attachment.playerId),
+        state: buildView(state, attachment.playerId),
         you: attachment.playerId,
         deadlineAt: state.deadlineAt,
         serverTime: Date.now(),
@@ -902,25 +903,6 @@ export function resultWriteBackoffMs(attempts: number): number {
   const base = 1_000;
   const cap = 5 * 60 * 1000;
   return Math.min(base * 2 ** Math.max(0, attempts - 1), cap);
-}
-
-/**
- * Redact hidden dice for one viewer. Dice belong to the player holding the cup
- * and become public the moment a doubt is called or the game ends.
- */
-function redactFor(state: MiaState, viewerId: string): MiaState {
-  const view = structuredClone(state);
-  const publicDice = view.phase === "revealing" || view.phase === "finished";
-  if (!publicDice) {
-    // Only the player holding the cup may see any dice at all. The cup stays
-    // with the last roller until the next round is seeded, which is what makes
-    // this a state question rather than a phase question.
-    const mine = view.diceOwnerId === viewerId ? viewerId : null;
-    for (const player of view.players) {
-      if (player.id !== mine) player.dice = null;
-    }
-  }
-  return view;
 }
 
 /** Decode a percent-encoded header, tolerating malformed input. */

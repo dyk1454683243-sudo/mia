@@ -742,6 +742,21 @@ You". That is the documented fallback rather than a regression (a fresh
 database avoids collisions), and it is the same `listPlayerNames` scan B10
 already flags as unbounded.
 
+## Fixed: B6 — one implementation of the dice-secrecy boundary
+
+The Durable Object had its own `redactFor`, phase-based: once a reveal began it
+returned **every** player's dice rather than only the doubted player's. Harmless
+only because `takeCup` keeps one pair in the state — one accident away from the
+leak fixed in `1a9bb09`. It is gone; `redactedFor` and `broadcast` now call the
+shared `buildView`, so there is one boundary and one test suite.
+
+Verified: a new workers test plants a stray pair of dice (directly in the live
+state, so `takeCup` cannot hide it) on a player who is neither at the cup nor
+about to be doubted, then drives a doubt and asserts that every socket sees the
+doubted player's dice **and nobody sees the stray pair**. Reverting the shared
+redaction to the old phase rule makes it fail with `expected [6, 6] to be null`.
+`npx vitest run` **66 passing (46 unit + 20 workers)**, both typechecks clean.
+
 ## Not started
 
 Nothing. **R1–R6, B1–B11's pre-deploy fixes and B12 are all done.** R3–R6 and

@@ -394,6 +394,55 @@ describe("TableRoom", () => {
     boSocket.close();
   });
 
+  it("never turns a stray pair of dice face up at the reveal", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const cara = await makePlayer("Cara");
+    const tableId = await createTableRow("Stray dice", anna.id);
+    const sockets = [await connect(tableId, anna), await connect(tableId, bo), await connect(tableId, cara)];
+    await sockets[0]!.nextState((view) => view.state.players.length === 3);
+
+    sockets[0]!.send({ type: "start" });
+    const started = await sockets[0]!.nextState((view) => view.state.round === 1);
+    const order = started.state.players.map((player) => player.id);
+    const starterId = started.state.turnPlayerId!;
+    const starterIndex = order.indexOf(starterId);
+    const starter = sockets[starterIndex]!;
+    const doubter = sockets[(starterIndex + 1) % 3]!;
+    const neutralId = order[(starterIndex + 2) % 3]!;
+
+    await waitFor(async () => (await readState(tableId))?.phase === "deciding");
+    starter.send({ type: "roll" });
+    await starter.nextState((view) => view.state.phase === "announcing");
+    await forceDice(tableId, starterId, [3, 1]);
+    starter.send({ type: "announce", value: 65 });
+    await starter.nextState((view) => view.state.lastAnnouncement?.value === 65);
+
+    // Plant a second pair on a player who is neither at the cup nor about to be
+    // doubted. The old phase-based redaction returned every pair once a reveal
+    // began, so this is exactly the leak the shared boundary must prevent.
+    await inRoom(tableId, async (room) => {
+      const state = await room.__stateForTest();
+      const player = state?.players.find((candidate) => candidate.id === neutralId);
+      if (!state || !player) throw new Error("no state");
+      player.dice = [6, 6];
+    });
+    expect((await readState(tableId))?.players.find((player) => player.id === neutralId)?.dice).toEqual([6, 6]);
+
+    doubter.send({ type: "doubt" });
+    await doubter.nextState((view) => view.state.phase === "revealing" || view.state.lastReveal !== null);
+
+    for (const socket of sockets) {
+      const view = await socket.nextState((state) => state.state.phase === "revealing" || state.state.lastReveal !== null);
+      // The doubted player's dice are public...
+      expect(view.state.players.find((player) => player.id === starterId)?.dice).toEqual([3, 1]);
+      // ...and the planted pair is not, to anybody.
+      expect(view.state.players.find((player) => player.id === neutralId)?.dice).toBeNull();
+    }
+
+    for (const socket of sockets) socket.close();
+  });
+
   it("rejects illegal actions server-side", async () => {
     const anna = await makePlayer("Anna");
     const bo = await makePlayer("Bo");
