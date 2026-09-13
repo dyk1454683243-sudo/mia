@@ -5,12 +5,13 @@
  * key lives in D1 (created on first use) rather than in a provisioned secret, so
  * the whole thing deploys in one command.
  */
-import { ensureSchema, getConfig, getPlayer, insertPlayer, listPlayerNames, renamePlayer, setConfig, touchPlayer } from "./db";
+import { ensureSchema, getConfig, getPlayer, insertConfigIfAbsent, insertPlayer, listPlayerNames, renamePlayer, touchPlayer } from "./db";
 import { pickShipName } from "../shared/ships";
 
 export const COOKIE_NAME = "mia_pid";
 export const COOKIE_MAX_AGE_S = 400 * 24 * 60 * 60;
-const KEY_CONFIG_NAME = "session_key";
+/** Exported so the race test can clear and read the row without a magic string. */
+export const SIGNING_KEY_CONFIG = "session_key";
 
 /** Cached per isolate: the signing key and the parsed CryptoKey. */
 let signingKey: Promise<CryptoKey> | null = null;
@@ -43,16 +44,26 @@ function bufferOf(value: Uint8Array): ArrayBuffer {
   return copy.buffer as ArrayBuffer;
 }
 
-async function loadSigningKey(env: Env): Promise<CryptoKey> {
+/**
+ * Resolve the signing-key material, creating it at most once. Two isolates on a
+ * cold database both see a miss and both try to insert; `DO NOTHING` lets one
+ * win, and both re-read so they use the same key. Returning the candidate we
+ * generated would leave the loser signing with a key nobody else has.
+ *
+ * Exported so the concurrency test can drive it directly — `getSigningKey`
+ * caches per isolate, which would hide the race behind a shared promise.
+ */
+export async function resolveSigningKeyMaterial(env: Env): Promise<string> {
   await ensureSchema(env);
-  let material: Uint8Array;
-  const stored = await getConfig(env, KEY_CONFIG_NAME);
-  if (stored === null) {
-    material = randomKeyMaterial();
-    await setConfig(env, KEY_CONFIG_NAME, toBase64Url(material));
-  } else {
-    material = fromBase64Url(stored);
-  }
+  const stored = await getConfig(env, SIGNING_KEY_CONFIG);
+  if (stored !== null) return stored;
+  const candidate = toBase64Url(randomKeyMaterial());
+  await insertConfigIfAbsent(env, SIGNING_KEY_CONFIG, candidate);
+  return (await getConfig(env, SIGNING_KEY_CONFIG)) ?? candidate;
+}
+
+async function loadSigningKey(env: Env): Promise<CryptoKey> {
+  const material = fromBase64Url(await resolveSigningKeyMaterial(env));
   return await crypto.subtle.importKey("raw", bufferOf(material), { name: "HMAC", hash: "SHA-256" }, false, [
     "sign",
     "verify",

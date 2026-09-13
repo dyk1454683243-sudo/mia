@@ -79,10 +79,17 @@ export async function getConfig(env: Env, key: string): Promise<string | null> {
   return row?.value ?? null;
 }
 
-export async function setConfig(env: Env, key: string, value: string): Promise<void> {
+/**
+ * Create a config row only if it is absent, and report nothing about whether we
+ * won. Two isolates racing to create the session key both land here; exactly one
+ * insert takes effect, and both then re-read whichever value won. An upsert
+ * here would let the loser overwrite the winner and silently invalidate every
+ * cookie signed with it.
+ */
+export async function insertConfigIfAbsent(env: Env, key: string, value: string): Promise<void> {
   await env.DB.prepare(
     `INSERT INTO app_config (key, value) VALUES (?1, ?2)
-     ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+     ON CONFLICT (key) DO NOTHING`,
   )
     .bind(key, value)
     .run();

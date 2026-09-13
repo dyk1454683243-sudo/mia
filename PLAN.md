@@ -342,7 +342,7 @@ A task is **Done** only once it has been reviewed.
 | B4 — frozen turn countdown | **Done** — `c0f396b`, reviewed | Re-render note in R1 |
 | B5 — host tab-close bricks the table | **Done** — `083a695`, reviewed | |
 | B6 — duplicate redaction implementations | Fixed, awaiting review | DO calls shared `buildView`; stray-dice test |
-| B7 — session key creation race | Open | |
+| B7 — session key creation race | Fixed, awaiting review | `DO NOTHING` + re-read; new session tests |
 | B8 — client replays stale actions | Open | |
 | B9 — test seams on the production DO | Open | |
 | B10 — minor cleanup pass | Open | |

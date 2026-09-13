@@ -757,6 +757,30 @@ doubted player's dice **and nobody sees the stray pair**. Reverting the shared
 redaction to the old phase rule makes it fail with `expected [6, 6] to be null`.
 `npx vitest run` **66 passing (46 unit + 20 workers)**, both typechecks clean.
 
+## Fixed: B7 — session-key creation is write-once
+
+`loadSigningKey` read `app_config` and, on a miss, generated a key and wrote it
+with an **upsert**. On a cold database two isolates both miss, both generate,
+and the second overwrites the first — every cookie already signed with the loser
+fails verification forever, silently losing that player's identity and name.
+
+`setConfig` is gone, replaced by `insertConfigIfAbsent` (`ON CONFLICT (key) DO
+NOTHING`), and the key path re-reads whichever value actually landed instead of
+returning the candidate it generated. `resolveSigningKeyMaterial` is extracted
+from `loadSigningKey` and exported, because `getSigningKey` caches per isolate
+and that cache would hide the race behind a shared promise.
+
+Verified, in a new `test/session.test.ts` (added to the workers project):
+
+- the primitive: two `insertConfigIfAbsent` calls for one key leave the **first**
+  value in place. Reverting to `DO UPDATE` fails it with `expected 'second' to be
+  'first'`;
+- the behaviour: on a cold database, two concurrent
+  `resolveSigningKeyMaterial(env)` calls return the **same** key, and it is the
+  one stored.
+
+`npx vitest run` **68 passing (46 unit + 22 workers)**, both typechecks clean.
+
 ## Not started
 
 Nothing. **R1–R6, B1–B11's pre-deploy fixes and B12 are all done.** R3–R6 and
