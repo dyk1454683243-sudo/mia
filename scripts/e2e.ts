@@ -14,7 +14,9 @@ import { autoPlaySequence, legalMoves, type MiaState } from "../src/shared/mia.t
 
 const BASE = process.env.MIA_BASE ?? "http://127.0.0.1:8787";
 const REVEAL_TIMEOUT_MS = 20_000;
-const STEP_LIMIT = 400;
+const trace = process.env.MIA_TRACE === "1";
+const STEP_LIMIT_OVERRIDE = Number(process.env.MIA_STEP_LIMIT ?? "0");
+const STEP_LIMIT = STEP_LIMIT_OVERRIDE > 0 ? STEP_LIMIT_OVERRIDE : 400;
 
 // ---------------------------------------------------------------------------
 // Tiny assertion helpers
@@ -84,7 +86,10 @@ class Client {
   private states: MiaState[] = [];
   private connectedIds: string[] = [];
   private errors: string[] = [];
-  private waiters: { predicate: () => boolean; resolve: () => void; reject: (error: Error) => void }[] = [];
+  /** Increments for every state snapshot, so waiters can demand something newer. */
+  private seq = 0;
+  private waiters: { after: number; predicate: () => boolean; resolve: () => void; reject: (error: Error) => void }[] =
+    [];
 
   constructor(player: Player) {
     this.player = player;
@@ -112,13 +117,20 @@ class Client {
         | { type: "state"; state: MiaState; connected: string[] }
         | { type: "error"; message: string };
       if (message.type === "error") {
-        this.errors.push(message.message);
-      } else {
-        this.states.push(message.state);
-        this.connectedIds = message.connected;
+        // An error means the action was refused. If something is waiting on it,
+        // fail that waiter; otherwise record it for diagnosis.
+        const pending = this.waiters.splice(0);
+        if (pending.length === 0) this.errors.push(message.message);
+        for (const waiter of pending) waiter.reject(new Error(`${this.player.label}: server said "${message.message}"`));
+        return;
       }
+      this.states.push(message.state);
+      this.connectedIds = message.connected;
+      this.seq += 1;
       for (let index = this.waiters.length - 1; index >= 0; index--) {
         const waiter = this.waiters[index]!;
+        // `after` is the seq at registration; only snapshots past it count.
+        if (waiter.after >= this.seq) continue;
         if (waiter.predicate()) {
           this.waiters.splice(index, 1);
           waiter.resolve();
@@ -131,6 +143,10 @@ class Client {
 
   get state(): MiaState | null {
     return this.states.length > 0 ? this.states[this.states.length - 1]! : null;
+  }
+
+  get sequence(): number {
+    return this.seq;
   }
 
   get lastError(): string | null {
@@ -146,11 +162,29 @@ class Client {
     this.socket.send(JSON.stringify(message));
   }
 
-  /** Wait until the predicate holds for the latest snapshot. */
+  /** Resolve as soon as the predicate holds, including on the snapshot already on screen. */
   waitFor(predicate: (state: MiaState) => boolean, timeoutMs = REVEAL_TIMEOUT_MS): Promise<void> {
     if (this.state && predicate(this.state)) return Promise.resolve();
+    return this.await((state) => predicate(state), timeoutMs);
+  }
+
+  /**
+   * Resolve only on a snapshot that arrives after this call. Every action in
+   * the driver is followed by a broadcast, so this is how the driver waits for
+   * the server's answer rather than for a state it has already reacted to.
+   */
+  waitNext(predicate: (state: MiaState) => boolean = () => true, timeoutMs = REVEAL_TIMEOUT_MS): Promise<void> {
+    return this.await(predicate, timeoutMs, this.seq);
+  }
+
+  private await(
+    predicate: (state: MiaState) => boolean,
+    timeoutMs: number,
+    after = -1,
+  ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const waiter = {
+        after,
         predicate: () => this.state !== null && predicate(this.state),
         resolve,
         reject,
@@ -208,7 +242,9 @@ async function playGame(players: Player[], tableName: string): Promise<{
   await clients[0]!.waitFor((state) => state.players.length === players.length);
 
   clients[0]!.send({ type: "start" });
-  await clients[0]!.waitFor((state) => state.round === 1);
+  await clients[0]!.waitNext((state) => state.round === 1);
+  // The round opens with a short beat before the starter may roll.
+  await clients[0]!.waitNext((state) => state.phase === "deciding", 10_000);
 
   const log: GameLog = {
     rounds: 0,
@@ -219,29 +255,28 @@ async function playGame(players: Player[], tableName: string): Promise<{
     hiddenDiceViolations: [],
     leakedTo: [],
   };
-  const seenReveal = new Set<number>();
   const seenRound = new Set<number>();
+  let revealKey: string | null = null;
 
   const byId = new Map(clients.map((client) => [client.player.id, client]));
 
   for (let step = 0; step < STEP_LIMIT; step++) {
-    const reference = clients[0]!.state;
-    if (!reference) throw new Error("no state");
-    if (reference.gameOver) break;
+    const state = clients[0]!.state;
+    if (!state) throw new Error("no state");
+    if (state.gameOver) break;
     if (step % 25 === 0) {
       console.log(
-        `    step ${step}: round ${reference.round} phase ${reference.phase} turn ${reference.turnPlayerId?.slice(0, 4)} standing ${
-          reference.lastAnnouncement?.value ?? "-"
-        } lives ${reference.players.map((player) => player.lives).join("/")}`,
+        `    step ${step}: round ${state.round} phase ${state.phase} turn ${state.turnPlayerId?.slice(0, 4)} standing ${
+          state.lastAnnouncement?.value ?? "-"
+        } lives ${state.players.map((player) => player.lives).join("/")}`,
       );
     }
 
-    // Redaction audit: only the cup holder may see any dice before a reveal.
+    // Redaction audit: before a reveal, only the cup holder may see any dice.
     for (const client of clients) {
       const view = client.state;
       if (!view) continue;
-      const publicDice = view.phase === "revealing" || view.phase === "finished";
-      if (publicDice) continue;
+      if (view.phase === "revealing" || view.phase === "finished") continue;
       const visible = view.players.filter((player) => player.dice !== null);
       for (const player of visible) {
         if (player.id !== client.player.id) {
@@ -249,56 +284,77 @@ async function playGame(players: Player[], tableName: string): Promise<{
         }
       }
       if (visible.length > 0 && visible[0]!.id !== view.diceOwnerId) {
-        log.leakedTo.push(`${client.player.label} sees dice not at the cup`);
+        log.leakedTo.push(`${client.player.label} sees dice that are not at the cup`);
       }
     }
 
-    if (!seenRound.has(reference.round)) {
-      seenRound.add(reference.round);
+    if (!seenRound.has(state.round)) {
+      seenRound.add(state.round);
       log.rounds += 1;
     }
-    if (reference.lastReveal && reference.lastReveal !== null) {
-      const key = reference.round * 1000 + reference.players.filter((p) => p.eliminated).length;
-      if (!seenReveal.has(key)) {
-        seenReveal.add(key);
+    if (state.lastReveal) {
+      const key = `${state.round}:${state.players.reduce((total, player) => total + player.lives, 0)}`;
+      if (key !== revealKey) {
+        revealKey = key;
         log.reveals += 1;
-        if (reference.lastReveal.verdict === "announcer") log.announcerLosses += 1;
-        if (reference.lastReveal.verdict === "doubter") log.doubterLosses += 1;
-        if (reference.lastReveal.penaltyApplied === "double-mia") log.doubleMia += 1;
+        if (state.lastReveal.verdict === "announcer") log.announcerLosses += 1;
+        if (state.lastReveal.verdict === "doubter") log.doubterLosses += 1;
+        if (state.lastReveal.penaltyApplied === "double-mia") log.doubleMia += 1;
       }
     }
 
-    if (reference.phase === "revealing") {
-      await clients[0]!.waitFor((state) => state.phase !== "revealing");
+    if (state.phase === "revealing") {
+      await clients[0]!.waitNext((next) => next.phase !== "revealing");
       continue;
     }
-    if (reference.phase === "roundStart") {
-      await clients[0]!.waitFor((state) => state.phase !== "roundStart");
+    if (state.phase === "roundStart") {
+      await clients[0]!.waitNext((next) => next.phase !== "roundStart", 10_000);
       continue;
     }
-    if (reference.phase === "finished") break;
+    if (state.phase === "finished") break;
 
-    const turnId = reference.turnPlayerId;
+    const turnId = state.turnPlayerId;
     if (!turnId) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 25));
       continue;
     }
     const actor = byId.get(turnId);
-    if (!actor) throw new Error(`no client for turn player ${turnId}`);
+    if (!actor) throw new Error(`no client for the turn player ${turnId}`);
 
-    const queue = autoPlaySequence(reference, turnId);
-    if (queue.length === 0) throw new Error(`no legal auto-play move in phase ${reference.phase}`);
-
-    for (const action of queue) {
-      const before = actor.state;
-      actor.send(action);
-      const expectAnnouncement = action.type === "announce";
-      await actor.waitFor((state) => {
-        if (!before) return true;
-        if (expectAnnouncement) return state.lastAnnouncement?.value === (action as { value: number }).value;
-        if (action.type === "roll" || action.type === "believe") return state.phase === "announcing";
-        return state.phase !== before.phase || state.turnPlayerId !== before.turnPlayerId;
-      });
+    // The snapshot the driver acts on may lag a step behind, so read the acting
+    // client's own view and retry once if the server says the turn moved on.
+    let moved = false;
+    for (let attempt = 0; attempt < 2 && !moved; attempt++) {
+      const mine = actor.state;
+      if (!mine || mine.turnPlayerId !== actor.player.id) break;
+      const queue = autoPlaySequence(mine, actor.player.id);
+      if (trace) {
+        console.log(
+          `      [trace] actor=${actor.player.label} phase=${mine.phase} turn=${mine.turnPlayerId?.slice(0, 4)} cup=${
+            mine.diceOwnerId?.slice(0, 4) ?? "none"
+          } standing=${mine.lastAnnouncement?.value ?? "-"} seq=${actor.sequence} queue=${JSON.stringify(queue)}`,
+        );
+      }
+      if (queue.length === 0) throw new Error(`no legal auto-play move in phase ${mine.phase}`);
+      try {
+        for (const action of queue) {
+          actor.send(action);
+          if (action.type === "announce") {
+            const value = action.value;
+            await actor.waitNext((next) => next.lastAnnouncement?.value === value);
+          } else if (action.type === "roll" || action.type === "believe") {
+            await actor.waitNext((next) => next.phase === "announcing");
+          } else {
+            await actor.waitNext((next) => next.phase !== "deciding" || next.gameOver !== null);
+          }
+        }
+        moved = true;
+      } catch (error) {
+        if (!/not your turn|Not your turn/i.test(String(error))) throw error;
+        if (trace) console.log(`      [trace] retry after: ${String(error)}`);
+        // Stale snapshot: take the next broadcast and re-decide.
+        await actor.waitNext();
+      }
     }
   }
 
@@ -402,7 +458,7 @@ async function main(): Promise<void> {
   const bare = await api("/api");
   check("bare /api reaches the Worker, not the asset binding", bare.status === 200 && typeof bare.body === "object", `status ${bare.status}`);
 
-  section("Reconnect");
+  section("Reconnect mid-game");
   const reconnectTable = await api("/api/tables", {
     method: "POST",
     player: players[0]!,
@@ -414,16 +470,38 @@ async function main(): Promise<void> {
   await a.connect(reconnectId);
   await b.connect(reconnectId);
   await a.waitFor((state) => state.players.length === 2);
+  a.send({ type: "start" });
+  await a.waitNext((state) => state.round === 1);
+  await a.waitNext((state) => state.phase === "deciding", 10_000);
+  const live = a.state!;
+  const turnId = live.turnPlayerId!;
+  const turnClient = turnId === players[0]!.id ? a : b;
+  turnClient.send({ type: "roll" });
+  await turnClient.waitNext((state) => state.phase === "announcing");
+  const rolled = turnClient.state!;
 
-  const fresh = new Client(players[0]!);
+  // Drop the connection entirely and come back with a brand new one.
+  const returning = turnId === players[0]!.id ? players[0]! : players[1]!;
+  turnClient.close();
+  const fresh = new Client(returning);
   await fresh.connect(reconnectId);
-  await fresh.waitFor(() => true);
+  await fresh.waitNext((state) => state.round === rolled.round && state.phase !== "roundStart");
+  const restored = fresh.state!;
+
+  // The 60-second clock may have auto-played the turn while this client was
+  // away, so the phase can legitimately be further along than it was.
   check(
-    "a second connection for the same player gets the same roster",
-    fresh.state?.players.length === 2 && fresh.state.you === players[0]!.id,
-    `${fresh.state?.players.length} players`,
+    "a reconnecting client sees the live state it left",
+    restored.round === rolled.round && restored.phase !== "roundStart",
+    `round ${restored.round}, phase ${restored.phase}`,
   );
-  check("the roster did not grow on reconnect", a.state?.players.length === 2);
+  check("the roster did not grow on reconnect", restored.players.length === 2, `${restored.players.length} players`);
+  const stillHolding = restored.diceOwnerId === turnId;
+  check(
+    "the reconnected player still has the dice in front of them",
+    stillHolding && (restored.players.find((player) => player.id === returning.id)?.dice ?? null) !== null,
+    `cup=${restored.diceOwnerId?.slice(0, 4) ?? "none"} phase=${restored.phase}`,
+  );
   a.close();
   b.close();
   fresh.close();
