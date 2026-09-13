@@ -121,12 +121,20 @@ restores the roster and leaves the cup where it was.
 `npx vitest run`: 45 passing (39 unit + 6 workers). Both typechecks clean.
 
 ## Not started
-- `npx wrangler deploy --temporary` and live-URL verification.
-- One redeploy into the same cached temporary account; confirm D1 and DO state
-  survive.
-- Strip any provisioned resource IDs written back into `wrangler.jsonc`.
-- `README.md`, and the hand-over report (live URL, claim URL with an absolute
-  UTC deadline, and an honest account of what was and was not verified).
+
+Broken down as tasks **R1–R6** in the "Remaining work — handoff tasks" section
+of `PLAN.md`, with per-task acceptance criteria. In short:
+
+- **R1** — verify the UI in a real browser at a phone viewport. The client has
+  never been rendered; all verification so far is protocol-level. Includes
+  writing `scripts/bots.ts` so a human can play against bot seats.
+- **R2** — write `README.md` (currently 0 bytes).
+- **R3** — `wrangler deploy --temporary`.
+- **R4** — verify the live URL (harness + browser).
+- **R5** — redeploy into the same cached account; prove D1 and DO state survive.
+- **R6** — strip any provisioned resource IDs, audit for leaks, hand-over report.
+
+R3–R6 are time-coupled: the claim URL expires 60 minutes after R3 creates it.
 
 ## Environment notes (this sandbox)
 

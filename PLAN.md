@@ -316,3 +316,233 @@ Give the user, in chat and never in a committed file or an artifact:
   That directory holds the account id, API token and claim URL — it is already gitignored;
   never commit, log, or display it.
 - Do not commit account-specific IDs.
+
+---
+
+# Remaining work — handoff tasks
+
+Status as of commit `1a9bb09`. Everything described above this section is built
+and verified except the tasks below. Each is sized for one agent session and is
+reviewable on its own.
+
+Current state: 45 tests passing (39 unit + 6 workers), both typechecks clean,
+`scripts/e2e.ts` 25/25 against `wrangler dev` across two full games. Nothing has
+been deployed. The client has never been rendered in a browser.
+
+## Ground rules for every task
+
+- **Sandbox prefixes are mandatory.** `npm_config_cache=$PWD/.npm-cache` for npm,
+  and `XDG_CONFIG_HOME=$PWD/.cfstate XDG_CACHE_HOME=$PWD/.cfstate/cache` for
+  every `wrangler` command. Both paths are gitignored. See "Environment notes"
+  in `progress.md`.
+- **Never commit, log, echo, or paste into a file**: the claim URL, the
+  temporary API token, the account ID, or anything under `.cfstate/`. The claim
+  URL is a bearer credential — whoever holds it owns the account.
+- Finish by updating `progress.md` (move the task out of "Not started", record
+  what was verified and what was not) and committing.
+- Report honestly. "I ran X and it passed" must mean exactly that; say plainly
+  what was skipped or is still unknown.
+
+## Sequencing
+
+**R1 and R2** are independent of each other and can run in either order, but
+both must land before R3 — R3 deploys whatever is in the tree.
+
+**R3 through R6 are time-coupled and should run back to back.** The claim URL
+R3 produces expires **60 minutes** after it is created, and an unclaimed
+account is deleted along with its D1 database and Durable Objects. Do not let
+a review pause sit between them. The claim URL and its absolute UTC deadline
+must reach the user **as soon as R3 finishes** — do not hold it back for the
+R6 hand-over report.
+
+---
+
+## R1 — Verify the UI in a real browser at a phone viewport
+
+**Why.** `client/src/lobby.ts` (239 lines), `client/src/table.ts` (379) and
+`client/src/net.ts` (158) have never been rendered. Every verification so far is
+protocol-level: the e2e harness speaks HTTP and WebSocket directly and never
+loads the page. `vite build` succeeding proves the client compiles, not that it
+works, and certainly not that it is usable on a phone — which is the primary
+target.
+
+**Deliverable first:** the harness plays all seats itself, so there is currently
+no way to be a human player. Write `scripts/bots.ts` that joins N bot players to
+an existing table id and plays them, reusing the `Client` class and
+`chooseAction` from `scripts/e2e.ts` (extract the shared pieces rather than
+copy-pasting them). Usage: `node scripts/bots.ts <tableId> [count]`.
+
+**Then verify, at 375×812:**
+
+1. **Lobby** (`/`): a ship name is shown; inline rename persists across a
+   reload; the table list renders; creating a named table works; the 3-second
+   poll (`client/src/lobby.ts:230`) refreshes without flicker, scroll jump, or
+   losing focus in the rename field.
+2. **Share** (`client/src/table.ts:81`): the `navigator.share` path and the
+   `navigator.clipboard` fallback with its toast. Confirm the copied link is the
+   `/t/:id` form and that opening it in a fresh session joins that table.
+3. **A full game**, browser as one player and `scripts/bots.ts` as the others.
+   Confirm every phase renders correctly: `roundStart`, `deciding`
+   (Believe/Doubt), `announcing` (the announce grid, with values at or below the
+   standing announcement non-tappable and Mia distinct), `revealing` (actual
+   dice beside the claim, plus the verdict line), `finished` (winner).
+4. **Secrecy in the UI**: your own dice appear only when you hold the cup; no
+   other player's dice are ever on screen before a reveal.
+5. **Reconnect**: background the tab and refresh mid-game; the socket's backoff
+   reconnect (`client/src/net.ts:101`) should restore the live state with no
+   duplicate seat.
+6. **Phone fitness**: no horizontal scroll at 375px, tap targets comfortably
+   thumb-sized, text legible without zoom, and a check at 768px that nothing
+   collapses.
+7. **Console**: no errors or unhandled rejections at any point.
+
+**Acceptance criteria.** Screenshots of the lobby, each of the five table
+phases, and game over at 375×812. An explicit defect list with fixes applied, or
+an explicit statement that no defects were found. Zero console errors.
+`npx vitest run` still green and both typechecks clean. `scripts/bots.ts`
+committed and working.
+
+---
+
+## R2 — Write README.md
+
+**Why.** It is currently 0 bytes.
+
+**Content.** What the game is and the exact ruleset implemented (the plain
+ruleset — say so, and note which common variants were deliberately left out).
+A short architecture summary and *why* a Durable Object per table. How to
+install, run locally, and test. How to deploy. The project layout. The sandbox
+environment prefixes.
+
+**Acceptance criteria.** Someone who has never seen the repo can clone, install,
+run, test, and deploy from the README alone. Every command in it must have been
+actually run by the agent, not assumed. No account IDs, tokens, or claim URLs.
+
+---
+
+## R3 — Deploy to a temporary Cloudflare account
+
+**Preconditions.** R1 and R2 landed; tests and typechecks green; the working
+tree clean; `npx wrangler whoami` reports **not authenticated**.
+
+**Do.**
+
+1. Confirm wrangler >= 4.102.0 (installed: 4.131.1) and that no ambient
+   credentials exist: `env | grep -iE 'cloudflare|cf_'`.
+2. `npm run build`.
+3. `XDG_CONFIG_HOME=$PWD/.cfstate XDG_CACHE_HOME=$PWD/.cfstate/cache npx wrangler deploy --temporary`
+   — **as a background job, in one shot, non-interactively.** The
+   proof-of-work step takes minutes; do not run it under a short timeout and do
+   not answer prompts (continuing implies accepting the terms).
+4. Capture the worker URL, the account name, the claim URL, and compute the
+   deadline as deploy time + 60 minutes in **absolute UTC**.
+
+**Hazards.** Do not run `wrangler login` or `logout` at any point — it clears
+the cached account, and creating temporary accounts is rate limited. A
+Cloudflare error page (e.g. `error code: 1042`) in the first seconds after
+deploy is edge propagation, not a bug; retry before debugging.
+
+**Acceptance criteria.** A live `workers.dev` URL that returns 200 for `/`. The
+claim URL and its absolute UTC deadline delivered **in chat only**. The output
+of `git status` and `git diff wrangler.jsonc` shown, since auto-provisioning may
+write resource IDs back into the config. Nothing sensitive written to any file.
+
+---
+
+## R4 — Verify the deployed URL
+
+**Do.**
+
+1. Point the existing harness at the deployment:
+   `MIA_BASE=https://<worker>.<account>.workers.dev node scripts/e2e.ts`.
+   It already parameterises the base URL (`scripts/e2e.ts:15`).
+2. Load the live URL in a browser at 375×812 and play at least one round with
+   `scripts/bots.ts` against the live deployment.
+3. Confirm the error paths on the live URL specifically: 404 for an unknown
+   table, 400 for an over-long rename and for malformed JSON, 405 for a wrong
+   method, and that bare `/api` reaches the Worker rather than the asset binding.
+
+**Note.** This writes real rows into the live D1 database. That is acceptable
+and expected for a demo; say so rather than trying to clean up.
+
+**Acceptance criteria.** 25/25 harness checks against the live URL, with the
+output shown. A screenshot of the live page on a phone viewport. An explicit
+list of anything that behaved differently than it did locally — particularly
+timing, WebSocket hibernation, or alarm behaviour, which are the things local
+`wrangler dev` simulates least faithfully.
+
+---
+
+## R5 — Redeploy and prove persistence
+
+**Why.** A deploy proves packaging. This proves the D1 rows and Durable Object
+state actually survive a new version, which is the claim worth making.
+
+**Do.**
+
+1. From R4, note a specific finished `gameId` visible in `/api/history` and its
+   `tables` row.
+2. Redeploy with the same command. Confirm the output reports the account as
+   **`(reused)`** and bindings as **`(inherited)`** — a newly created account
+   means the cache was lost and the R3 claim URL is now worthless.
+3. Re-query `/api/history` for that same `gameId` and confirm the row and its
+   per-player rows are unchanged.
+4. Start a fresh game, leave it mid-round, redeploy again, reconnect, and
+   confirm the Durable Object still holds the live game (correct round, phase,
+   lives, and cup holder).
+
+**Acceptance criteria.** Explicit before/after evidence for both D1 and the
+Durable Object — the actual values compared, not a claim that they matched. The
+`(reused)`/`(inherited)` lines quoted from the deploy output.
+
+---
+
+## R6 — Config hygiene and the hand-over report
+
+**Do.**
+
+1. Re-read `wrangler.jsonc` and strip any `database_id` or other
+   account-specific ID that auto-provisioning wrote back. The committed config
+   must still deploy cleanly into a *fresh* account.
+2. Audit for leaks: `git ls-files` must contain nothing under `.cfstate/`, and
+   `git log -p` must not contain a claim URL, token, or account ID.
+3. Final `progress.md` update.
+4. Write the hand-over report per the "Handing over" section above.
+
+**Acceptance criteria.** The report contains: the live URL; the claim URL framed
+as a bearer credential with its deadline in absolute UTC; the consequence of not
+claiming (account and all resources deleted); and an honest, specific account of
+what was verified and what was not. No secrets in tracked files or in git
+history.
+
+---
+
+## Deferred — deliberately not in scope
+
+State these as known and intentional rather than fixing them mid-task:
+
+- `toSummary`'s `hostName` is hardcoded to `"someone"`
+  (`src/worker/db.ts:144`). The client never renders it, so it is a dead field,
+  not a visible bug. Populating it needs a join against `players`.
+- The 60-second turn timer never fires during normal harness play. Its
+  behaviour is covered deterministically by `test/room.test.ts` with a fast
+  clock, not end to end.
+- The double-Mia penalty is *reported* by the harness rather than asserted,
+  because whether it occurs is luck. It is pinned deterministically in
+  `test/mia.test.ts`.
+- No rate limiting, abuse protection, or table capacity enforcement beyond
+  `MAX_PLAYERS`. This is a low-stakes demo, per the original requirements.
+
+## Review protocol
+
+For each task, the review will check:
+
+1. **The claim matches the evidence.** Commands shown were actually run, and
+   their real output supports the conclusion drawn.
+2. **Nothing sensitive leaked** into tracked files or git history.
+3. **The suite still passes** — 45+ tests and both typechecks — and the e2e
+   harness still reaches 25/25.
+4. **Scope held.** Defects found in passing were either fixed with a
+   regression test or explicitly recorded, not silently absorbed or silently
+   ignored.
+5. **`progress.md` reflects reality**, including anything left undone.
