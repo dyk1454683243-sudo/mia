@@ -487,6 +487,48 @@ temporary account is R3's job and temporary accounts are rate limited, so deploy
 is documented and its packaging is verified with `--dry-run`; the real deploy is
 R3. No account IDs, tokens or claim URLs appear in the README.
 
+## Done: R3 — deployed to a temporary Cloudflare account
+
+Deployed on **2026-09-13 at 16:43Z** with
+
+```
+XDG_CONFIG_HOME=$PWD/.cfstate XDG_CACHE_HOME=$PWD/.cfstate/cache npx wrangler deploy --temporary
+```
+
+run as a one-shot background job, non-interactively. Preconditions confirmed
+first: wrangler 4.131.1 (≥ 4.102.0), `wrangler whoami` reporting **not
+authenticated**, no ambient `CLOUDFLARE_*`/`CF_*` credentials, `npm test` 63
+passing, `npm run typecheck` clean, and a clean working tree.
+
+The deploy created a temporary account, provisioned the D1 database and the
+Durable Object namespace from `wrangler.jsonc`, uploaded the 6 assets, and
+printed a live `workers.dev` URL. **The live URL and the claim URL are delivered
+in the chat message for this task only** — per the plan's handing-over rule they
+are not written into any committed file. Same for the account name and the
+claim deadline.
+
+Verified live, immediately after deploy:
+
+- `GET /` → **200**
+- `GET /api/me` → **200**, JSON, with a signed `HttpOnly; SameSite=Lax; Path=/;
+  Max-Age=34560000; Secure` `mia_pid` cookie — so the Worker, D1 and the
+  session code are all live, not just the asset binding
+- `GET /t/does-not-exist` → 200 (the table page; the id lookup is the API's job)
+- `GET /api` → 200, i.e. the bare `/api` path reached the Worker rather than the
+  asset binding
+
+`git status` is **clean** and `git diff wrangler.jsonc` is **empty**: the
+auto-provisioning did not write a `database_id` or any other account-specific ID
+back into the committed config, so it can still deploy into a fresh account.
+
+**Not verified here** (R4/R5 own them): the 25/25 e2e harness against the live
+URL, any browser run against it, and persistence of D1 rows and Durable Object
+state across a redeploy.
+
+**Timing.** The claim window is 60 minutes from the moment the temporary account
+was created (between 16:43:13Z and 16:43:41Z), so the deadline is approximately
+**17:43Z UTC**. R4–R6 must run before it.
+
 ## Not started
 
 Broken down as tasks **R1–R6** in the "Remaining work — handoff tasks" section
@@ -494,7 +536,8 @@ of `PLAN.md`, with per-task acceptance criteria. In short:
 
 - **R1** — **done** (see above), reviewed.
 - **R2** — **done** (see above), reviewed.
-- **R3** — `wrangler deploy --temporary`.
+- **R3** — **done** (see above), awaiting review. Live URL, claim URL and
+  deadline are in the task's chat message, not here.
 - **R4** — verify the live URL (harness + browser).
 - **R5** — redeploy into the same cached account; prove D1 and DO state survive.
 - **R6** — strip any provisioned resource IDs, audit for leaks, hand-over report.
@@ -541,7 +584,8 @@ running it does not mean scrolling past the whole ruleset first; the
 Durable-Object rationale tightened; and the omitted *variants* separated from
 the wider product decisions (no chat, no accounts) they were mixed in with.
 
-R3 (deploy) is now blocked on nothing.
+R3 (deploy) is done — live URL, claim URL and deadline are in that task's chat
+message. R4–R6 must run before the claim window closes.
 
 ### Review of R1 (`255fa5b`) — approved
 
