@@ -321,6 +321,31 @@ Give the user, in chat and never in a committed file or an artifact:
 
 # Remaining work — handoff tasks
 
+## Status board
+
+Keep this current as tasks land — it is the one place to look for what is left.
+A task is **Done** only once it has been reviewed.
+
+| Task | Status | Notes |
+| --- | --- | --- |
+| R1 — browser verification at a phone viewport | Open | Also delivers `scripts/bots.ts` |
+| R2 — `README.md` | Open | |
+| R3 — `wrangler deploy --temporary` | Open | Blocked on R1, R2, B2–B5 |
+| R4 — verify the live URL | Open | Blocked on R3 |
+| R5 — redeploy, prove persistence | Open | Blocked on R4 |
+| R6 — config hygiene, hand-over report | Open | Blocked on R5 |
+| B1 — abandoned-table alarm loop | **Done** — `ea28513`, reviewed | Follow-ups in B11 |
+| B2 — finishing places from seat order | Open | Pre-deploy |
+| B3 — lost result write | Open | Pre-deploy |
+| B4 — frozen turn countdown | Open | Pre-deploy |
+| B5 — host tab-close bricks the table | Open | Pre-deploy |
+| B6 — duplicate redaction implementations | Open | |
+| B7 — session key creation race | Open | |
+| B8 — client replays stale actions | Open | |
+| B9 — test seams on the production DO | Open | |
+| B10 — minor cleanup pass | Open | |
+| B11 — residual alarm-scheduling gaps | Open | Raised by the B1 review |
+
 Status as of commit `1a9bb09`. Everything described above this section is built
 and verified except the tasks below. Each is sized for one agent session and is
 reviewable on its own.
@@ -558,9 +583,10 @@ For each task, the review will check:
 A read-through of `src/`, `client/` and the tests at commit `fc507d3`. Nothing
 below is fixed; each item is a task. File:line references are to that commit.
 
-Severity is about user impact, not effort. **B1–B5 should be done before R3
-(deploy)** — B1 bills real money on a live account and B2 corrupts the only data
-the product persists. The rest can follow the R-series.
+Severity is about user impact, not effort. **B2–B5 should be done before R3
+(deploy)** — B2 corrupts the only data the product persists, and B5 produces
+dead tables on the shared link that is the whole point of the demo. B1 is done.
+The rest can follow the R-series.
 
 **Checked and found clean**, for the record: every user-controlled string
 reaching the DOM goes through `escapeHtml` (no XSS found); cookie signing,
@@ -571,32 +597,32 @@ git history; the D1 result write is a single atomic `batch`.
 
 ---
 
-## B1 — Abandoned tables enter a permanent alarm loop and are never reclaimed
+## B1 — Abandoned tables enter a permanent alarm loop — **DONE** (`ea28513`)
 
-**Severity: high.** Billing and resource leak on a live deployment.
+`maybeReapEmptyRoom` was unreachable for any table that had ever had a player,
+and the fallthrough rescheduled an already-past `emptySince + TTL`, refiring
+forever and deleting nothing.
 
-`maybeReapEmptyRoom` (`src/worker/table-room.ts:311`) is only reachable from
-`alarm()` when `this.state === null` (`table-room.ts:215`). Every table that has
-ever had a player has non-null state, so **the reaper never runs for any real
-table** — storage is never freed and `EMPTY_TABLE_TTL_MS` is dead code.
+Fixed by reaping before the phase dispatch, routing every `setAlarm` through
+`clampAlarmTime` so no target is ever in the past, persisting `emptySince` so
+the TTL survives hibernation, and deleting the alarm along with the storage.
 
-Worse, the fallthrough loops. For a finished or abandoned table, `alarm()`
-matches none of the phase branches and falls to `ensureAlarm()`
-(`table-room.ts:248`). There, `deadlineAt` and `roundEndsAt` are both null and
-there are no sockets, so it sets an alarm at `emptySince + EMPTY_TABLE_TTL_MS`
-(`table-room.ts:614`). When that fires, `emptySince` is unchanged in the warm
-instance, so the same past timestamp is set again — an immediate re-fire, and
-then a hot loop of alarm invocations that never terminates and never deletes
-anything.
+**Reviewed and approved.** Verified independently: 47 tests pass, both
+typechecks clean, and the new test genuinely fails when both reap paths are
+removed. No live game can be reaped — `hasPendingWork` is true for every
+in-play phase.
 
-**Do.** Make the reaper reachable: check for "no sockets and nothing scheduled"
-before the phase dispatch in `alarm()`, regardless of whether state is null.
-Never call `setAlarm` with a time already in the past — clamp to
-`max(target, now + someFloor)`. Delete storage and let the object go dormant.
+Review notes, carried forward rather than lost:
 
-**Acceptance.** A test that takes a table through game over, drops every socket,
-advances past the TTL, and asserts storage is deleted and no further alarm is
-scheduled. Confirm no alarm is ever set with a past timestamp.
+- The two reap paths (the `alarm()` early check and the `ensureAlarm`
+  no-sockets branch) are **individually redundant** — removing either one alone
+  leaves every test passing. The outcome is pinned; neither mechanism is.
+- The `return` → `break` in `autoPlay` fixed a second, undocumented bug: the old
+  early return skipped `ensureAlarm` when auto-play reached a **reveal**, and
+  since `commit` never arms alarms, such a table stalled in `revealing`. The
+  regression test it deserves is in **B11**.
+- The residual 1 Hz alarm loop is **B11**; the untested pre-game reap path is
+  folded into **B5**.
 
 ---
 
@@ -639,6 +665,13 @@ the lobby until it goes stale.
 `state.gameOver !== null && !resultsWritten`. Keep it idempotent — `recordGame`
 is already `ON CONFLICT DO NOTHING` (`src/worker/db.ts:236`), so re-running is
 safe. Either way, delete the comment or make it true.
+
+**Interaction with B1 (`ea28513`), which must be handled here.** The reaper now
+`deleteAll()`s an abandoned table an hour after it empties, and that includes a
+finished game whose result write failed. Any load-time retry can therefore only
+fire inside the TTL. `maybeReapEmptyRoom` must not delete a room with
+`gameOver !== null && !resultsWritten` — attempt the write first, and only reap
+once it has succeeded (or give up loudly rather than silently).
 
 **Acceptance.** A test with a failing D1 stub that asserts the write is retried
 and eventually succeeds, and that the table row reaches `finished`.
@@ -689,9 +722,16 @@ the seat and `syncTableRow`. Mid-game, keep the seat — auto-play already cover
 it, and that is the intended behaviour. Reassign host to the first *connected*
 seat, or let any connected player start once the original host is gone.
 
+**Also cover the untested reap path here**, since it is the same code. B1's test
+reaps a *finished* game. The commonest real case is an abandoned **pre-game**
+table — somebody creates one, nobody joins, they close the tab. That path works
+by inspection (`newLobbyState` leaves `roundEndsAt` null, so `needsImmediateWake`
+is false and the room is collectable) but nothing exercises it.
+
 **Acceptance.** A workers test: two players join, the host's socket closes, the
-remaining player can start; and the D1 `player_count` matches the live roster
-after a disconnect.
+remaining player can start; the D1 `player_count` matches the live roster after
+a disconnect; and an abandoned pre-game table with no sockets is reaped past a
+shortened TTL.
 
 ---
 
@@ -804,3 +844,38 @@ workers tests still pass.
   `decorate`/`attachSession` (`src/worker/index.ts:183`), which rebuilds the
   response. It works today — the harness connects fine — but a new player whose
   very first request is the WebSocket may not get their cookie stored.
+
+---
+
+## B11 — Residual alarm-scheduling gaps left by the B1 fix
+
+**Severity: low-medium.** Raised by the review of `ea28513`. Neither item is a
+regression — both predate that commit — but they are the same class of failure
+it set out to eliminate, so they belong with it.
+
+**1. A 1 Hz alarm loop can still run forever with nobody connected.**
+`ensureAlarm` (`src/worker/table-room.ts`) checks `needsImmediateWake` *before*
+the no-sockets branch, so a table whose beat is perpetually due never reaches
+the reaper. The reachable path: `autoPlay` rejects its own move
+(`applyAction` fails → `console.error` → `break`), leaving the phase unchanged
+with an expired deadline; `ensureAlarm` then schedules `now + 1s`; the alarm
+fires, dispatches to `autoPlay`, and fails again. It needs a logic
+inconsistency to start, but once started it never stops and is never reaped.
+
+**Do.** Cap it: count consecutive wakes that produce no state change and, past
+a small bound, stop re-arming — and let the no-sockets reap take precedence
+over `needsImmediateWake` when no progress is being made. A table nobody is
+connected to should never be able to spin indefinitely.
+
+**2. The reveal-stall fix has no test.** The `return` → `break` in `autoPlay`
+in `ea28513` fixed a real bug that the commit message describes only as "gets
+its reap alarm": the old early return skipped `ensureAlarm` when auto-play
+reached a **reveal**, and because `commit` never arms an alarm, such a table
+stalled in `revealing` with no clock to resolve it. Nothing pins this.
+
+**Do.** A workers test driving a table to a reveal **via auto-play** (not via a
+player's `doubt`) that asserts an alarm is armed and the reveal resolves into
+the next round.
+
+**Acceptance.** A test for each: one asserting a stuck auto-play stops re-arming
+and the room is eventually reaped, one asserting an auto-played reveal resolves.

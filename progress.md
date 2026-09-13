@@ -158,6 +158,21 @@ Not verified: any of this against a live deployment (nothing is deployed yet),
 and the reap path has not been observed end to end through `wrangler dev` —
 only in the workers pool.
 
+**Reviewed and approved.** Independently confirmed: 47 tests pass, both
+typechecks clean, and the new test genuinely fails when both reap paths are
+removed. Three things the review surfaced, all recorded as tasks rather than
+fixed in place:
+
+- The two reap paths are individually redundant — removing either one alone
+  leaves every test green. The outcome is pinned; neither mechanism is.
+- The `return` → `break` in `autoPlay` fixed a second, undocumented bug (a table
+  could stall in `revealing` when auto-play reached the reveal). It has no test:
+  **B11**.
+- The reaper can now delete a finished game whose D1 result write failed, which
+  caps the recovery window B3 was going to rely on: folded into **B3**.
+- B1's test reaps a *finished* table; the commoner abandoned **pre-game** table
+  is untested: folded into **B5**.
+
 ## Not started
 
 Broken down as tasks **R1–R6** in the "Remaining work — handoff tasks" section
@@ -174,11 +189,15 @@ of `PLAN.md`, with per-task acceptance criteria. In short:
 
 R3–R6 are time-coupled: the claim URL expires 60 minutes after R3 creates it.
 
-A code review at `fc507d3` added tasks **B1–B10** in the same file. **B1 is
-fixed** (see above). **B2–B5 are still pre-deploy**: finishing places computed
-from seat order, a lost result write on a transient D1 error, a frozen turn
-countdown, and a host who closes their tab leaving the table permanently
-unstartable.
+A code review at `fc507d3` added tasks **B1–B10** in the same file, and
+reviewing B1's fix added **B11**. `PLAN.md` opens with a **status board** —
+that table is the authoritative list of what is left, and a task counts as done
+only once it has been reviewed.
+
+**B1 is done** (`ea28513`, reviewed). **B2–B5 are still pre-deploy**: finishing
+places computed from seat order, a lost result write on a transient D1 error, a
+frozen turn countdown, and a host who closes their tab leaving the table
+permanently unstartable.
 
 ## Environment notes (this sandbox)
 
