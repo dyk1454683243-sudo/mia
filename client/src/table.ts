@@ -225,7 +225,8 @@ function renderPlay(view: StateView): string {
       <div class="row gap">
         <a class="primary link" href="/">Back to the lobby</a>
         <button class="ghost" data-action="share">Share join link</button>
-      </div></div>`;
+      </div>
+      <p class="muted small">A table is single-use — start a new one to play again.</p></div>`;
   } else if (game.phase === "revealing") {
     actions = `<div class="card actions"><p class="muted">Reveal…</p></div>`;
   } else if (game.phase === "roundStart") {
@@ -302,18 +303,29 @@ function renderPlay(view: StateView): string {
     </div>`;
 }
 
+/**
+ * Replace the page but keep the reader where they were. Every snapshot rebuilds
+ * the DOM, and without this a full-page replacement silently scrolls a phone
+ * back to the top mid-game.
+ */
+function paint(html: string): void {
+  const scrollY = window.scrollY;
+  app.innerHTML = html;
+  window.scrollTo(0, scrollY);
+}
+
 function render(): void {
   const view = state.view;
   const title = state.table?.name ?? view?.state.tableName ?? "Table";
   if (!view) {
-    app.innerHTML = `
+    paint(`
       <header class="topbar"><a class="brand" href="/">Mia</a><span class="table-title">${escapeHtml(title)}</span></header>
-      <main class="page"><section class="card"><p class="muted">Connecting…</p></section></main>`;
+      <main class="page"><section class="card"><p class="muted">Connecting…</p></section></main>`);
     return;
   }
 
   const started = view.state.round > 0;
-  app.innerHTML = `
+  paint(`
     <header class="topbar">
       <a class="brand" href="/">Mia</a>
       <span class="table-title">${escapeHtml(title)}</span>
@@ -322,7 +334,7 @@ function render(): void {
     <main class="page">
       ${state.error ? `<p class="toast">${escapeHtml(state.error)}</p>` : ""}
       ${started ? renderPlay(view) : renderWaiting(view)}
-    </main>`;
+    </main>`);
 }
 
 // ---------------------------------------------------------------------------

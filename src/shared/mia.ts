@@ -660,7 +660,10 @@ function resolveEliminations(state: MiaState, now: number): void {
   // player today, but if a resolution ever finds two players at zero lives at
   // once, the earlier seat is recorded as eliminated first and therefore
   // finishes lower. That is the documented tie rule.
-  let nextIndex = state.players.filter((player) => player.eliminationIndex !== null).length + 1;
+  // `!= null`, not `!== null`: a record persisted before `eliminationIndex`
+  // existed has `undefined`, which `!== null` would count as already indexed and
+  // inflate every subsequent place.
+  let nextIndex = state.players.filter((player) => player.eliminationIndex != null).length + 1;
   for (const player of state.players) {
     if (!player.eliminated && player.lives <= 0) {
       player.eliminated = true;

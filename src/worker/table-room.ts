@@ -57,7 +57,7 @@ interface SocketAttachment {
   name: string;
 }
 
-type RoomStatus = "waiting" | "playing" | "finished";
+type RoomStatus = "waiting" | "playing" | "finished" | "abandoned";
 
 export class TableRoom extends DurableObject<Env> {
   /** Protected, not private: the test-only subclass drives these directly. */
@@ -153,25 +153,29 @@ export class TableRoom extends DurableObject<Env> {
       return;
     }
 
+    // Clone, change the clone, then persist through `commit` — the rest of the
+    // file's rule. Mutating `this.state` first would leave memory and storage
+    // disagreeing if the write failed.
+    const next = structuredClone(state);
     // A room persisted before `hostId` existed learns it on this connect.
-    if (hostId !== null) state.hostId ??= hostId;
+    if (hostId !== null) next.hostId ??= hostId;
 
-    const existing = playerById(state, playerId);
+    const existing = playerById(next, playerId);
     if (!existing) {
-      if (state.round > 0) {
+      if (next.round > 0) {
         this.sendTo(playerId, {
           type: "error",
-          message: "That game already started. Ask for a new table.",
+          message: "That game already started, so you are watching. Ask for a new table to play.",
         });
         const view = this.redactedFor(playerId);
         if (view) this.sendTo(playerId, view);
         return;
       }
-      if (state.players.length >= MAX_PLAYERS) {
+      if (next.players.length >= MAX_PLAYERS) {
         this.sendTo(playerId, { type: "error", message: `That table is full (${MAX_PLAYERS} players).` });
         return;
       }
-      state.players.push({
+      next.players.push({
         id: playerId,
         name,
         lives: STARTING_LIVES,
@@ -180,14 +184,14 @@ export class TableRoom extends DurableObject<Env> {
         eliminated: false,
         eliminationIndex: null,
       });
-      state.tableName = tableName;
+      next.tableName = tableName;
     } else if (existing.name !== name) {
       existing.name = name;
     }
 
     // A returning player is a reconnect: they get the current snapshot and
     // nothing about the game changes.
-    await this.persistAndBroadcast();
+    await this.commit(next);
     await this.syncTableRow();
   }
 
@@ -483,6 +487,11 @@ export class TableRoom extends DurableObject<Env> {
       await this.ctx.storage.put(EMPTY_SINCE_KEY, now);
     }
     if (now - this.emptySince >= this.emptyTtlMs) {
+      // Mark the directory row before dropping the room, so the lobby stops
+      // advertising a table that no longer exists rather than waiting for the
+      // 30-minute staleness filter. Only an unfinished room: a completed game's
+      // row must stay "finished". Best effort — the row is not the state.
+      if (this.state !== null && this.state.gameOver === null) await this.syncTableRow("abandoned");
       // Drop the state and schedule nothing: the alarm that woke us is
       // one-shot, so the object goes dormant and stops billing wakes. This is
       // the only place table storage is ever freed.
@@ -509,9 +518,15 @@ export class TableRoom extends DurableObject<Env> {
 
   private async handleMessage(playerId: string, message: ClientMessage): Promise<void> {
     switch (message.type) {
-      case "ping":
-        await this.broadcast();
+      case "ping": {
+        // Reply to the caller only. A full broadcast here let one client
+        // amplify a single message into a snapshot for every socket at the
+        // table, which is the cheapest possible abuse of a demo with no rate
+        // limiting.
+        const view = this.redactedFor(playerId);
+        if (view) this.sendTo(playerId, view);
         return;
+      }
       case "start":
         await this.handleStart(playerId);
         return;
@@ -569,6 +584,10 @@ export class TableRoom extends DurableObject<Env> {
     }
 
     const seats: Seat[] = state.players.map((player) => ({ id: player.id, name: player.name }));
+    if (this.tableId() === "") {
+      await this.reportError(playerId, "This table has no id, so its result could not be recorded.");
+      return;
+    }
     const next = createGameState(this.tableId(), state.tableName, seats);
     next.hostId = state.hostId ?? hostId;
     await this.resetResultsWrite();
@@ -639,8 +658,13 @@ export class TableRoom extends DurableObject<Env> {
   // Persistence
   // -------------------------------------------------------------------------
 
+  /**
+   * The canonical table id, or "" when the upgrade carried none. Callers must
+   * treat "" as "do not write": a result row against a guessed id is worse than
+   * a loud failure.
+   */
   private tableId(): string {
-    return this.state?.tableId || "unknown";
+    return this.state?.tableId ?? "";
   }
 
   /** Persist first, then swap into memory, then tell everyone. */
@@ -668,6 +692,11 @@ export class TableRoom extends DurableObject<Env> {
   private async writeResults(state: MiaState): Promise<void> {
     const gameOver = state.gameOver;
     if (this.resultsWritten || gameOver === null) return;
+    if (this.tableId() === "") {
+      // Never write a result against a guessed table id; say so instead.
+      console.error(`refusing to record game ${state.gameId}: the room has no table id`);
+      return;
+    }
     // Places come from the engine's elimination order, never from the seat the
     // player happened to occupy in the roster.
     const players: FinalPlayer[] = finalStandings(state).map(({ player, place }) => ({
@@ -679,7 +708,7 @@ export class TableRoom extends DurableObject<Env> {
     }));
     this.resultWriteAttempts += 1;
     try {
-      // A test-only subclass overrides this to simulate a flaky D1; production
+      // A test-only subclass overrides these to simulate a flaky D1; production
       // always says no. Nothing test-shaped is checked on a real write.
       if (this.shouldFailResultWrite()) throw new Error("stubbed D1 failure");
       await recordGame(this.env, {
@@ -692,6 +721,7 @@ export class TableRoom extends DurableObject<Env> {
         winnerName: gameOver.winnerName,
         players,
       });
+      if (this.shouldFailFinishedSync()) throw new Error("stubbed lobby sync failure");
       // Unlike the routine lobby syncs, a failure here must keep the retry
       // alive: otherwise the lobby keeps advertising a finished table.
       await this.syncTableRow("finished", true);
@@ -719,6 +749,11 @@ export class TableRoom extends DurableObject<Env> {
     return false;
   }
 
+  /** Overridden by the test-only subclass to fail after the rows have landed. */
+  protected shouldFailFinishedSync(): boolean {
+    return false;
+  }
+
   /** Clear the result-write bookkeeping, e.g. when a fresh game starts. */
   private async resetResultsWrite(): Promise<void> {
     this.resultsWritten = false;
@@ -731,9 +766,10 @@ export class TableRoom extends DurableObject<Env> {
   /** Keep the D1 lobby directory in step with this table. */
   private async syncTableRow(status?: RoomStatus, throwOnError = false): Promise<void> {
     const state = this.state;
-    if (state === null) return;
+    const id = this.tableId();
+    if (state === null || id === "") return;
     try {
-      await updateTable(this.env, this.tableId(), {
+      await updateTable(this.env, id, {
         playerCount: state.players.length,
         now: Date.now(),
         ...(status ? { status } : {}),

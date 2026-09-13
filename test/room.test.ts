@@ -531,6 +531,28 @@ describe("TableRoom", () => {
     boSocket.close();
   }, 30_000);
 
+  it("answers a ping to the caller only, so it cannot amplify", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const tableId = await createTableRow("Ping", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    await annaSocket.nextState((view) => view.state.players.length === 2);
+    await boSocket.nextState((view) => view.state.players.length === 2);
+
+    const annaBefore = annaSocket.states.length;
+    const boBefore = boSocket.states.length;
+    annaSocket.send({ type: "ping" });
+    await waitFor(() => annaSocket.states.length > annaBefore);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    // One client's ping used to broadcast a freshly redacted snapshot to every
+    // socket at the table.
+    expect(boSocket.states.length).toBe(boBefore);
+
+    annaSocket.close();
+    boSocket.close();
+  });
+
   it("plays a game to a win and writes the result rows to D1", async () => {
     const anna = await makePlayer("Anna");
     const bo = await makePlayer("Bo");
@@ -710,6 +732,8 @@ describe("TableRoom", () => {
     // object again.
     await waitForValue(async () => ((await storedRoom(tableId)) === null ? true : null), 8_000);
     expect(await scheduledAlarm(tableId)).toBeNull();
+    // A completed game's row must not be relabelled on the way out.
+    expect(await tableStatus(tableId)).toBe("finished");
   });
 
   it("records finishing places in elimination order, not seat order", async () => {
@@ -809,6 +833,41 @@ describe("TableRoom", () => {
     expect(internals.written).toBe(true);
     expect(internals.attempts).toBeGreaterThanOrEqual(3);
     await waitFor(async () => (await tableStatus(tableId)) === "finished");
+
+    annaSocket.close();
+    boSocket.close();
+  }, 30_000);
+
+  it("retries a partial write without duplicating rows", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const tableId = await createTableRow("Partial write", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    await annaSocket.nextState((view) => view.state.players.length === 2);
+
+    // The result rows land, then the finished-table sync fails. That is the
+    // only shape that actually exercises `recordGame`'s idempotency: the retry
+    // re-runs an INSERT whose rows are already there.
+    await inRoom(tableId, (room) => room.__failFinishedSyncForTest(1));
+    const gameId = await finishTwoPlayerGame(tableId, anna.id, [annaSocket, boSocket]);
+
+    // The retry finishes the job...
+    await waitFor(async () => (await tableStatus(tableId)) === "finished", 15_000);
+    const internals = await resultWriteInternals(tableId);
+    expect(internals.written).toBe(true);
+    expect(internals.attempts).toBeGreaterThanOrEqual(2);
+
+    // ...and the replayed INSERTs duplicated nothing.
+    const games = await env.DB.prepare(`SELECT COUNT(*) AS n FROM games WHERE id = ?1`)
+      .bind(gameId)
+      .first<{ n: number }>();
+    expect(games?.n).toBe(1);
+    const playerRows = await env.DB.prepare(`SELECT COUNT(*) AS n FROM game_players WHERE game_id = ?1`)
+      .bind(gameId)
+      .first<{ n: number }>();
+    expect(playerRows?.n).toBe(2);
+    expect(await countResultRows(gameId)).toBe(2);
 
     annaSocket.close();
     boSocket.close();
@@ -1014,6 +1073,7 @@ describe("TableRoom", () => {
     // is the commonest abandoned table of all: created, nobody joined, closed.
     await waitForValue(async () => ((await storedRoom(tableId)) === null ? true : null), 8_000);
     expect(await scheduledAlarm(tableId)).toBeNull();
+    expect(await tableStatus(tableId)).toBe("abandoned");
   }, 20_000);
 
   it("lets the creator start even when someone else connected first", async () => {

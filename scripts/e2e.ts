@@ -299,10 +299,27 @@ async function main(): Promise<void> {
   check("the table row is finished", tableAfter.status === 200 && (tableAfter.body as { status: string }).status === "finished", JSON.stringify(tableAfter.body));
 
   const history = await api("/api/history?limit=5");
-  const games = (history.body as { games: { id: string; winnerName: string; players: unknown[] }[] }).games;
+  const games = (
+    history.body as {
+      games: {
+        id: string;
+        winnerId: string;
+        winnerName: string;
+        players: { playerId: string; place: number }[];
+      }[];
+    }
+  ).games;
   const recorded = games.find((entry) => entry.id === game.gameId);
   check("GET /api/history contains the finished game", Boolean(recorded), `${games.length} games`);
   check("the recorded game has per-player rows", (recorded?.players.length ?? 0) === players.length, `${recorded?.players.length ?? 0} players`);
+  const places = (recorded?.players ?? []).map((player) => player.place).sort((a, b) => a - b);
+  check(
+    "recorded places are dense, starting at 1",
+    places.length === players.length && places.every((place, index) => place === index + 1),
+    places.join(",") || "none",
+  );
+  const winnerPlace = recorded?.players.find((player) => player.playerId === recorded.winnerId)?.place;
+  check("the winner is recorded in first place", winnerPlace === 1, `winner place ${winnerPlace ?? "none"}`);
 
   section("Error paths");
   const missing = await api("/api/tables/00000000-0000-4000-8000-000000000000");

@@ -99,6 +99,13 @@ async function verifyLobby(page: Page): Promise<void> {
   check("the poll does not clobber typed text", valueKept === "Typing…", valueKept);
   await page.click('[data-action="cancel-rename"]');
 
+  // A poll refresh must not throw the reader back to the top of the page.
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  const scrolled = await page.evaluate(() => window.scrollY);
+  await sleep(5_000); // longer than POLL_MS, so a refresh lands
+  const afterPoll = await page.evaluate(() => window.scrollY);
+  check("a poll refresh keeps the reader's scroll position", Math.abs(afterPoll - scrolled) <= 1, `${scrolled} -> ${afterPoll}`);
+
   // A table created elsewhere shows up in the list.
   const seeder = await createPlayer("lobby-seed");
   const seeded = await api("/api/tables", {

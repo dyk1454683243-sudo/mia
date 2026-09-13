@@ -839,6 +839,61 @@ Verified:
 - Production behaviour is unchanged, so the R1/R4 harnesses were not re-run for
   this commit — the change is which class the tests instantiate.
 
+## Fixed: B10 — the cleanup pass
+
+Every bullet, in plan order:
+
+- **A reaped table's D1 row is now marked.** `maybeReapEmptyRoom` sets
+  `status = 'abandoned'` before dropping storage, so the lobby stops listing a
+  table that no longer exists instead of waiting out the 30-minute staleness
+  filter. A **finished** room is deliberately *not* relabelled — the first
+  version of this clobbered the `finished` row the result write had just set and
+  broke the reaper test, which is the regression the two assertions now pin.
+- **The partial-failure retry is tested.** A second hook,
+  `shouldFailFinishedSync`, fails *after* `recordGame` has landed, so the retry
+  re-runs an INSERT whose rows exist. The new test asserts the table reaches
+  `finished`, the attempt count is ≥ 2, and neither `games` nor `game_players`
+  has a duplicate.
+- **Fault injection left the production write path.** Folded into **B9**: the
+  counters are fields on `TestTableRoom`, and production consults only the two
+  `shouldFail*` hooks, which it answers `false`.
+- **`eliminationIndex` no longer miscounts old-shaped records.** `!= null`
+  instead of `!== null`, with a unit test that deletes the field (an
+  `undefined` record) and asserts the next elimination still gets index 1.
+- **e2e asserts places.** Two checks: places are dense from 1, and the winner is
+  in first place. e2e is now **27/27**.
+- **`listPlayerNames` is bounded.** `ORDER BY created_at DESC LIMIT 500`, backed
+  by a new `idx_players_created` index, instead of scanning every player on
+  every first visit. `pickShipName` already falls back to reusing a name once
+  the pool is exhausted.
+- **`ping` no longer amplifies.** It replies with a snapshot to the caller only;
+  it used to fan a full redacted broadcast out to every socket on the table. A
+  test asserts a second socket receives nothing.
+- **`handleConnect` is persist-first.** It clones the state, applies the change
+  to the clone and goes through `commit`, so memory and storage cannot diverge
+  if the write fails.
+- **Host identity** — folded into **B12**.
+- **No rematch is now stated.** The finished screen says a table is single-use.
+- **Spectators are stated, not silent.** A player joining a started game is told
+  they are watching rather than being left to guess.
+- **`tableId()` no longer guesses.** It returns `""`, and `writeResults` logs
+  and refuses rather than writing rows against `"unknown"`; `handleStart`
+  refuses; routine lobby syncs skip.
+- **Scroll survives a re-render.** Both pages paint through a `paint()` helper
+  that restores `window.scrollY`, so a snapshot no longer throws a scrolled
+  phone back to the top. `ui-check` asserts a real poll refresh keeps the
+  position.
+- **Set-Cookie on the 101 — verified, no change needed.** A raw handshake with
+  no cookie returns `101` with `Set-Cookie: mia_pid=…; HttpOnly; SameSite=Lax;
+  Path=/; Max-Age=34560000`, so a new player whose first request is the upgrade
+  does get their cookie.
+- **Rate limiting** remains deliberately absent beyond bounding `ping` and the
+  name scan: this is a low-stakes demo, as the README says.
+
+Verified: `npx vitest run` **72 passing (47 unit + 25 workers)**, both
+typechecks and `vite build` clean, `scripts/e2e.ts` **27/27**, `npm run
+ui-check` **42/42**, both against `wrangler dev`.
+
 ## Not started
 
 Nothing. **R1–R6, B1–B11's pre-deploy fixes and B12 are all done.** R3–R6 and

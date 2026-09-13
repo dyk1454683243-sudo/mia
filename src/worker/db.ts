@@ -63,6 +63,7 @@ export function ensureSchema(env: Env): Promise<unknown> {
     ),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_tables_status_updated ON tables (status, updated_at)`),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_games_finished ON games (finished_at DESC)`),
+    env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_players_created ON players (created_at DESC)`),
   ]).catch((error: unknown) => {
     schemaReady = null;
     throw error;
@@ -126,8 +127,14 @@ export async function renamePlayer(env: Env, id: string, name: string): Promise<
   await env.DB.prepare(`UPDATE players SET name = ?2 WHERE id = ?1`).bind(id, name).run();
 }
 
-export async function listPlayerNames(env: Env): Promise<string[]> {
-  const result = await env.DB.prepare(`SELECT name FROM players`).all<{ name: string }>();
+export async function listPlayerNames(env: Env, limit = 500): Promise<string[]> {
+  // Bounded: this runs on every first visit, only to avoid a duplicate ship
+  // name. A scan of every player ever would grow without limit; the most recent
+  // few hundred are the ones likely to collide anyway, and `pickShipName` falls
+  // back to reusing a name once the pool is exhausted.
+  const result = await env.DB.prepare(`SELECT name FROM players ORDER BY created_at DESC LIMIT ?1`)
+    .bind(limit)
+    .all<{ name: string }>();
   return (result.results ?? []).map((row) => row.name);
 }
 

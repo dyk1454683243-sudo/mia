@@ -9,6 +9,7 @@ import { TableRoom } from "../src/worker/table-room";
 
 export class TestTableRoom extends TableRoom {
   private resultWriteFailures = 0;
+  private finishedSyncFailures = 0;
 
   /**
    * Force the dice in front of a player, so a table can be driven through a
@@ -42,6 +43,15 @@ export class TestTableRoom extends TableRoom {
     this.resultWriteFailures = times;
   }
 
+  /**
+   * Arm the next `times` *lobby syncs that follow a successful result write* to
+   * fail. This is the partial-failure shape: the rows have landed and the
+   * retry has to be idempotent.
+   */
+  async __failFinishedSyncForTest(times: number): Promise<void> {
+    this.finishedSyncFailures = times;
+  }
+
   /** How many times this room has attempted the D1 result write. */
   async __resultWriteAttemptsForTest(): Promise<number> {
     return this.resultWriteAttempts;
@@ -50,6 +60,14 @@ export class TestTableRoom extends TableRoom {
   protected override shouldFailResultWrite(): boolean {
     if (this.resultWriteFailures > 0) {
       this.resultWriteFailures -= 1;
+      return true;
+    }
+    return false;
+  }
+
+  protected override shouldFailFinishedSync(): boolean {
+    if (this.finishedSyncFailures > 0) {
+      this.finishedSyncFailures -= 1;
       return true;
     }
     return false;

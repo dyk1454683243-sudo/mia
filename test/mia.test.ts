@@ -471,6 +471,22 @@ describe("rounds, elimination and winning", () => {
     expect(playerById(state, "dan")!.eliminationIndex).toBe(2);
   });
 
+  it("does not count an old-shaped record as already eliminated", () => {
+    // A state persisted before 07fb73e has no `eliminationIndex` at all, so the
+    // field reads `undefined` — which `!== null` used to count, inflating every
+    // index assigned afterwards.
+    let state = playing("anna", "bo", "cara", "dan");
+    delete (playerById(state, "anna") as unknown as { eliminationIndex?: number }).eliminationIndex;
+    playerById(state, "cara")!.lives = 0;
+
+    state = rollAs(state, "anna", [3, 1]);
+    state = announce(state, "anna", 65);
+    state = must(applyAction(state, { type: "doubt", playerId: "bo" }, TIMINGS, T0));
+
+    expect(playerById(state, "cara")!.eliminationIndex).toBe(1);
+    expect(playerById(state, "dan")!.eliminationIndex).toBeNull();
+  });
+
   it("refuses further actions once the game is over", () => {
     let state = playing("anna", "bo");
     playerById(state, "bo")!.lives = 1;

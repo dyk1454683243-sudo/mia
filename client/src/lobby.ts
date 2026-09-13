@@ -125,8 +125,15 @@ function renderHistory(): string {
   </section>`;
 }
 
+/** Replace the page but keep the reader where they were across a poll. */
+function paint(html: string): void {
+  const scrollY = window.scrollY;
+  app.innerHTML = html;
+  window.scrollTo(0, scrollY);
+}
+
 function render(): void {
-  app.innerHTML = `
+  paint(`
     <header class="topbar"><span class="brand">Mia</span><span class="round">dice bluffing</span></header>
     <main class="page">
       ${state.error ? `<p class="toast">${escapeHtml(state.error)}</p>` : ""}
@@ -142,7 +149,7 @@ function render(): void {
       </section>
       ${renderHistory()}
       <p class="muted small footer">Mia · highest die first, doubles beat mixed, 21 is unbeatable.</p>
-    </main>`;
+    </main>`);
 }
 
 // ---------------------------------------------------------------------------
