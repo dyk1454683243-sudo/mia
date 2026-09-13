@@ -493,7 +493,7 @@ Broken down as tasks **R1–R6** in the "Remaining work — handoff tasks" secti
 of `PLAN.md`, with per-task acceptance criteria. In short:
 
 - **R1** — **done** (see above), reviewed.
-- **R2** — **done** (see above), awaiting review.
+- **R2** — **done** (see above), reviewed.
 - **R3** — `wrangler deploy --temporary`.
 - **R4** — verify the live URL (harness + browser).
 - **R5** — redeploy into the same cached account; prove D1 and DO state survive.
@@ -508,11 +508,31 @@ only once it has been reviewed.
 
 **B1** (`ea28513`), **B2** (`07fb73e`), **B3** (`eb8d1db`), **B4** (`c0f396b`)
 and **B5** (`083a695`) are done and reviewed — every pre-deploy code fix is
-complete. **R1** (`255fa5b`) is done and reviewed; **R2** is done (awaiting
-review). What remains is the time-coupled deploy series **R3–R6**, which has to
-run back to back because the claim URL expires 60 minutes after it is created.
-Screenshots from R1 are not committed (binary artifacts); regenerate them with
-`npm run ui-check`.
+complete. **R1** (`255fa5b`) and **R2** (`d11809d`) are done and
+reviewed. All that remains is the time-coupled deploy series **R3–R6**, which
+has to run back to back because the claim URL expires 60 minutes after it is
+created. Screenshots from R1 are not committed (binary artifacts); regenerate
+them with `npm run ui-check`.
+
+### Review of R2 (`d11809d`) — approved
+
+I tested the acceptance criterion literally: cloned the repo to a fresh
+directory and followed the README as a stranger would. `npm install` →
+`npm run types` → `npm run typecheck` → `npm test` all succeed from nothing but
+the README, 63 tests passing. Deleting the generated `worker-configuration.d.ts`
+reproduces the TS2688 the README cites, so its reason for the `npm run types`
+step is accurate rather than assumed. Also verified: `npm run e2e` 25/25,
+`npm run ui-check` 35/35 (`$PWD` does expand inside an npm script),
+`npm run bots -- <id> 2` seats two bots, and `wrangler deploy --dry-run` builds.
+No claim URL, token or account id anywhere in the file.
+
+Two non-blocking notes recorded in `PLAN.md`: a fresh `npm install` warns about
+uncovered install scripts under npm 11 (harmless — the fresh clone runs real
+workerd and passes — but worth a reassuring line); and the doubt-resolution
+bullets use `<`/`≥`, which read as arithmetic when the comparison is by rank
+over the hardcoded table. Treating it as arithmetic is exactly the bug fixed in
+the first commit, so one clarifying clause is worth adding — in this plan too,
+which is where the phrasing came from.
 
 R3 (deploy) is now blocked on nothing.
 

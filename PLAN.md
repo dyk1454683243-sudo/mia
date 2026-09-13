@@ -420,26 +420,40 @@ PLAYWRIGHT_BROWSERS_PATH=$PWD/.playwright-browsers node scripts/ui-check.ts
 
 ---
 
-## R2 — Write README.md
+## R2 — Write README.md — **DONE** (`d11809d`)
 
-**Why.** It is currently 0 bytes.
+260 lines covering the game and the exact plain ruleset (with the three omitted
+variants named), the architecture and why a Durable Object per table, install,
+local run, tests, deploy, project layout and the sandbox prefixes. Added npm
+scripts `ui-setup`, `ui-check`, `bots` and `e2e` so the Playwright browser path
+cannot be forgotten.
 
-**Include the verification commands that actually work.** `node scripts/ui-check.ts`
-on its own fails with "Executable doesn't exist" — the browsers live in
-`.playwright-browsers/`, so every invocation needs
-`PLAYWRIGHT_BROWSERS_PATH=$PWD/.playwright-browsers`. Add npm scripts for
-`ui-check` and `bots` so the env var cannot be forgotten, and verify each
-documented command by running it.
+**Reviewed and approved.** I tested the acceptance criterion literally — cloned
+the repo to a fresh directory and followed the README as a stranger would:
+`npm install` → `npm run types` → `npm run typecheck` → `npm test` all succeed,
+63 tests passing, from nothing but the README. Deleting the generated
+`worker-configuration.d.ts` reproduces the TS2688 the README cites, so its
+stated reason for the `npm run types` step is accurate, not guessed. Also
+verified in the working repo: `npm run e2e` 25/25, `npm run ui-check` 35/35
+(`$PWD` does expand inside the npm script), `npm run bots -- <id> 2` seats two
+bots, and `wrangler deploy --dry-run --outdir dist/worker` builds. No claim URL,
+token or account id appears anywhere in the file.
 
-**Content.** What the game is and the exact ruleset implemented (the plain
-ruleset — say so, and note which common variants were deliberately left out).
-A short architecture summary and *why* a Durable Object per table. How to
-install, run locally, and test. How to deploy. The project layout. The sandbox
-environment prefixes.
+Two notes, neither blocking:
 
-**Acceptance criteria.** Someone who has never seen the repo can clone, install,
-run, test, and deploy from the README alone. Every command in it must have been
-actually run by the agent, not assumed. No account IDs, tokens, or claim URLs.
+- **`npm install` on a fresh clone warns** that install scripts for `workerd`,
+  `esbuild`, `sharp` and `fsevents` are "not yet covered by allowScripts" under
+  npm 11. Harmless — the fresh clone's `npm test` runs real workerd and passes —
+  but a stranger may pause at it, so a line saying the warning is expected would
+  help.
+- **The doubt-resolution bullets use `<` and `≥`**, which read as arithmetic.
+  The comparison is by *rank* over the hardcoded table — `!outranks(actual,
+  announced) && actual !== announced` (`src/shared/mia.ts:594`) — and treating
+  it as arithmetic is precisely the bug fixed in the very first commit, because
+  a double outranks a higher face value. The README defines the ranking
+  immediately above, so a careful reader gets it, but one clarifying clause
+  would stop a reimplementation repeating the mistake. The same phrasing is
+  inherited from this plan, so fix it in both.
 
 ---
 
