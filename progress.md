@@ -810,6 +810,35 @@ test time out (the stale roll is applied instead). `npx vitest run` **69 passing
 **25/25** and `npm run ui-check` **40/40** against `wrangler dev` — no false
 rejections from the stamp in either harness.
 
+## Fixed: B9 — the test seams are no longer in the production Durable Object
+
+`__setDiceForTest`, `__stateForTest` and `__setTimingsForTest` were public
+methods on the exported `TableRoom`, so a deployed bundle carried a way to force
+dice into a live game and read unredacted state — unreachable today only because
+the Worker never forwards a method name.
+
+They now live on a test-only subclass, `TestTableRoom`
+(`test/table-room-test.ts`), and the workers project binds it as `TABLE` through
+a test entry, `test/worker-entry.ts` (the production handler plus the subclass).
+The production entrypoint imports none of it. `state`, `timings`, `commit` and
+`resultWriteAttempts` became `protected` so the subclass can drive them.
+
+B10's fault-injection bullet is folded in: the `resultWriteFailures` field and
+the counter check on every real write are gone, replaced by a
+`protected shouldFailResultWrite()` hook that production always answers `false`
+and `TestTableRoom` overrides. Nothing test-shaped is consulted on a real write.
+
+Verified:
+
+- `wrangler deploy --dry-run --outdir dist/worker`, then `grep -rn
+  "ForTest\|resultWriteFailures" dist/worker` → **no matches**. The production
+  bundle carries no seams (the production `TableRoom` is still exported and the
+  dry run bundles cleanly).
+- `npx vitest run` **69 passing (46 unit + 23 workers)** with the subclass bound;
+  both typechecks clean.
+- Production behaviour is unchanged, so the R1/R4 harnesses were not re-run for
+  this commit — the change is which class the tests instantiate.
+
 ## Not started
 
 Nothing. **R1–R6, B1–B11's pre-deploy fixes and B12 are all done.** R3–R6 and

@@ -25,13 +25,13 @@ export default defineConfig({
           include: ["test/room.test.ts", "test/session.test.ts"],
           poolOptions: {
             workers: {
-              main: "src/worker/index.ts",
+              main: "test/worker-entry.ts",
               isolatedStorage: true,
               miniflare: {
                 compatibilityDate: "2026-09-12",
                 d1Databases: { DB: "mia-test-db" },
                 durableObjects: {
-                  TABLE: { className: "TableRoom", useSQLite: true },
+                  TABLE: { className: "TestTableRoom", useSQLite: true },
                 },
               },
             },

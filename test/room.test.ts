@@ -8,7 +8,8 @@ import type { Die, MiaState } from "../src/shared/mia";
 import type { ServerMessage, StateView } from "../src/shared/protocol";
 import { ensureSchema } from "../src/worker/db";
 import { signCookie } from "../src/worker/session";
-import { clampAlarmTime, resultWriteBackoffMs, type TableRoom } from "../src/worker/table-room";
+import { clampAlarmTime, resultWriteBackoffMs } from "../src/worker/table-room";
+import { TestTableRoom } from "./table-room-test";
 
 declare module "cloudflare:test" {
   interface ProvidedEnv extends Env {}
@@ -131,11 +132,12 @@ function stubFor(tableId: string) {
 
 /**
  * `runInDurableObject` types its callback from the stub's branding, which the
- * base class does not propagate, so the instance is narrowed back to the real
- * class here. The runtime value genuinely is a TableRoom.
+ * base class does not propagate, so the instance is narrowed back to the test
+ * subclass here — the runtime value genuinely is a `TestTableRoom`, because
+ * `worker-entry.ts` binds that class as `TABLE`.
  */
-async function inRoom<T>(tableId: string, fn: (room: TableRoom) => T | Promise<T>): Promise<T> {
-  return await runInDurableObject(stubFor(tableId), async (instance) => fn(instance as TableRoom));
+async function inRoom<T>(tableId: string, fn: (room: TestTableRoom) => T | Promise<T>): Promise<T> {
+  return await runInDurableObject(stubFor(tableId), async (instance) => fn(instance as TestTableRoom));
 }
 
 async function readState(tableId: string): Promise<MiaState | null> {
@@ -220,31 +222,22 @@ async function finishTwoPlayerGame(
 
 /** Arm the next `times` result writes to fail, as a flaky D1 would. */
 async function armResultWriteFailures(tableId: string, times: number): Promise<void> {
-  await inRoom(tableId, (room) => {
-    (room as unknown as { resultWriteFailures: number }).resultWriteFailures = times;
-  });
+  await inRoom(tableId, (room) => room.__failResultWritesForTest(times));
 }
 
 interface ResultWriteInternals {
   attempts: number;
   retryAt: number | null;
-  failures: number;
   written: boolean;
 }
 
-/** Read the private result-write bookkeeping, the way `setEmptyTtl` writes one. */
+/** Read the result-write bookkeeping the tests assert on. */
 async function resultWriteInternals(tableId: string): Promise<ResultWriteInternals> {
-  return await inRoom(tableId, (room) => {
-    const internals = room as unknown as {
-      resultWriteAttempts: number;
-      resultsRetryAt: number | null;
-      resultWriteFailures: number;
-      resultsWritten: boolean;
-    };
+  return await inRoom(tableId, async (room) => {
+    const internals = room as unknown as { resultsRetryAt: number | null; resultsWritten: boolean };
     return {
-      attempts: internals.resultWriteAttempts,
+      attempts: await room.__resultWriteAttemptsForTest(),
       retryAt: internals.resultsRetryAt,
-      failures: internals.resultWriteFailures,
       written: internals.resultsWritten,
     };
   });

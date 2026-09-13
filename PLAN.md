@@ -344,7 +344,7 @@ A task is **Done** only once it has been reviewed.
 | B6 — duplicate redaction implementations | Fixed, awaiting review | DO calls shared `buildView`; stray-dice test |
 | B7 — session key creation race | Fixed, awaiting review | `DO NOTHING` + re-read; new session tests |
 | B8 — client replays stale actions | Fixed, awaiting review | `logSeq` stamp + server guard |
-| B9 — test seams on the production DO | Open | |
+| B9 — test seams on the production DO | Fixed, awaiting review | Seams on `TestTableRoom`; bundle verified clean |
 | B10 — minor cleanup pass | Open | |
 | B11 — residual alarm-scheduling gaps | Open | Raised by the B1 review |
 | B12 — creator cannot start their own table | Fixed, awaiting review | D1 `host_id` is now authoritative; B10 bullet folded in |

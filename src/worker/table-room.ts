@@ -60,8 +60,9 @@ interface SocketAttachment {
 type RoomStatus = "waiting" | "playing" | "finished";
 
 export class TableRoom extends DurableObject<Env> {
-  private state: MiaState | null = null;
-  private timings: Timings = DEFAULT_TIMINGS;
+  /** Protected, not private: the test-only subclass drives these directly. */
+  protected state: MiaState | null = null;
+  protected timings: Timings = DEFAULT_TIMINGS;
   /** Epoch ms at which the room last had zero live sockets. */
   private emptySince: number | null = null;
   /** How long an empty room is kept before its storage is dropped. */
@@ -72,10 +73,8 @@ export class TableRoom extends DurableObject<Env> {
   private resultsAttempts = 0;
   /** Epoch ms of the next scheduled result-write retry, or null if none. */
   private resultsRetryAt: number | null = null;
-  /** Total result-write attempts made by this room, for tests and diagnostics. */
-  private resultWriteAttempts = 0;
-  /** Test-only fault injection: the next N result writes throw, like a flaky D1. */
-  private resultWriteFailures = 0;
+  /** Total result-write attempts made by this room, for diagnostics. */
+  protected resultWriteAttempts = 0;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -645,7 +644,7 @@ export class TableRoom extends DurableObject<Env> {
   }
 
   /** Persist first, then swap into memory, then tell everyone. */
-  private async commit(next: MiaState): Promise<void> {
+  protected async commit(next: MiaState): Promise<void> {
     await this.ctx.storage.put(STATE_KEY, next);
     this.state = next;
     // A state that is not finished cannot have a written result; clear any
@@ -680,11 +679,9 @@ export class TableRoom extends DurableObject<Env> {
     }));
     this.resultWriteAttempts += 1;
     try {
-      // Test-only fault injection, so the retry path can be driven on purpose.
-      if (this.resultWriteFailures > 0) {
-        this.resultWriteFailures -= 1;
-        throw new Error("stubbed D1 failure");
-      }
+      // A test-only subclass overrides this to simulate a flaky D1; production
+      // always says no. Nothing test-shaped is checked on a real write.
+      if (this.shouldFailResultWrite()) throw new Error("stubbed D1 failure");
       await recordGame(this.env, {
         id: state.gameId,
         tableId: state.tableId,
@@ -715,6 +712,11 @@ export class TableRoom extends DurableObject<Env> {
       // returns immediately on game over never reaches `ensureAlarm`.
       await this.scheduleAlarm(this.resultsRetryAt);
     }
+  }
+
+  /** Overridden by the test-only subclass to simulate a D1 failure. */
+  protected shouldFailResultWrite(): boolean {
+    return false;
   }
 
   /** Clear the result-write bookkeeping, e.g. when a fresh game starts. */
@@ -816,34 +818,6 @@ export class TableRoom extends DurableObject<Env> {
     // Follow with a snapshot so a desynced client is pulled back in line.
     const view = this.redactedFor(playerId);
     if (view) this.sendTo(playerId, view);
-  }
-
-  /**
-   * Test seam: force the dice in front of a player, so a table can be driven
-   * through a specific bluff or a real Mia. Public because the vitest
-   * integration reaches instance methods over RPC. Production code never calls
-   * this — every other route into the state rolls real dice.
-   */
-  async __setDiceForTest(playerId: string, dice: [Die, Die]): Promise<MiaState> {
-    const state = this.state;
-    if (state === null) throw new Error("no game state");
-    const next = structuredClone(state);
-    const player = playerById(next, playerId);
-    if (!player) throw new Error("unknown player");
-    player.dice = dice;
-    next.diceOwnerId = playerId;
-    await this.commit(next);
-    return next;
-  }
-
-  /** Test seam: read the unredacted server-side state. */
-  async __stateForTest(): Promise<MiaState | null> {
-    return this.state;
-  }
-
-  /** Test seam: shorten the clock so timers can be exercised in milliseconds. */
-  async __setTimingsForTest(timings: Timings): Promise<void> {
-    this.timings = timings;
   }
 
   /** The only way this class arms an alarm, so no target can be in the past. */
