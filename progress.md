@@ -781,6 +781,35 @@ Verified, in a new `test/session.test.ts` (added to the workers project):
 
 `npx vitest run` **68 passing (46 unit + 22 workers)**, both typechecks clean.
 
+## Fixed: B8 — a replayed client action is refused, not applied
+
+`TableSocket.send` queues while the socket is down and replays on reconnect. If
+the socket dropped after the server applied the move but before the broadcast
+arrived, the replay was a second, stale action — and by reconnect time the table
+could be a round or more on, so a stale announcement could land in a new round.
+
+Took the plan's second option, a stamp, because it is testable exactly as the
+acceptance asks rather than only asserting that the queue is dropped:
+
+- `ClientMessage` gains an optional `logSeq` (a `MoveStamp`), documented as the
+  snapshot the move was decided against. Optional, so bare protocol clients and
+  the older harness keep working.
+- `applyAndContinue` refuses a move whose stamp is not the current
+  `state.logSeq` with *"That move is stale: the table has already moved on."*,
+  before `applyAction` runs, so nothing changes.
+- The browser client stamps in `table.ts`'s `send` — before the message reaches
+  the queue, so the queued replay carries the decision-time stamp — and the
+  harness `Client.send` stamps the same way.
+
+Verified: a new workers test plays a full round, captures round 1's `logSeq`,
+waits for round 2 to be in play, then replays a `roll` stamped with round 1's
+sequence. It is refused, `logSeq` and the phase are unchanged, and the same move
+stamped with the current sequence is accepted. Disabling the guard makes the
+test time out (the stale roll is applied instead). `npx vitest run` **69 passing
+(46 unit + 23 workers)**, both typechecks and `vite build` clean, `scripts/e2e.ts`
+**25/25** and `npm run ui-check` **40/40** against `wrangler dev` — no false
+rejections from the stamp in either harness.
+
 ## Not started
 
 Nothing. **R1–R6, B1–B11's pre-deploy fixes and B12 are all done.** R3–R6 and

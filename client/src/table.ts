@@ -81,7 +81,11 @@ const clock = new TurnClock();
 let socket: TableSocket | null = null;
 
 function send(message: ClientMessage): void {
-  socket?.send(message);
+  // Stamp the snapshot this move was decided against. A move queued during a
+  // disconnect is replayed on reconnect by `TableSocket`, and by then the table
+  // may be several turns on; the server refuses a stamp that no longer matches.
+  const logSeq = state.view?.state.logSeq;
+  socket?.send(logSeq === undefined ? message : { ...message, logSeq });
 }
 
 async function share(): Promise<void> {

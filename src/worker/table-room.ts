@@ -517,21 +517,21 @@ export class TableRoom extends DurableObject<Env> {
         await this.handleStart(playerId);
         return;
       case "roll":
-        await this.applyAndContinue(playerId, { type: "roll", playerId });
+        await this.applyAndContinue(playerId, { type: "roll", playerId }, message.logSeq);
         return;
       case "believe":
-        await this.applyAndContinue(playerId, { type: "believe", playerId });
+        await this.applyAndContinue(playerId, { type: "believe", playerId }, message.logSeq);
         return;
       case "announce": {
         if (typeof message.value !== "number" || !Number.isInteger(message.value)) {
           await this.reportError(playerId, "Malformed announcement.");
           return;
         }
-        await this.applyAndContinue(playerId, { type: "announce", playerId, value: message.value });
+        await this.applyAndContinue(playerId, { type: "announce", playerId, value: message.value }, message.logSeq);
         return;
       }
       case "doubt":
-        await this.applyAndContinue(playerId, { type: "doubt", playerId });
+        await this.applyAndContinue(playerId, { type: "doubt", playerId }, message.logSeq);
         return;
       case "leave":
         await this.handleLeave(playerId);
@@ -608,10 +608,17 @@ export class TableRoom extends DurableObject<Env> {
   }
 
   /** Apply a player action, then hand the turn on (auto-playing dead seats). */
-  private async applyAndContinue(playerId: string, action: MiaAction): Promise<void> {
+  private async applyAndContinue(playerId: string, action: MiaAction, stamp?: number): Promise<void> {
     const state = this.state;
     if (state === null) {
       await this.reportError(playerId, "No game is running.");
+      return;
+    }
+    // A move decided against an older snapshot is a stale intent: it was queued
+    // during a disconnect and replayed after the table moved on. Refuse it
+    // rather than let a previous round's announcement land in this one.
+    if (stamp !== undefined && stamp !== state.logSeq) {
+      await this.reportError(playerId, "That move is stale: the table has already moved on.");
       return;
     }
     const result = applyAction(state, action, this.timings, Date.now());

@@ -488,6 +488,56 @@ describe("TableRoom", () => {
     boSocket.close();
   });
 
+  it("refuses a move replayed from a previous round", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const tableId = await createTableRow("Stale moves", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    await annaSocket.nextState((view) => view.state.players.length === 2);
+
+    annaSocket.send({ type: "start" });
+    const started = await annaSocket.nextState((view) => view.state.round === 1);
+    const starterId = started.state.turnPlayerId!;
+    const starter = starterId === anna.id ? annaSocket : boSocket;
+    const doubter = starterId === anna.id ? boSocket : annaSocket;
+
+    // Round 1: the opener bluffs, the next player doubts, and the reveal beat
+    // seeds round 2.
+    await waitFor(async () => (await readState(tableId))?.phase === "deciding");
+    starter.send({ type: "roll" });
+    await starter.nextState((view) => view.state.phase === "announcing");
+    await forceDice(tableId, starterId, [3, 1]);
+    starter.send({ type: "announce", value: 65 });
+    await starter.nextState((view) => view.state.lastAnnouncement?.value === 65);
+    const round1Seq = (await readState(tableId))!.logSeq;
+
+    doubter.send({ type: "doubt" });
+    await doubter.nextState((view) => view.state.phase === "revealing" || view.state.lastReveal !== null);
+    await waitFor(async () => {
+      const state = await readState(tableId);
+      return state !== null && state.round === 2 && state.phase === "deciding";
+    }, 15_000);
+
+    // A queued round-1 move, replayed once round 2 is under way, is refused and
+    // changes nothing.
+    const round2 = (await readState(tableId))!;
+    const turn = round2.turnPlayerId === anna.id ? annaSocket : boSocket;
+    const errorsBefore = turn.errors.length;
+    turn.send({ type: "roll", logSeq: round1Seq });
+    await waitFor(() => turn.errors.length > errorsBefore);
+    expect(turn.errors[turn.errors.length - 1]).toContain("stale");
+    expect((await readState(tableId))?.logSeq).toBe(round2.logSeq);
+    expect((await readState(tableId))?.phase).toBe("deciding");
+
+    // The same move against the current snapshot lands.
+    turn.send({ type: "roll", logSeq: round2.logSeq });
+    await turn.nextState((view) => view.state.phase === "announcing");
+
+    annaSocket.close();
+    boSocket.close();
+  }, 30_000);
+
   it("plays a game to a win and writes the result rows to D1", async () => {
     const anna = await makePlayer("Anna");
     const bo = await makePlayer("Bo");

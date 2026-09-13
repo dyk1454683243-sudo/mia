@@ -140,7 +140,11 @@ export class Client {
 
   send(message: unknown): void {
     if (!this.socket || this.socket.readyState !== 1) throw new Error(`${this.player.label}: socket not open`);
-    this.socket.send(JSON.stringify(message));
+    // Stamp the snapshot this move was decided against, the same as the browser
+    // client, so a stale replay is refused rather than applied.
+    const logSeq = this.state?.logSeq;
+    const payload = logSeq === undefined ? message : { ...(message as Record<string, unknown>), logSeq };
+    this.socket.send(JSON.stringify(payload));
   }
 
   /** Resolve as soon as the predicate holds, including on the snapshot already on screen. */

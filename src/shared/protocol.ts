@@ -54,14 +54,26 @@ export interface RenameRequest {
 // WebSocket protocol
 // ---------------------------------------------------------------------------
 
+/**
+ * Every client message carries the `logSeq` of the snapshot it was decided
+ * against. A message queued while the socket was down and replayed after a
+ * reconnect is stale by construction — the table may be several turns on — so
+ * the server refuses a stamp that no longer matches instead of applying an
+ * intent from a previous round. Optional: an unstamped move is accepted, which
+ * keeps bare protocol clients and the older harness working.
+ */
+export interface MoveStamp {
+  logSeq?: number;
+}
+
 export type ClientMessage =
-  | { type: "start" }
-  | { type: "roll" }
-  | { type: "announce"; value: number }
-  | { type: "believe" }
-  | { type: "doubt" }
-  | { type: "leave" }
-  | { type: "ping" };
+  | ({ type: "start" } & MoveStamp)
+  | ({ type: "roll" } & MoveStamp)
+  | ({ type: "announce"; value: number } & MoveStamp)
+  | ({ type: "believe" } & MoveStamp)
+  | ({ type: "doubt" } & MoveStamp)
+  | ({ type: "leave" } & MoveStamp)
+  | ({ type: "ping" } & MoveStamp);
 
 export interface StateView {
   type: "state";
