@@ -330,7 +330,7 @@ A task is **Done** only once it has been reviewed.
 | --- | --- | --- |
 | R1 — browser verification at a phone viewport | Open | Also delivers `scripts/bots.ts` |
 | R2 — `README.md` | Open | |
-| R3 — `wrangler deploy --temporary` | Open | Blocked on R1, R2, B2–B5 |
+| R3 — `wrangler deploy --temporary` | Open | Blocked on R1, R2 only — B2–B5 all done |
 | R4 — verify the live URL | Open | Blocked on R3 |
 | R5 — redeploy, prove persistence | Open | Blocked on R4 |
 | R6 — config hygiene, hand-over report | Open | Blocked on R5 |
@@ -338,7 +338,7 @@ A task is **Done** only once it has been reviewed.
 | B2 — finishing places from seat order | **Done** — `07fb73e`, reviewed | |
 | B3 — lost result write | **Done** — `eb8d1db`, reviewed | Follow-ups in B10, B11 |
 | B4 — frozen turn countdown | **Done** — `c0f396b`, reviewed | Re-render note in R1 |
-| B5 — host tab-close bricks the table | Fixed, awaiting review | Pre-deploy |
+| B5 — host tab-close bricks the table | **Done** — `083a695`, reviewed | |
 | B6 — duplicate redaction implementations | Open | |
 | B7 — session key creation race | Open | |
 | B8 — client replays stale actions | Open | |
@@ -723,38 +723,34 @@ interval and reserve `render()` for real state changes.
 
 ---
 
-## B5 — A host who closes their tab leaves the table permanently unstartable
+## B5 — A host tab-close bricks the table — **DONE** (`083a695`)
 
-**Severity: high.** Produces dead tables that the lobby keeps advertising.
+`afterDisconnect` never touched the roster, so a closed tab left a ghost seat.
+Pre-game that was fatal: `handleStart` requires the opener to be `players[0]`, so
+a ghost there blocked everyone while the lobby advertised phantom players.
 
-Two defects compound:
+Fixed by passing the closing socket and its player id into `afterDisconnect`,
+which drops the seat through a shared `removePreGameSeat` when `round === 0` and
+syncs the D1 row. A player with another socket still open keeps their seat.
+Mid-game the roster stays frozen and auto-play covers the dropped phone. Host
+reassignment falls out of the removal — no separate rule needed.
 
-1. `afterDisconnect` (`table-room.ts:203`) never removes the player from the
-   roster. `handleLeave` does (`table-room.ts:394`), but only on an explicit
-   `leave` message — closing a tab or losing signal sends none. Pre-game tables
-   therefore accumulate ghost seats.
-2. `handleStart` requires the caller to be `state.players[0]`
-   (`table-room.ts:376`). If that seat is a ghost, **nobody can start the game**,
-   and the table sits in the lobby forever showing phantom players.
+**Reviewed and approved.** Verified independently: 62 tests pass, both
+typechecks clean, e2e 25/25. Three mutations each break the right tests: making
+`removePreGameSeat` a no-op breaks the host, two-tab and pre-game-reap tests;
+making `hasOtherSocket` always false breaks the two-tab test; dropping the
+`round > 0` guard breaks the mid-game test *and* B3's result-write test, which
+is a good sign the suites interlock.
 
-`afterDisconnect` also never calls `syncTableRow`, so the D1 `player_count` the
-lobby renders is stale after any disconnect.
+Excluding the closing socket explicitly in `hasOtherSocket` is the right call —
+it is correct whether or not the runtime has already removed it from
+`getWebSockets()` by the time the handler runs.
 
-**Do.** On disconnect from a table that has not started (`round === 0`), drop
-the seat and `syncTableRow`. Mid-game, keep the seat — auto-play already covers
-it, and that is the intended behaviour. Reassign host to the first *connected*
-seat, or let any connected player start once the original host is gone.
-
-**Also cover the untested reap path here**, since it is the same code. B1's test
-reaps a *finished* game. The commonest real case is an abandoned **pre-game**
-table — somebody creates one, nobody joins, they close the tab. That path works
-by inspection (`newLobbyState` leaves `roundEndsAt` null, so `needsImmediateWake`
-is false and the room is collectable) but nothing exercises it.
-
-**Acceptance.** A workers test: two players join, the host's socket closes, the
-remaining player can start; the D1 `player_count` matches the live roster after
-a disconnect; and an abandoned pre-game table with no sockets is reaped past a
-shortened TTL.
+Note: this task's acceptance criterion was **wrong as written**. It asked for
+"two players join, the host's socket closes, the remaining player can start",
+but one player cannot start a game — `MIN_PLAYERS` is 2. The author caught it,
+used three seats, and said why. A two-seat table whose host leaves is correctly
+unstartable.
 
 ---
 
@@ -838,6 +834,14 @@ workers tests still pass.
 
 ## B10 — Minor gaps, worth one cleanup pass
 
+- **A reaped table's D1 row is never marked.** `maybeReapEmptyRoom` deletes the
+  Durable Object's storage but leaves the `tables` row at `waiting`/`playing`
+  forever, so the lobby keeps listing it until the 30-minute `updated_at`
+  staleness filter in `listOpenTables` hides it, and the row itself is never
+  cleaned up. Harmless — clicking such a table just creates a fresh room — but
+  the reaper should set `status = 'abandoned'` before dropping storage. A B1-era
+  gap that B5 makes visible, because pre-game tables now actually reach the
+  reaper.
 - **The partial-failure retry path is untested.** `writeResults` claims a retry
   after a partial failure is safe because `recordGame` is idempotent
   (`ON CONFLICT DO NOTHING`), but the test fault injection throws *before*
@@ -874,7 +878,10 @@ workers tests still pass.
   persist-first rule the rest of the file follows.
 - **Host identity disagrees between layers.** D1 stores `host_id` at creation
   (`db.ts:184`); the DO treats `players[0]` as host. A host who never connects
-  makes the error message at `table-room.ts:377` false.
+  makes the error message false — and since `083a695` drops a disconnected
+  pre-game seat, `players[0]` is routinely *not* the opener, so "Only the player
+  who opened the table can start" is now misleading rather than merely
+  theoretical. Reword it, and reconcile the two layers.
 - **No rematch.** `handleStart` refuses once `round > 0`, so a table is
   single-use. Reasonable, but the UI never says so — players at a finished table
   have no path forward except returning to the lobby.

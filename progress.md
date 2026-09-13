@@ -388,8 +388,29 @@ that table is the authoritative list of what is left, and a task counts as done
 only once it has been reviewed.
 
 **B1** (`ea28513`), **B2** (`07fb73e`), **B3** (`eb8d1db`) and **B4**
-(`c0f396b`) are done and reviewed. **B5 is fixed** (awaiting review) — the last
-of the pre-deploy code fixes. After it is reviewed, only **R1–R6** remain.
+(`c0f396b`) and **B5** (`083a695`) are done and reviewed. **Every pre-deploy
+code fix is complete**; only **R1–R6** remain, and R3 (deploy) is now blocked on
+nothing but R1 and R2.
+
+### Review of B5 (`083a695`) — approved
+
+Independently confirmed: 62 tests pass (45 unit + 17 workers), both typechecks
+clean, e2e 25/25. Three mutations each break the right tests — a no-op
+`removePreGameSeat` breaks the host, two-tab and pre-game-reap tests; an
+always-false `hasOtherSocket` breaks the two-tab test; dropping the `round > 0`
+guard breaks the mid-game test *and* B3's result-write test, which shows the
+suites interlock. Excluding the closing socket explicitly is correct whether or
+not the runtime has already dropped it from `getWebSockets()`.
+
+The task's acceptance criterion was wrong as written — one player cannot start a
+game — and the author caught it, used three seats, and explained why rather than
+following it blindly.
+
+Two follow-ups recorded in `PLAN.md` (**B10**): a reaped table's D1 row is still
+never marked abandoned, so the lobby lists it until the 30-minute staleness
+filter hides it; and now that a disconnected pre-game seat is dropped,
+`players[0]` is routinely not the opener, making "Only the player who opened the
+table can start" actively misleading.
 
 ### Review of B4 (`c0f396b`) — approved
 
