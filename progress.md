@@ -366,15 +366,94 @@ Not verified: none of this has been seen in a browser. Closing a real tab is a
 browser action, and R1 is the task that will actually do it at a phone viewport.
 Nothing is deployed.
 
+## Done: R1 — the UI in a real browser, at a phone viewport
+
+The client had never been rendered. It now has been, at 375×812 and 768×1024, in
+headless Chromium driven by Playwright, playing a full game against bots.
+
+**Tooling.** `playwright` is a devDependency; the browser bundle is downloaded on
+demand into `.playwright-browsers/` (gitignored):
+
+```
+npm install
+PLAYWRIGHT_BROWSERS_PATH=$PWD/.playwright-browsers npx playwright install chromium
+```
+
+`scripts/lib.ts` is new: the WebSocket `Client`, `createPlayer`, `api`,
+`makeRandom`, `chooseAction` and `nextSnapshot` moved out of `scripts/e2e.ts`
+verbatim, so both harnesses share them (`e2e.ts` was rewritten to import them and
+is otherwise unchanged). `scripts/bots.ts <tableId> [count]` seats bots at a
+table, waits for the human to start the game, plays every non-human seat, and
+stays attached afterwards so the finished table keeps its seats. `scripts/ui-check.ts`
+drives the real browser: lobby, share, a full game, reconnect, phone fitness and
+console capture, writing screenshots to `.r1-screenshots/` (gitignored).
+
+**Defects found and fixed.**
+
+1. **The active player had no countdown.** `secondsLeft` was only rendered in the
+   "Waiting for …" line, so whoever had to act could not see their own clock.
+   The active player's row now carries a countdown badge. The same change fixes
+   the follow-up the B4 review flagged: the 500ms interval now writes the
+   `[data-countdown]` text nodes instead of calling `render()`, so ticking no
+   longer replaces the whole page every second.
+2. **The verdict line printed Mia as "2·1".** `verdictLine` used `formatValue`
+   while the chips used a MIA label — the same claim read as "MIA" above and
+   "2·1" below. One `valueLabel` helper now labels every announcement in prose.
+3. **The announce grid's "yours" marker missed half of all rolls.** It computed
+   `dice[0] * 10 + dice[1]` instead of `rollValue(...)`, so whenever the lower die
+   came up first the truthful button was not marked. It now uses `rollValue`.
+4. **The announce grid covered the table.** The 21-button actions card inherited
+   `position: sticky; bottom`, and being taller than a phone viewport it overlaid
+   the players list. That one card (`.actions-tall`) now flows normally; the
+   measured overlap is 0px, and the compact decision card is still sticky.
+5. **A roll over a standing claim could deadlock the game.** `legalMoves` allowed
+   `canRoll` in `deciding` unconditionally, so with Mia standing the UI offered
+   "Roll the dice". Rolling left the player in `announcing` with no legal
+   announcement, and the server's auto-play had no move either — the permanent
+   1 Hz loop B11 describes, reachable from the UI. `canRoll` is now true only
+   when nothing stands, so the choice there is believe or doubt; regression tests
+   in `test/mia.test.ts` cover both the Mia case and an ordinary standing claim.
+6. `scripts/bots.ts` logged "announcees"; now "announces".
+
+**Verified** (`node scripts/ui-check.ts` against `npm run dev`): **35/35 checks**
+and **zero console errors or page errors**, including
+
+- lobby: ship name, inline rename that survives a reload, open-table list, table
+  creation, and the 4s poll leaving the rename field focused with its text and
+  scroll position intact;
+- share: `navigator.share` receives the `/t/:id` URL, the clipboard fallback
+  copies it and shows its toast, and opening the copied link in a fresh browser
+  context joins the table — then closing that context frees the seat again;
+- a full game to a winner with every phase rendered, all 21 announce buttons
+  above the standing claim, Mia distinct, the viewer's own roll marked "yours",
+  and no other player's dice on screen before a reveal;
+- a mid-game reload restoring the same round and phase with no duplicate seat;
+- the countdown ticking 60 → 59 → 58 with the bots frozen (so no snapshot could
+  legitimately re-render) while a tagged `.actions` node survived untouched;
+- no horizontal scroll at 375px or 768px, and no tap target under 40px.
+
+Screenshots (375×812 unless noted) live in `.r1-screenshots/`: `01-lobby`,
+`02-table-waiting`, `02b-table-with-bots`, `03-fresh-session-join`,
+`04-round-start`, `05-deciding`, `06-announcing`, `07-revealing`,
+`08-finished`, `09-game-over`, `10-reconnect`, `11-wide-768`.
+
+`npx vitest run` **63 passing (46 unit + 17 workers)**, both typechecks clean,
+`scripts/e2e.ts` **25/25** after the `lib.ts` extraction.
+
+**Not verified.** This is headless Chromium emulating a phone, not a real
+handset: no iOS Safari, no real touch, no OS share sheet (`navigator.share` was
+stubbed to inspect its argument), no slow network, and the countdown was watched
+for three ticks rather than a whole 60-second turn. The finished-state countdown
+and the losing/spectator view were not separately exercised. Nothing is deployed.
+
 ## Not started
 
 Broken down as tasks **R1–R6** in the "Remaining work — handoff tasks" section
 of `PLAN.md`, with per-task acceptance criteria. In short:
 
-- **R1** — verify the UI in a real browser at a phone viewport. The client has
-  never been rendered; all verification so far is protocol-level. Includes
-  writing `scripts/bots.ts` so a human can play against bot seats.
-- **R2** — write `README.md` (currently 0 bytes).
+- **R1** — **done** (see above), awaiting review.
+- **R2** — write `README.md` (currently 0 bytes). Should document the Playwright
+  install line and `PLAYWRIGHT_BROWSERS_PATH` for the UI check.
 - **R3** — `wrangler deploy --temporary`.
 - **R4** — verify the live URL (harness + browser).
 - **R5** — redeploy into the same cached account; prove D1 and DO state survive.
@@ -387,10 +466,14 @@ reviewing B1's fix added **B11**. `PLAN.md` opens with a **status board** —
 that table is the authoritative list of what is left, and a task counts as done
 only once it has been reviewed.
 
-**B1** (`ea28513`), **B2** (`07fb73e`), **B3** (`eb8d1db`) and **B4**
-(`c0f396b`) and **B5** (`083a695`) are done and reviewed. **Every pre-deploy
-code fix is complete**; only **R1–R6** remain, and R3 (deploy) is now blocked on
-nothing but R1 and R2.
+**B1** (`ea28513`), **B2** (`07fb73e`), **B3** (`eb8d1db`), **B4** (`c0f396b`)
+and **B5** (`083a695`) are done and reviewed — every pre-deploy code fix is
+complete. **R1 is done** (awaiting review) and delivered `scripts/bots.ts`;
+what remains is **R2 (README)**, then the time-coupled deploy series **R3–R6**.
+Screenshots from R1 are not committed (binary artifacts); rerun
+`scripts/ui-check.ts` to regenerate them.
+
+R3 (deploy) is now blocked on nothing but R2.
 
 ### Review of B5 (`083a695`) — approved
 

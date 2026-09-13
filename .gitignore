@@ -7,3 +7,5 @@ dist/
 worker-configuration.d.ts
 .npm-cache/
 *.tsbuildinfo
+.playwright-browsers/
+.r1-screenshots/

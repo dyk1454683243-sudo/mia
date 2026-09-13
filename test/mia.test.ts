@@ -228,6 +228,20 @@ describe("turn flow", () => {
     expect(moves.canAnnounce).toBe(false);
     expect(moves.canBelieve).toBe(false);
     expect(moves.canDoubt).toBe(true);
+    // A roll here would leave bo holding the cup with no legal announcement —
+    // the state the server must never accept, whatever the client sends.
+    expect(moves.canRoll).toBe(false);
+    expect(fails(applyAction(state, { type: "roll", playerId: "bo" }, TIMINGS, T0))).toBe("wrong-phase");
+  });
+
+  it("does not offer a roll once anything stands", () => {
+    let state = playing("anna", "bo");
+    state = rollAs(state, "anna", [6, 1]);
+    state = announce(state, "anna", 31);
+    const moves = legalMoves(state, "bo");
+    expect(moves.canRoll).toBe(false);
+    expect(moves.canBelieve).toBe(true);
+    expect(fails(applyAction(state, { type: "roll", playerId: "bo" }, TIMINGS, T0))).toBe("wrong-phase");
   });
 });
 

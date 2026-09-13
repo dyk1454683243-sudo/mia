@@ -423,6 +423,13 @@ ul {
   border-color: rgba(111, 207, 151, 0.4);
 }
 
+.badge.countdown {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--ink);
+  border-color: var(--line);
+  font-variant-numeric: tabular-nums;
+}
+
 .badge.muted,
 .badge.out {
   background: rgba(255, 255, 255, 0.06);
@@ -590,6 +597,13 @@ ul {
   bottom: calc(0.5rem + env(safe-area-inset-bottom));
   background: var(--panel-solid);
   border-color: rgba(232, 196, 106, 0.25);
+}
+
+/* The 21-button announce grid is taller than a phone viewport. Sticking it to
+ * the bottom edge made it cover the table it is played on, so that one flows
+ * normally and the page scrolls to it. */
+.actions-tall {
+  position: static;
 }
 
 .prompt {

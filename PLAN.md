@@ -328,7 +328,7 @@ A task is **Done** only once it has been reviewed.
 
 | Task | Status | Notes |
 | --- | --- | --- |
-| R1 — browser verification at a phone viewport | Open | Also delivers `scripts/bots.ts` |
+| R1 — browser verification at a phone viewport | Done, awaiting review | Delivered `scripts/bots.ts`, `scripts/ui-check.ts` |
 | R2 — `README.md` | Open | |
 | R3 — `wrangler deploy --temporary` | Open | Blocked on R1, R2 only — B2–B5 all done |
 | R4 — verify the live URL | Open | Blocked on R3 |

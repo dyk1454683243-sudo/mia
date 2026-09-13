@@ -412,7 +412,11 @@ export function legalMoves(state: MiaState, playerId: string): LegalMoves {
 
   if (state.phase === "deciding") {
     return {
-      canRoll: true,
+      // Rolling opens a round. Once something stands, the choice is believe or
+      // doubt: a roll over a standing claim could land on one that cannot be
+      // beaten (Mia) and leave the roller with no legal announcement at all,
+      // which stalls the game.
+      canRoll: state.lastAnnouncement === null,
       // A roll is always followed by an announcement, so a roll is only useful
       // when some announcement is actually available.
       canAnnounce: announcements.length > 0,

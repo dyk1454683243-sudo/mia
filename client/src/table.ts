@@ -8,7 +8,9 @@ import {
   legalMoves,
   MIA,
   playerById,
+  rollValue,
   STARTING_LIVES,
+  type Die,
   type MiaPlayer,
   type MiaState,
 } from "../../src/shared/mia";
@@ -46,17 +48,22 @@ function valueChip(value: number, extra = ""): string {
   return `<span class="chip ${mia ? "mia" : ""} ${double ? "double" : ""} ${extra}">${label}</span>`;
 }
 
+/** A roll value as it should read in prose: 21 is "MIA", never "2·1". */
+function valueLabel(value: number): string {
+  return value === MIA ? "MIA" : formatValue(value);
+}
+
 function verdictLine(reveal: { verdict: string; announcerName: string; doubterName: string; actual: number; announced: number; livesLost: number; penaltyApplied: string }): string {
   const penalty = reveal.penaltyApplied === "double-mia" ? " Doubled — the Mia was real." : "";
   const lives = `${reveal.livesLost} ${reveal.livesLost === 1 ? "life" : "lives"}`;
   if (reveal.verdict === "announcer") {
-    return `<p class="verdict caught">${escapeHtml(reveal.announcerName)} had <b>${formatValue(
+    return `<p class="verdict caught">${escapeHtml(reveal.announcerName)} had <b>${valueLabel(
       reveal.actual,
-    )}</b> but claimed <b>${formatValue(reveal.announced)}</b>. Bluff caught — loses ${lives}.${penalty}</p>`;
+    )}</b> but claimed <b>${valueLabel(reveal.announced)}</b>. Bluff caught — loses ${lives}.${penalty}</p>`;
   }
-  return `<p class="verdict believed">${escapeHtml(reveal.announcerName)} really had <b>${formatValue(
+  return `<p class="verdict believed">${escapeHtml(reveal.announcerName)} really had <b>${valueLabel(
     reveal.actual,
-  )}</b>, claimed <b>${formatValue(reveal.announced)}</b>. ${escapeHtml(reveal.doubterName)} doubted — loses ${lives}.${penalty}</p>`;
+  )}</b>, claimed <b>${valueLabel(reveal.announced)}</b>. ${escapeHtml(reveal.doubterName)} doubted — loses ${lives}.${penalty}</p>`;
 }
 
 interface PageState {
@@ -142,11 +149,13 @@ function renderWaiting(view: StateView): string {
 }
 
 function renderPlayers(game: MiaState, view: StateView): string {
+  const countdown = clock.secondsLeft(game.deadlineAt);
   return `<ul class="players">${game.players
     .map((player) => {
       const turn = game.turnPlayerId === player.id;
       const cup = game.diceOwnerId === player.id && game.phase !== "finished";
       const offline = !view.connected.includes(player.id);
+      const ownTurn = turn && player.id === view.you && countdown !== null;
       const lives = Array.from({ length: STARTING_LIVES }, (_, index) =>
         index < player.lives ? '<i class="pip on"></i>' : '<i class="pip"></i>',
       ).join("");
@@ -156,7 +165,8 @@ function renderPlayers(game: MiaState, view: StateView): string {
           <span class="tag-row">
             ${player.eliminated ? '<span class="badge out">out</span>' : ""}
             ${cup ? '<span class="badge cup">cup</span>' : ""}
-            ${turn ? '<span class="badge turn">their turn</span>' : ""}
+            ${turn ? '<span class="badge turn">turn</span>' : ""}
+            ${ownTurn ? `<span class="badge countdown" data-countdown>${countdown}s</span>` : ""}
             ${offline && !player.eliminated ? '<span class="badge muted">offline</span>' : ""}
           </span>
         </div>
@@ -167,8 +177,10 @@ function renderPlayers(game: MiaState, view: StateView): string {
     .join("")}</ul>`;
 }
 
-function renderAnnounceGrid(announcements: number[], myDice: [number, number] | null): string {
-  const mineValue = myDice ? myDice[0] * 10 + myDice[1] : null;
+function renderAnnounceGrid(announcements: number[], myDice: [Die, Die] | null): string {
+  // `rollValue` normalises the dice order; the raw `d[0] * 10 + d[1]` misses
+  // whenever the lower die comes up first, so "yours" would vanish half the time.
+  const mineValue = myDice ? rollValue(myDice[0], myDice[1]) : null;
   return `<div class="announce-grid">${announcements
     .map(
       (value) => `<button class="announce ${value === MIA ? "mia" : ""} ${
@@ -208,24 +220,19 @@ function renderPlay(view: StateView): string {
   } else if (!turnIsMine) {
     actions = `<div class="card actions"><p class="muted">Waiting for ${escapeHtml(
       turnPlayer?.name ?? "the next player",
-    )}${countdown !== null ? ` · ${countdown}s` : ""}</p></div>`;
+    )}${countdown !== null ? ` · <span data-countdown>${countdown}s</span>` : ""}</p></div>`;
   } else if (game.phase === "announcing") {
-    actions = `<div class="card actions">
+    actions = `<div class="card actions actions-tall">
       <p class="prompt">Your dice are secret. Claim something <b>higher than ${
-        standing ? formatValue(standing.value) : "anything"
+        standing ? valueLabel(standing.value) : "anything"
       }</b>:</p>
       ${renderAnnounceGrid(moves.announcements, you?.dice ?? null)}
-      ${
-        moves.announcements.length === 0
-          ? '<p class="muted small">Nothing outranks what is standing — you have to announce anyway and hope.</p>'
-          : ""
-      }
     </div>`;
   } else {
     actions = `<div class="card actions">
       <p class="prompt">${
         standing
-          ? `Standing: <b>${formatValue(standing.value)}</b> from ${escapeHtml(standing.playerName)}`
+          ? `Standing: <b>${valueLabel(standing.value)}</b> from ${escapeHtml(standing.playerName)}`
           : "You open the round."
       }</p>
       <div class="row gap">
@@ -367,14 +374,18 @@ async function boot(): Promise<void> {
   render();
 }
 
-// Keep the countdown honest without redrawing the world every frame.
+// Tick the clock without redrawing the world. A full `render()` here would
+// replace every node once a second, discarding text selection, in-flight taps,
+// focus and CSS transitions on a phone — all for one changing number.
 window.setInterval(() => {
   const view = state.view;
   if (!view || view.deadlineAt === null) return;
   const remaining = clock.secondsLeft(view.deadlineAt);
-  if (remaining !== state.lastCountdown) {
-    state.lastCountdown = remaining;
-    render();
+  if (remaining === state.lastCountdown) return;
+  state.lastCountdown = remaining;
+  const text = `${remaining}s`;
+  for (const node of document.querySelectorAll<HTMLElement>("[data-countdown]")) {
+    node.textContent = text;
   }
 }, 500);
 
