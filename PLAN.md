@@ -345,6 +345,10 @@ been deployed. The client has never been rendered in a browser.
 
 ## Sequencing
 
+**B1–B5** (see "Code review findings" below) are code fixes and must land
+before R3, alongside R1/R2 — B1 bills real money against a live account and B2
+corrupts the only data the product persists.
+
 **R1 and R2** are independent of each other and can run in either order, but
 both must land before R3 — R3 deploys whatever is in the tree.
 
@@ -546,3 +550,257 @@ For each task, the review will check:
    regression test or explicitly recorded, not silently absorbed or silently
    ignored.
 5. **`progress.md` reflects reality**, including anything left undone.
+
+---
+
+# Code review findings — additional tasks
+
+A read-through of `src/`, `client/` and the tests at commit `fc507d3`. Nothing
+below is fixed; each item is a task. File:line references are to that commit.
+
+Severity is about user impact, not effort. **B1–B5 should be done before R3
+(deploy)** — B1 bills real money on a live account and B2 corrupts the only data
+the product persists. The rest can follow the R-series.
+
+**Checked and found clean**, for the record: every user-controlled string
+reaching the DOM goes through `escapeHtml` (no XSS found); cookie signing,
+constant-time verification, and the `Secure`/`HttpOnly`/`SameSite` attributes
+are sound; `crypto.getRandomValues`/`randomUUID` are used throughout with no
+`Math.random()` in security or game paths; no secrets are in tracked files or
+git history; the D1 result write is a single atomic `batch`.
+
+---
+
+## B1 — Abandoned tables enter a permanent alarm loop and are never reclaimed
+
+**Severity: high.** Billing and resource leak on a live deployment.
+
+`maybeReapEmptyRoom` (`src/worker/table-room.ts:311`) is only reachable from
+`alarm()` when `this.state === null` (`table-room.ts:215`). Every table that has
+ever had a player has non-null state, so **the reaper never runs for any real
+table** — storage is never freed and `EMPTY_TABLE_TTL_MS` is dead code.
+
+Worse, the fallthrough loops. For a finished or abandoned table, `alarm()`
+matches none of the phase branches and falls to `ensureAlarm()`
+(`table-room.ts:248`). There, `deadlineAt` and `roundEndsAt` are both null and
+there are no sockets, so it sets an alarm at `emptySince + EMPTY_TABLE_TTL_MS`
+(`table-room.ts:614`). When that fires, `emptySince` is unchanged in the warm
+instance, so the same past timestamp is set again — an immediate re-fire, and
+then a hot loop of alarm invocations that never terminates and never deletes
+anything.
+
+**Do.** Make the reaper reachable: check for "no sockets and nothing scheduled"
+before the phase dispatch in `alarm()`, regardless of whether state is null.
+Never call `setAlarm` with a time already in the past — clamp to
+`max(target, now + someFloor)`. Delete storage and let the object go dormant.
+
+**Acceptance.** A test that takes a table through game over, drops every socket,
+advances past the TTL, and asserts storage is deleted and no further alarm is
+scheduled. Confirm no alarm is ever set with a past timestamp.
+
+---
+
+## B2 — Finishing places are computed from seat order, not elimination order
+
+**Severity: high.** This is the only game data that reaches D1.
+
+`table-room.ts:456`: `place: player.id === gameOver.winnerId ? 1 : index + 2`.
+Place comes from the player's index in the roster array, which has nothing to do
+with who survived longest. With the winner seated at index 2 of 4, the others
+are recorded as places 2, 3 and 5 — a skipped 4, and an order that is arbitrary.
+
+The state has no way to compute this correctly: `MiaPlayer.eliminated` is a
+boolean with no ordering (`src/shared/mia.ts:115`).
+
+**Do.** Record elimination order in the engine — an incrementing
+`eliminatedAt`/`eliminationIndex` set in `resolveEliminations`
+(`src/shared/mia.ts`) — and derive `place` from it: winner 1, then eliminated
+players in reverse elimination order. Two players eliminated by the same
+double-Mia penalty need a defined tie rule; state it.
+
+**Acceptance.** A unit test pinning places for a 4-player game with a known
+elimination order, and a workers test asserting the `game_players` rows match.
+
+---
+
+## B3 — A failed result write is lost, despite a comment claiming it retries
+
+**Severity: medium-high.** Silent data loss at the exact moment that matters.
+
+`writeResults` (`table-room.ts:451`) catches a D1 failure and leaves
+`resultsWritten` false with the comment "the next load retries the write". There
+is no such retry: `writeResults` is only called from `commit`
+(`table-room.ts:444`), and no further commits happen once the game is over. A
+transient D1 error therefore loses the result permanently, and the `tables` row
+is never flipped to `finished` either — so the table keeps being advertised in
+the lobby until it goes stale.
+
+**Do.** Retry on a backoff via the alarm, and attempt the write on DO load when
+`state.gameOver !== null && !resultsWritten`. Keep it idempotent — `recordGame`
+is already `ON CONFLICT DO NOTHING` (`src/worker/db.ts:236`), so re-running is
+safe. Either way, delete the comment or make it true.
+
+**Acceptance.** A test with a failing D1 stub that asserts the write is retried
+and eventually succeeds, and that the table row reaches `finished`.
+
+---
+
+## B4 — The turn countdown is frozen; it never counts down
+
+**Severity: medium.** Visible to every player on every turn.
+
+`secondsLeft` (`client/src/net.ts:134`) computes
+`drift = Date.now() - serverTime` and then
+`deadlineAt - (Date.now() - drift)`. Both `Date.now()` calls happen in the same
+expression, so that second term reduces to `serverTime` and the whole thing
+collapses to `ceil((deadlineAt - serverTime) / 1000)` — a constant for a given
+snapshot. `client/src/table.ts:367` ticks it on an interval, but the value never
+changes between broadcasts, so a 60-second turn shows a fixed number and then
+jumps.
+
+**Do.** Capture the drift **once**, when a snapshot arrives, and compute
+remaining time against a live `Date.now()` on each tick.
+
+**Acceptance.** A unit test with a mocked clock asserting the value decreases
+across ticks with no new snapshot, and that a client clock skewed by minutes
+still produces a sane countdown.
+
+---
+
+## B5 — A host who closes their tab leaves the table permanently unstartable
+
+**Severity: high.** Produces dead tables that the lobby keeps advertising.
+
+Two defects compound:
+
+1. `afterDisconnect` (`table-room.ts:203`) never removes the player from the
+   roster. `handleLeave` does (`table-room.ts:394`), but only on an explicit
+   `leave` message — closing a tab or losing signal sends none. Pre-game tables
+   therefore accumulate ghost seats.
+2. `handleStart` requires the caller to be `state.players[0]`
+   (`table-room.ts:376`). If that seat is a ghost, **nobody can start the game**,
+   and the table sits in the lobby forever showing phantom players.
+
+`afterDisconnect` also never calls `syncTableRow`, so the D1 `player_count` the
+lobby renders is stale after any disconnect.
+
+**Do.** On disconnect from a table that has not started (`round === 0`), drop
+the seat and `syncTableRow`. Mid-game, keep the seat — auto-play already covers
+it, and that is the intended behaviour. Reassign host to the first *connected*
+seat, or let any connected player start once the original host is gone.
+
+**Acceptance.** A workers test: two players join, the host's socket closes, the
+remaining player can start; and the D1 `player_count` matches the live roster
+after a disconnect.
+
+---
+
+## B6 — Two divergent implementations of the dice-secrecy boundary
+
+**Severity: medium.** This duplication is exactly how the leak fixed in
+`1a9bb09` happened.
+
+`redactFor` (`table-room.ts:630`) and `buildView`/`redactState`
+(`src/shared/mia.ts:784`) both implement redaction, differently. The shared one
+is now per-player and correct; the DO's is phase-based and, once
+`publicDice` is true, returns **every** player's dice rather than only the
+doubted player's. It is currently harmless because `takeCup` keeps just one pair
+of dice in the state — that is one accident away from leaking again.
+
+**Do.** Delete `redactFor` and have the DO call the shared `buildView`. One
+implementation, one test suite.
+
+**Acceptance.** `redactFor` is gone; the existing workers redaction test still
+passes; a test asserts that a planted stray pair of dice is not revealed to
+anyone at reveal time.
+
+---
+
+## B7 — Concurrent first requests can mint competing session keys
+
+**Severity: medium-low.** Rare, but silently and permanently logs people out.
+
+`loadSigningKey` (`src/worker/session.ts:46`) reads `app_config`, and on a miss
+generates a key and writes it with `setConfig`, which upserts
+(`db.ts:81`: `ON CONFLICT ... DO UPDATE SET value = excluded.value`). Two
+isolates racing on a cold database both see the miss, both generate, and the
+second overwrites the first. Every cookie already signed with the losing key
+fails verification forever — those players lose their identity and their name
+with no way back.
+
+**Do.** Make key creation write-once: `ON CONFLICT (key) DO NOTHING`, then
+re-`SELECT` and use whichever value actually landed.
+
+**Acceptance.** A test that two concurrent `getSigningKey` calls against a cold
+database converge on the same key.
+
+---
+
+## B8 — Queued client actions are replayed after a reconnect
+
+**Severity: medium.**
+
+`TableSocket.send` (`client/src/net.ts:113`) queues up to 8 messages while
+offline and replays them on reconnect. If the socket dropped *after* the server
+applied the action but before the broadcast arrived, the replay is a second,
+stale action. Most are caught by the phase guards, but the intent is stale by
+construction: by reconnect time the game may be several turns on.
+
+**Do.** Either drop the queue on reconnect (the client re-derives from the
+snapshot anyway), or stamp each action with the `logSeq`/round it was decided
+against and have the server reject stale ones.
+
+**Acceptance.** A test that a replayed action from a previous round is rejected
+rather than applied.
+
+---
+
+## B9 — Test seams are public RPC methods on the production Durable Object
+
+**Severity: low-medium.**
+
+`__setDiceForTest`, `__stateForTest` and `__setTimingsForTest`
+(`table-room.ts:575`–`599`) can force dice into a live game and read the
+unredacted state. Only the Worker holds the binding and it never exposes them,
+so this is not currently reachable — but a single future route that forwards a
+method name turns it into a cheat and a dice oracle.
+
+**Do.** Move them behind a build-time flag, or put them on a test-only subclass
+that the production entrypoint does not export.
+
+**Acceptance.** The production bundle contains no `__*ForTest` methods; the
+workers tests still pass.
+
+---
+
+## B10 — Minor gaps, worth one cleanup pass
+
+- **Unbounded scan per new player.** `listPlayerNames` (`db.ts:118`) does
+  `SELECT name FROM players` with no limit, on every first visit, only to avoid
+  a duplicate ship name. Bound it — sample recent names, or retry on a unique
+  constraint.
+- **No rate limiting anywhere.** In particular `ping` (`table-room.ts:330`)
+  triggers a full redacted broadcast to every socket, so one client can amplify
+  traffic to the whole table at will.
+- **Mutation before persistence.** `handleConnect` (`table-room.ts:89`) mutates
+  `this.state` in place and then calls `persistAndBroadcast`, against the
+  persist-first rule the rest of the file follows.
+- **Host identity disagrees between layers.** D1 stores `host_id` at creation
+  (`db.ts:184`); the DO treats `players[0]` as host. A host who never connects
+  makes the error message at `table-room.ts:377` false.
+- **No rematch.** `handleStart` refuses once `round > 0`, so a table is
+  single-use. Reasonable, but the UI never says so — players at a finished table
+  have no path forward except returning to the lobby.
+- **Spectators are silently permitted.** A player joining a started game is sent
+  an error but stays connected and keeps receiving broadcasts
+  (`table-room.ts:105`). Fine if intended — decide, then say so.
+- **`tableId()` falls back to `"unknown"`** (`table-room.ts:434`), which would
+  write result rows against a bogus table id rather than failing loudly.
+- **Full `innerHTML` re-render** on every snapshot (`table.ts:291`,
+  `lobby.ts:129`) resets scroll position mid-game. The lobby already guards the
+  rename field via `editingName`; the table page has no such guard. R1 should
+  confirm how this feels on a phone.
+- **Set-Cookie on a 101 response.** The WebSocket upgrade goes through
+  `decorate`/`attachSession` (`src/worker/index.ts:183`), which rebuilds the
+  response. It works today — the harness connects fine — but a new player whose
+  very first request is the WebSocket may not get their cookie stored.

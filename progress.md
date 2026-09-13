@@ -136,6 +136,12 @@ of `PLAN.md`, with per-task acceptance criteria. In short:
 
 R3–R6 are time-coupled: the claim URL expires 60 minutes after R3 creates it.
 
+A code review at `fc507d3` added tasks **B1–B10** in the same file. **B1–B5 are
+pre-deploy**: an unreachable table reaper that leaves abandoned tables in a
+permanent alarm loop, finishing places computed from seat order, a lost result
+write on a transient D1 error, a frozen turn countdown, and a host who closes
+their tab leaving the table permanently unstartable.
+
 ## Environment notes (this sandbox)
 
 - `~/.npm` is not writable: use `npm_config_cache=$PWD/.npm-cache npm ...`
