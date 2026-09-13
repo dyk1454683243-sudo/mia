@@ -265,6 +265,13 @@ async function tableStatus(tableId: string): Promise<string | undefined> {
   return row?.status;
 }
 
+async function playerCount(tableId: string): Promise<number | undefined> {
+  const row = await env.DB.prepare(`SELECT player_count FROM tables WHERE id = ?1`)
+    .bind(tableId)
+    .first<{ player_count: number }>();
+  return row?.player_count;
+}
+
 async function countResultRows(gameId: string): Promise<number> {
   const row = await env.DB.prepare(`SELECT COUNT(*) AS n FROM game_players WHERE game_id = ?1`)
     .bind(gameId)
@@ -817,4 +824,103 @@ describe("TableRoom", () => {
     annaSocket.close();
     boSocket.close();
   }, 30_000);
+
+  it("drops a pre-game host's seat when they close the tab, so the rest can start", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const cara = await makePlayer("Cara");
+    const tableId = await createTableRow("Hostless", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    const caraSocket = await connect(tableId, cara);
+    await caraSocket.nextState((view) => view.state.players.length === 3);
+    await waitFor(async () => (await playerCount(tableId)) === 3);
+
+    // The host closes the tab; no `leave` message is ever sent.
+    annaSocket.close();
+    const afterClose = await boSocket.nextState(
+      (view) => view.state.players.length === 2 && !view.connected.includes(anna.id),
+      5_000,
+    );
+    expect(afterClose.state.players.map((player) => player.name)).toEqual(["Bo", "Cara"]);
+    expect([...afterClose.connected].sort()).toEqual([bo.id, cara.id].sort());
+
+    // The D1 directory the lobby renders follows the live roster.
+    await waitFor(async () => (await playerCount(tableId)) === 2);
+
+    // Bo is now the first seat, so the table is startable again.
+    boSocket.send({ type: "start" });
+    const started = await boSocket.nextState((view) => view.state.round === 1);
+    expect(started.state.players.map((player) => player.name)).toEqual(["Bo", "Cara"]);
+    expect(boSocket.errors).toEqual([]);
+
+    boSocket.close();
+    caraSocket.close();
+    // Let the close handlers finish before the runtime is torn down.
+    await waitFor(async () => (await socketCount(tableId)) === 0, 5_000);
+  }, 20_000);
+
+  it("keeps a disconnected player's seat once the game is under way", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const tableId = await createTableRow("Mid-game drop", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    await annaSocket.nextState((view) => view.state.players.length === 2);
+
+    annaSocket.send({ type: "start" });
+    await annaSocket.nextState((view) => view.state.round === 1);
+
+    // Anna's phone drops mid-game: her seat has to stay so her turns auto-play.
+    annaSocket.close();
+    const view = await boSocket.nextState((snapshot) => !snapshot.connected.includes(anna.id), 5_000);
+    expect(view.state.players.map((player) => player.name)).toEqual(["Anna", "Bo"]);
+    expect(await playerCount(tableId)).toBe(2);
+    expect(await tableStatus(tableId)).toBe("playing");
+
+    boSocket.close();
+  }, 20_000);
+
+  it("keeps a pre-game seat while the player still has another socket", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const tableId = await createTableRow("Two tabs", anna.id);
+    const annaFirst = await connect(tableId, anna);
+    const annaSecond = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    await boSocket.nextState((view) => view.state.players.length === 2);
+
+    // One tab closes; Anna is still here in the other.
+    annaFirst.close();
+    await waitFor(async () => (await socketCount(tableId)) === 2);
+    expect((await readState(tableId))?.players.map((player) => player.name)).toEqual(["Anna", "Bo"]);
+
+    // The last socket closes, and only then does the seat go.
+    annaSecond.close();
+    await waitFor(async () => {
+      const state = await readState(tableId);
+      return state !== null && state.players.map((player) => player.name).join() === "Bo";
+    });
+
+    boSocket.close();
+  }, 20_000);
+
+  it("reaps an abandoned pre-game table past its TTL", async () => {
+    const anna = await makePlayer("Anna");
+    const tableId = await createTableRow("Abandoned lobby", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    await annaSocket.nextState((view) => view.state.players.length === 1);
+    await waitFor(async () => (await playerCount(tableId)) === 1);
+
+    await setEmptyTtl(tableId, 150);
+    annaSocket.close();
+
+    // The seat goes first, and the lobby count follows it.
+    await waitFor(async () => (await playerCount(tableId)) === 0);
+
+    // Past the TTL the storage is dropped and nothing is left to wake it. This
+    // is the commonest abandoned table of all: created, nobody joined, closed.
+    await waitForValue(async () => ((await storedRoom(tableId)) === null ? true : null), 8_000);
+    expect(await scheduledAlarm(tableId)).toBeNull();
+  }, 20_000);
 });

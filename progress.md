@@ -315,6 +315,57 @@ Not verified: nothing renders this in a browser yet. R1 is the task that
 actually puts the table page on screen at 375×812, and the countdown belongs on
 its checklist. Nothing is deployed, so there is no live countdown either.
 
+## Fixed: B5 — a host who closed their tab bricked the table
+
+`afterDisconnect` never touched the roster, so a player who closed their tab or
+lost signal stayed in it as a ghost. Pre-game that was fatal: `handleStart`
+requires the opener to be `players[0]`, so a ghost in that seat meant nobody
+could start and the table sat in the lobby advertising phantom players.
+`afterDisconnect` also never called `syncTableRow`, so the D1 `player_count` the
+lobby renders was stale after any disconnect.
+
+- `webSocketClose` and `webSocketError` now hand the closing socket and its
+  player id to `afterDisconnect`, which drops the seat through a shared
+  `removePreGameSeat` (now also used by `handleLeave`) whenever the game has not
+  started (`round === 0`), then syncs the D1 row.
+- A player with another socket still open keeps the seat: the closing socket is
+  excluded explicitly, so closing one of two tabs is not a disconnect.
+- Mid-game nothing changes. The seat stays and auto-play covers the dropped
+  phone, exactly as before.
+- Host reassignment falls out of removal — the ghost leaves the roster, so
+  `players[0]` is a connected player and the table is startable again. No
+  separate host pointer was added, and `handleStart` keeps its strict
+  "the opener starts" rule, with a comment saying why that is now safe.
+
+One correction to the acceptance's arithmetic: it asks for "two players join,
+the host's socket closes, the remaining player can start". With two seats total
+that leaves one player, and the ruleset needs two to start — so the test uses
+the host plus two others, which is the case where starting must work. A two-seat
+table whose host leaves is correctly unstartable, not a bug.
+
+Verified: `npx vitest run` **62 passing (45 unit + 17 workers)**; both typechecks
+clean; `scripts/e2e.ts` **25/25** (its mid-game reconnect against live
+`wrangler dev` is the closest thing it has to a disconnect check). New workers
+tests:
+
+- the host closes their tab on a three-seat table; the roster becomes the other
+  two, the D1 `player_count` follows it to 2, and the next player can start;
+- a pre-game player with a second socket open keeps their seat when one tab
+  closes and loses it only when the last one does;
+- a mid-game disconnect keeps the seat, leaves `player_count` at 2 and the table
+  `playing`;
+- an abandoned pre-game table — one seat, nobody else joined, tab closed — is
+  reaped past a shortened TTL with no alarm left behind.
+
+Both new seat behaviours were checked against the old code: stubbing
+`removePreGameSeat` back to a no-op fails the host test (the roster never drops
+to two, so nothing can start) and the reap test (the ghost holds
+`player_count` at 1).
+
+Not verified: none of this has been seen in a browser. Closing a real tab is a
+browser action, and R1 is the task that will actually do it at a phone viewport.
+Nothing is deployed.
+
 ## Not started
 
 Broken down as tasks **R1–R6** in the "Remaining work — handoff tasks" section
@@ -337,8 +388,8 @@ that table is the authoritative list of what is left, and a task counts as done
 only once it has been reviewed.
 
 **B1** (`ea28513`), **B2** (`07fb73e`), **B3** (`eb8d1db`) and **B4**
-(`c0f396b`) are done and reviewed. **B5 is the last pre-deploy item**: a host
-who closes their tab leaving the table permanently unstartable.
+(`c0f396b`) are done and reviewed. **B5 is fixed** (awaiting review) — the last
+of the pre-deploy code fixes. After it is reviewed, only **R1–R6** remain.
 
 ### Review of B4 (`c0f396b`) — approved
 

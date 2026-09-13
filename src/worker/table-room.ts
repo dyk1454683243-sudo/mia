@@ -243,21 +243,43 @@ export class TableRoom extends DurableObject<Env> {
   }
 
   override async webSocketClose(ws: WebSocket, code: number, reason: string, _wasClean: boolean): Promise<void> {
+    const attachment = ws.deserializeAttachment() as SocketAttachment | null;
     try {
       ws.close(code === 1000 ? 1000 : 1001, reason);
     } catch {
       /* already closing */
     }
-    await this.afterDisconnect();
+    await this.afterDisconnect(ws, attachment?.playerId ?? null);
   }
 
-  override async webSocketError(_ws: WebSocket, _error: unknown): Promise<void> {
-    await this.afterDisconnect();
+  override async webSocketError(ws: WebSocket, _error: unknown): Promise<void> {
+    const attachment = ws.deserializeAttachment() as SocketAttachment | null;
+    await this.afterDisconnect(ws, attachment?.playerId ?? null);
   }
 
-  private async afterDisconnect(): Promise<void> {
-    await this.broadcast();
+  /**
+   * One socket went away. Before the game starts that frees the seat, so a host
+   * who closes their tab cannot leave a ghost blocking everybody else. Once the
+   * game is under way the seat stays — auto-play covers a dropped phone — and so
+   * does a player who still has another socket open.
+   */
+  private async afterDisconnect(closing: WebSocket | null, playerId: string | null): Promise<void> {
+    let dropped = false;
+    if (playerId !== null && !this.hasOtherSocket(playerId, closing)) {
+      dropped = await this.removePreGameSeat(playerId);
+    }
+    // `removePreGameSeat` already broadcast; otherwise the `connected` list in
+    // the snapshot still needs refreshing.
+    if (!dropped) await this.broadcast();
     await this.ensureAlarm();
+  }
+
+  /** True when `playerId` still has a live socket other than the one closing. */
+  private hasOtherSocket(playerId: string, closing: WebSocket | null): boolean {
+    for (const socket of this.ctx.getWebSockets(playerId)) {
+      if (socket !== closing && socket.deserializeAttachment()) return true;
+    }
+    return false;
   }
 
   // -------------------------------------------------------------------------
@@ -512,6 +534,8 @@ export class TableRoom extends DurableObject<Env> {
       await this.reportError(playerId, "You need at least 2 players to start.");
       return;
     }
+    // Dropping a disconnected seat keeps the opener at the front of the
+    // roster, so whoever is first here is the connected host.
     const [host] = state.players;
     if (host?.id !== playerId) {
       await this.reportError(playerId, "Only the player who opened the table can start.");
@@ -535,12 +559,24 @@ export class TableRoom extends DurableObject<Env> {
       await this.reportError(playerId, "You cannot leave mid-game — your turns will auto-play.");
       return;
     }
+    await this.removePreGameSeat(playerId);
+  }
+
+  /**
+   * Drop a seat from a table that has not started. Returns true when a seat was
+   * actually removed. Mid-game the roster is frozen: the turn clock auto-plays
+   * for a dropped phone instead, and the D1 `tables` row keeps counting them.
+   */
+  private async removePreGameSeat(playerId: string): Promise<boolean> {
+    const state = this.state;
+    if (state === null || state.round > 0) return false;
     const index = state.players.findIndex((player) => player.id === playerId);
-    if (index === -1) return;
+    if (index === -1) return false;
     const next = structuredClone(state);
     next.players.splice(index, 1);
     await this.commit(next);
     await this.syncTableRow();
+    return true;
   }
 
   /** Apply a player action, then hand the turn on (auto-playing dead seats). */
