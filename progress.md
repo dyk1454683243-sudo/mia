@@ -446,14 +446,54 @@ stubbed to inspect its argument), no slow network, and the countdown was watched
 for three ticks rather than a whole 60-second turn. The finished-state countdown
 and the losing/spectator view were not separately exercised. Nothing is deployed.
 
+## Done: R2 — README.md
+
+`README.md` was 0 bytes. It now covers what the game is and the exact plain
+ruleset (with the three deliberately-omitted variants), the architecture and why
+there is a Durable Object per table, install / run locally / test / deploy, the
+project layout, and the sandbox prefixes.
+
+Four npm scripts were added so the browser path cannot be forgotten and so the
+harnesses are discoverable: `ui-setup`, `ui-check` (which carries
+`PLAYWRIGHT_BROWSERS_PATH=$PWD/.playwright-browsers`), `bots`, and `e2e`.
+
+**Every command in the README was run, not assumed:**
+
+| command | result |
+| --- | --- |
+| `npm_config_cache=$PWD/.npm-cache npm install` | installs clean |
+| `npm run types` | regenerates `worker-configuration.d.ts` |
+| `npm run ui-setup` | browsers already present, nothing to download |
+| `npm run dev` | build + vite watch + `wrangler dev` ready on :8787 |
+| `npm test` | 63 passing (46 unit + 17 workers) |
+| `npm run typecheck` | both projects clean |
+| `npm run e2e` | 25/25 against `wrangler dev` |
+| `npm run ui-check` | 36/36, zero console errors |
+| `npm run bots -- <tableId> 2` | seated, waited for the human, played; 16 bot actions in the event log |
+| `npx wrangler deploy --dry-run --outdir dist/worker` | bundles 7 files, exits |
+| `XDG_… npx wrangler dev` (sandbox form) | ready, `/` returns 200 |
+
+Two things surfaced while writing it:
+
+- **A fresh clone could not typecheck.** `worker-configuration.d.ts` is
+  gitignored, generated, and required by `tsc`; without it the typecheck fails
+  with TS2688. Reproduced by deleting the file, and the README's install step now
+  includes `npm run types`.
+- **`scripts/bots.ts` was only reachable as a raw `node` command.** It is now
+  `npm run bots -- <tableId> [count]`.
+
+**Not run:** `npm run deploy` and `npm run deploy:temporary`. Creating the
+temporary account is R3's job and temporary accounts are rate limited, so deploy
+is documented and its packaging is verified with `--dry-run`; the real deploy is
+R3. No account IDs, tokens or claim URLs appear in the README.
+
 ## Not started
 
 Broken down as tasks **R1–R6** in the "Remaining work — handoff tasks" section
 of `PLAN.md`, with per-task acceptance criteria. In short:
 
-- **R1** — **done** (see above), awaiting review.
-- **R2** — write `README.md` (currently 0 bytes). Should document the Playwright
-  install line and `PLAYWRIGHT_BROWSERS_PATH` for the UI check.
+- **R1** — **done** (see above), reviewed.
+- **R2** — **done** (see above), awaiting review.
 - **R3** — `wrangler deploy --temporary`.
 - **R4** — verify the live URL (harness + browser).
 - **R5** — redeploy into the same cached account; prove D1 and DO state survive.
@@ -468,12 +508,13 @@ only once it has been reviewed.
 
 **B1** (`ea28513`), **B2** (`07fb73e`), **B3** (`eb8d1db`), **B4** (`c0f396b`)
 and **B5** (`083a695`) are done and reviewed — every pre-deploy code fix is
-complete. **R1** (`255fa5b`) is done and reviewed.
-What remains is **R2 (README)**, then the time-coupled deploy series **R3–R6**.
+complete. **R1** (`255fa5b`) is done and reviewed; **R2** is done (awaiting
+review). What remains is the time-coupled deploy series **R3–R6**, which has to
+run back to back because the claim URL expires 60 minutes after it is created.
 Screenshots from R1 are not committed (binary artifacts); regenerate them with
-`PLAYWRIGHT_BROWSERS_PATH=$PWD/.playwright-browsers node scripts/ui-check.ts`.
+`npm run ui-check`.
 
-R3 (deploy) is now blocked on nothing but R2.
+R3 (deploy) is now blocked on nothing.
 
 ### Review of R1 (`255fa5b`) — approved
 

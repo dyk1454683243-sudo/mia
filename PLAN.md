@@ -329,8 +329,8 @@ A task is **Done** only once it has been reviewed.
 | Task | Status | Notes |
 | --- | --- | --- |
 | R1 — browser verification at a phone viewport | **Done** — `255fa5b`, reviewed | Delivered `scripts/bots.ts`, `scripts/lib.ts`, `scripts/ui-check.ts` |
-| R2 — `README.md` | Open | |
-| R3 — `wrangler deploy --temporary` | Open | Blocked on R2 only |
+| R2 — `README.md` | Done, awaiting review | Adds `npm run ui-setup` / `ui-check` / `bots` / `e2e` |
+| R3 — `wrangler deploy --temporary` | Open | Blocked on R2 review |
 | R4 — verify the live URL | Open | Blocked on R3 |
 | R5 — redeploy, prove persistence | Open | Blocked on R4 |
 | R6 — config hygiene, hand-over report | Open | Blocked on R5 |

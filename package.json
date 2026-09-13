@@ -11,6 +11,10 @@
     "test:workers": "vitest run --project workers",
     "typecheck": "tsc --noEmit -p tsconfig.worker.json && tsc --noEmit -p tsconfig.client.json",
     "types": "wrangler types",
+    "e2e": "node scripts/e2e.ts",
+    "ui-setup": "PLAYWRIGHT_BROWSERS_PATH=$PWD/.playwright-browsers playwright install chromium",
+    "ui-check": "PLAYWRIGHT_BROWSERS_PATH=$PWD/.playwright-browsers node scripts/ui-check.ts",
+    "bots": "node scripts/bots.ts",
     "deploy": "npm run build && wrangler deploy",
     "deploy:temporary": "npm run build && wrangler deploy --temporary"
   },
