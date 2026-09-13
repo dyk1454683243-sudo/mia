@@ -330,7 +330,7 @@ A task is **Done** only once it has been reviewed.
 | Task | Status | Notes |
 | --- | --- | --- |
 | R1 — browser verification at a phone viewport | **Done** — `255fa5b`, reviewed | Delivered `scripts/bots.ts`, `scripts/lib.ts`, `scripts/ui-check.ts` |
-| R2 — `README.md` | Done, awaiting review | Adds `npm run ui-setup` / `ui-check` / `bots` / `e2e` |
+| R2 — `README.md` | **Done** — `d11809d`, reviewed | Adds `npm run ui-setup` / `ui-check` / `bots` / `e2e` |
 | R3 — `wrangler deploy --temporary` | **Done** — `0d16d36`, reviewed | Live URL verified independently |
 | R4 — verify the live URL | **Done with a correction** — `8857e7c` | Its "no behavioural difference from local" is wrong: see **B12** |
 | R5 — redeploy, prove persistence | **Done** — `b6e3529`, reviewed | Live D1 still holds the games, places dense |
