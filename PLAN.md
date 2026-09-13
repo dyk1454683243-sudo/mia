@@ -304,7 +304,8 @@ and receives the current snapshot, with no visible difference from never having 
 Give the user, in chat and never in a committed file or an artifact:
 
 1. The live `workers.dev` URL.
-2. The claim URL, framed as a bearer credential, with the deadline in absolute UTC time.
+2. That the deployment is disposable and deliberately unclaimed, so the URL will
+   stop working when the account lapses. No claim URL or deadline is wanted.
 3. That an unclaimed account and all its resources are deleted.
 4. What was actually verified and what was not.
 
@@ -379,12 +380,16 @@ corrupts the only data the product persists.
 **R1 and R2** are independent of each other and can run in either order, but
 both must land before R3 — R3 deploys whatever is in the tree.
 
-**R3 through R6 are time-coupled and should run back to back.** The claim URL
-R3 produces expires **60 minutes** after it is created, and an unclaimed
-account is deleted along with its D1 database and Durable Objects. Do not let
-a review pause sit between them. The claim URL and its absolute UTC deadline
-must reach the user **as soon as R3 finishes** — do not hold it back for the
-R6 hand-over report.
+**The deployment is disposable — this constraint has been retired.** Leslie
+does not want to keep the temporary account and will not claim it (2026-09-13).
+If the claim window lapses and the account and its D1 data are deleted, the
+answer is to deploy again. So R3–R6 are **not** time-coupled: take review
+pauses freely, and treat a lost deployment as one redeploy rather than a
+failure. Do not chase the claim URL or hand it over with urgency.
+
+The credential hygiene rule is unchanged: while the account exists its claim
+URL and API token are still bearer credentials, so they never go into a file,
+a log, or a commit.
 
 ---
 
@@ -473,8 +478,9 @@ tree clean; `npx wrangler whoami` reports **not authenticated**.
    — **as a background job, in one shot, non-interactively.** The
    proof-of-work step takes minutes; do not run it under a short timeout and do
    not answer prompts (continuing implies accepting the terms).
-4. Capture the worker URL, the account name, the claim URL, and compute the
-   deadline as deploy time + 60 minutes in **absolute UTC**.
+4. Capture the worker URL and the account name. The claim URL does not need to
+   be chased or handed over with a deadline — the account is disposable — but
+   if it is mentioned at all it goes in chat only, never a file.
 
 **Hazards.** Do not run `wrangler login` or `logout` at any point — it clears
 the cached account, and creating temporary accounts is rate limited. A
@@ -523,7 +529,8 @@ state actually survive a new version, which is the claim worth making.
    `tables` row.
 2. Redeploy with the same command. Confirm the output reports the account as
    **`(reused)`** and bindings as **`(inherited)`** — a newly created account
-   means the cache was lost and the R3 claim URL is now worthless.
+   means the cached account was lost. That is not a failure — redeploy and carry
+   on — but say so, because the live URL changes with the account name.
 3. Re-query `/api/history` for that same `gameId` and confirm the row and its
    per-player rows are unchanged.
 4. Start a fresh game, leave it mid-round, redeploy again, reconnect, and
