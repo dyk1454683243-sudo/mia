@@ -66,11 +66,14 @@ export class TableRoom extends DurableObject<Env> {
       return new Response("Expected a WebSocket upgrade.", { status: 426 });
     }
     const playerId = request.headers.get("X-Mia-Player");
-    const playerName = request.headers.get("X-Mia-Name");
+    // Names arrive percent-encoded because headers are latin-1 and ship names
+    // are full of spaces; forgetting to decode leaves "Unacceptable%20Behaviour"
+    // in the roster, the event log and the D1 result rows.
+    const playerName = decodeHeader(request.headers.get("X-Mia-Name"));
     if (!playerId || !playerName) {
       return new Response("Missing player identity.", { status: 401 });
     }
-    const tableName = decodeURIComponent(request.headers.get("X-Mia-Table-Name") ?? "") || "Table";
+    const tableName = decodeHeader(request.headers.get("X-Mia-Table-Name")) || "Table";
     // The Durable Object's own name is not reliably available, so the Worker
     // passes the canonical table id through with the upgrade.
     const tableId = request.headers.get("X-Mia-Table-Id") ?? "unknown";
@@ -640,6 +643,16 @@ function redactFor(state: MiaState, viewerId: string): MiaState {
     }
   }
   return view;
+}
+
+/** Decode a percent-encoded header, tolerating malformed input. */
+function decodeHeader(raw: string | null): string {
+  if (!raw) return "";
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
 }
 
 function describe(error: unknown): string {

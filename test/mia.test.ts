@@ -501,6 +501,50 @@ describe("redaction", () => {
     expect(forBo.diceOwnerId).toBe("anna");
   });
 
+  it("does not hand the cup holder anybody else's dice", () => {
+    // The regression this pins: redaction used to ask only *whether* a viewer
+    // could see dice, not *whose*, so holding the cup revealed everyone else's
+    // roll — and with it, whether they had bluffed. Stray dice are planted
+    // directly rather than played into place, so this keeps testing the
+    // redaction boundary itself even though `takeCup` now clears them at the
+    // source. Defence in depth: either fix alone must stop the leak.
+    let state = playing("anna", "bo", "cara");
+    state = rollAs(state, "anna", [5, 2]);
+    playerById(state, "bo")!.dice = [6, 6];
+    playerById(state, "cara")!.dice = [4, 1];
+
+    const forAnna = buildView(state, "anna");
+    expect(state.diceOwnerId).toBe("anna");
+    expect(playerById(forAnna, "anna")!.dice).toEqual([5, 2]);
+    expect(playerById(forAnna, "bo")!.dice).toBeNull();
+    expect(playerById(forAnna, "cara")!.dice).toBeNull();
+  });
+
+  it("keeps one cup: taking it clears the previous holder's dice", () => {
+    let state = playing("anna", "bo", "cara");
+    state = rollAs(state, "anna", [6, 6]);
+    state = announce(state, "anna", 31);
+    state = must(applyAction(state, { type: "believe", playerId: "bo" }, TIMINGS, T0));
+    expect(state.diceOwnerId).toBe("bo");
+    expect(playerById(state, "anna")!.dice).toBeNull();
+    expect(playerById(state, "bo")!.dice).not.toBeNull();
+  });
+
+  it("turns over only the doubted player's dice, not earlier rolls in the round", () => {
+    let state = playing("anna", "bo", "cara");
+    state = rollAs(state, "anna", [6, 6]);
+    state = announce(state, "anna", 31);
+    state = must(applyAction(state, { type: "believe", playerId: "bo" }, TIMINGS, T0));
+    playerById(state, "bo")!.dice = [5, 2];
+    state = announce(state, "bo", 52);
+    state = must(applyAction(state, { type: "doubt", playerId: "cara" }, TIMINGS, T0));
+
+    const view = buildView(state, "cara");
+    expect(playerById(view, "bo")!.dice).toEqual([5, 2]);
+    // Anna's 6·6 belongs to a bluff that already concluded; it stays in the cup.
+    expect(playerById(view, "anna")!.dice).toBeNull();
+  });
+
   it("publishes the actual dice to everyone once a doubt is called", () => {
     let state = playing("anna", "bo");
     state = rollAs(state, "anna", [6, 3]);

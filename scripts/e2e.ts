@@ -10,13 +10,22 @@
  * Vite's TS handling is not available, so this file is plain JS that mirrors
  * the pure engine only where it must: legal values and the auto-play choice.
  */
-import { autoPlaySequence, legalMoves, type MiaState } from "../src/shared/mia.ts";
+import {
+  legalMoves,
+  MIA,
+  minimumAnnouncement,
+  rollValue,
+  type MiaAction,
+  type MiaState,
+} from "../src/shared/mia.ts";
 
 const BASE = process.env.MIA_BASE ?? "http://127.0.0.1:8787";
 const REVEAL_TIMEOUT_MS = 20_000;
+/** How long the game may sit on the same event log before the run is called dead. */
+const STALL_MS = 30_000;
 const trace = process.env.MIA_TRACE === "1";
 const STEP_LIMIT_OVERRIDE = Number(process.env.MIA_STEP_LIMIT ?? "0");
-const STEP_LIMIT = STEP_LIMIT_OVERRIDE > 0 ? STEP_LIMIT_OVERRIDE : 400;
+const STEP_LIMIT = STEP_LIMIT_OVERRIDE > 0 ? STEP_LIMIT_OVERRIDE : 1500;
 
 // ---------------------------------------------------------------------------
 // Tiny assertion helpers
@@ -117,10 +126,10 @@ class Client {
         | { type: "state"; state: MiaState; connected: string[] }
         | { type: "error"; message: string };
       if (message.type === "error") {
-        // An error means the action was refused. If something is waiting on it,
-        // fail that waiter; otherwise record it for diagnosis.
+        // A refusal is always recorded *and* fails anything waiting on the
+        // action it refused, so a rejection can never masquerade as a timeout.
+        this.errors.push(message.message);
         const pending = this.waiters.splice(0);
-        if (pending.length === 0) this.errors.push(message.message);
         for (const waiter of pending) waiter.reject(new Error(`${this.player.label}: server said "${message.message}"`));
         return;
       }
@@ -183,14 +192,21 @@ class Client {
     after = -1,
   ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
       const waiter = {
         after,
         predicate: () => this.state !== null && predicate(this.state),
-        resolve,
-        reject,
+        resolve: () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        reject: (error: Error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
       };
       this.waiters.push(waiter);
-      setTimeout(() => {
+      timer = setTimeout(() => {
         const index = this.waiters.indexOf(waiter);
         if (index !== -1) this.waiters.splice(index, 1);
         reject(new Error(`${this.player.label}: timed out waiting (errors: ${this.errors.join("; ") || "none"})`));
@@ -210,6 +226,63 @@ class Client {
 // ---------------------------------------------------------------------------
 // The game
 // ---------------------------------------------------------------------------
+
+/** Seeded PRNG, so a failing run replays exactly. Override with MIA_SEED. */
+function makeRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const random = makeRandom(Number(process.env.MIA_SEED ?? "20260912"));
+
+/**
+ * The harness plays a real game rather than reusing the server's idle fallback.
+ * The fallback always announces the minimum legal value, so every round climbs
+ * the whole ladder to Mia before anyone can doubt — which takes ~40 turns per
+ * round and, worse, means the standing announcement is a bluff virtually every
+ * time. The "a failed doubt cost the doubter a life" path would then never be
+ * exercised. This strategy announces the truth whenever the truth is legal and
+ * doubts opportunistically, which reaches both verdicts and ends rounds fast.
+ */
+function chooseAction(state: MiaState, playerId: string): MiaAction | null {
+  const moves = legalMoves(state, playerId);
+  const standing = state.lastAnnouncement?.value ?? null;
+
+  if (state.phase === "announcing") {
+    // The cup holder is the one viewer allowed to see these dice.
+    const dice = state.players.find((player) => player.id === playerId)?.dice ?? null;
+    const actual = dice ? rollValue(dice[0], dice[1]) : null;
+    if (actual !== null && moves.announcements.includes(actual)) {
+      return { type: "announce", playerId, value: actual };
+    }
+    const minimum = minimumAnnouncement(standing);
+    return minimum === null ? null : { type: "announce", playerId, value: minimum };
+  }
+
+  if (state.phase !== "deciding") return null;
+  // Nothing beats Mia, and nothing beats a standing announcement with no room
+  // above it: doubting is the only move left.
+  if (moves.canDoubt && (standing === MIA || !moves.canAnnounce)) {
+    return { type: "doubt", playerId };
+  }
+  if (moves.canDoubt && random() < 0.3) return { type: "doubt", playerId };
+  if (moves.canRoll && standing === null) return { type: "roll", playerId };
+  if (moves.canBelieve) return { type: "believe", playerId };
+  if (moves.canDoubt) return { type: "doubt", playerId };
+  return null;
+}
+
+/** Resolve as soon as any client receives a new snapshot, or after `timeoutMs`. */
+async function nextSnapshot(clients: Client[], timeoutMs: number): Promise<void> {
+  await Promise.race(
+    clients.map((client) => client.waitNext(() => true, timeoutMs).catch(() => undefined)),
+  );
+}
 
 interface GameLog {
   rounds: number;
@@ -260,10 +333,39 @@ async function playGame(players: Player[], tableName: string): Promise<{
 
   const byId = new Map(clients.map((client) => [client.player.id, client]));
 
+  /**
+   * Clients receive the same broadcast microseconds apart, so "the" state is
+   * whichever snapshot has seen the most events.
+   */
+  const freshest = (): MiaState => {
+    let best: MiaState | null = null;
+    for (const client of clients) {
+      const view = client.state;
+      if (view && (best === null || view.logSeq > best.logSeq)) best = view;
+    }
+    if (best === null) throw new Error("no snapshot from any client yet");
+    return best;
+  };
+
+  let lastSeenSeq = -1;
+  let stalledSince = Date.now();
+
   for (let step = 0; step < STEP_LIMIT; step++) {
-    const state = clients[0]!.state;
-    if (!state) throw new Error("no state");
+    const state = freshest();
     if (state.gameOver) break;
+
+    if (state.logSeq !== lastSeenSeq) {
+      lastSeenSeq = state.logSeq;
+      stalledSince = Date.now();
+    } else if (Date.now() - stalledSince > STALL_MS) {
+      const errors = clients.map((client) => client.lastError).filter(Boolean).join("; ");
+      throw new Error(
+        `no progress for ${STALL_MS}ms at round ${state.round} phase ${state.phase} turn ${
+          state.turnPlayerId?.slice(0, 4) ?? "none"
+        } standing ${state.lastAnnouncement?.value ?? "-"} (errors: ${errors || "none"})`,
+      );
+    }
+
     if (step % 25 === 0) {
       console.log(
         `    step ${step}: round ${state.round} phase ${state.phase} turn ${state.turnPlayerId?.slice(0, 4)} standing ${
@@ -272,7 +374,8 @@ async function playGame(players: Player[], tableName: string): Promise<{
       );
     }
 
-    // Redaction audit: before a reveal, only the cup holder may see any dice.
+    // Redaction audit: before a reveal, only the cup holder may see any dice,
+    // and only their own.
     for (const client of clients) {
       const view = client.state;
       if (!view) continue;
@@ -303,67 +406,66 @@ async function playGame(players: Player[], tableName: string): Promise<{
       }
     }
 
-    if (state.phase === "revealing") {
-      await clients[0]!.waitNext((next) => next.phase !== "revealing");
-      continue;
-    }
-    if (state.phase === "roundStart") {
-      await clients[0]!.waitNext((next) => next.phase !== "roundStart", 10_000);
-      continue;
-    }
-    if (state.phase === "finished") break;
+    // Only ever act through the client whose *own* view says it is that
+    // client's turn. Reading the turn from one client and acting through
+    // another races the broadcast: the actor can still be a beat behind, and
+    // treating that as "nothing to do" used to spin the entire step budget out
+    // in microseconds, which is what looked like a stall on turn two.
+    const actor = clients.find((client) => {
+      const mine = client.state;
+      return (
+        mine !== null &&
+        mine.gameOver === null &&
+        mine.turnPlayerId === client.player.id &&
+        (mine.phase === "deciding" || mine.phase === "announcing")
+      );
+    });
 
-    const turnId = state.turnPlayerId;
-    if (!turnId) {
-      await new Promise((resolve) => setTimeout(resolve, 25));
+    if (!actor) {
+      // A round-start or reveal beat is running on the server's alarm, or a
+      // snapshot is still in flight. Wait for news instead of busy-looping.
+      await nextSnapshot(clients, 10_000);
       continue;
     }
-    const actor = byId.get(turnId);
-    if (!actor) throw new Error(`no client for the turn player ${turnId}`);
 
-    // The snapshot the driver acts on may lag a step behind, so read the acting
-    // client's own view and retry once if the server says the turn moved on.
-    let moved = false;
-    for (let attempt = 0; attempt < 2 && !moved; attempt++) {
-      const mine = actor.state;
-      if (!mine || mine.turnPlayerId !== actor.player.id) break;
-      const queue = autoPlaySequence(mine, actor.player.id);
-      if (trace) {
-        console.log(
-          `      [trace] actor=${actor.player.label} phase=${mine.phase} turn=${mine.turnPlayerId?.slice(0, 4)} cup=${
-            mine.diceOwnerId?.slice(0, 4) ?? "none"
-          } standing=${mine.lastAnnouncement?.value ?? "-"} seq=${actor.sequence} queue=${JSON.stringify(queue)}`,
-        );
-      }
-      if (queue.length === 0) throw new Error(`no legal auto-play move in phase ${mine.phase}`);
-      try {
-        for (const action of queue) {
-          actor.send(action);
-          if (action.type === "announce") {
-            const value = action.value;
-            await actor.waitNext((next) => next.lastAnnouncement?.value === value);
-          } else if (action.type === "roll" || action.type === "believe") {
-            await actor.waitNext((next) => next.phase === "announcing");
-          } else {
-            await actor.waitNext((next) => next.phase !== "deciding" || next.gameOver !== null);
-          }
-        }
-        moved = true;
-      } catch (error) {
-        if (!/not your turn|Not your turn/i.test(String(error))) throw error;
-        if (trace) console.log(`      [trace] retry after: ${String(error)}`);
-        // Stale snapshot: take the next broadcast and re-decide.
-        await actor.waitNext();
-      }
+    // One action per iteration, always recomputed from the actor's current
+    // view. The old driver precomputed pairs like [believe, announce]; the
+    // announcement in such a pair is derived from the pre-believe state and is
+    // stale the instant the believe lands.
+    const mine = actor.state!;
+    const action = chooseAction(mine, actor.player.id);
+    if (!action) {
+      throw new Error(`no legal auto-play move for ${actor.player.label} in phase ${mine.phase}`);
+    }
+    if (trace) {
+      console.log(
+        `      [trace] ${actor.player.label} ${action.type}${action.type === "announce" ? ` ${action.value}` : ""} ` +
+          `(phase=${mine.phase} cup=${mine.diceOwnerId?.slice(0, 4) ?? "none"} standing=${
+            mine.lastAnnouncement?.value ?? "-"
+          })`,
+      );
+    }
+
+    actor.resetErrors();
+    actor.send(action);
+    try {
+      // Every accepted action broadcasts and every refusal rejects this waiter,
+      // so the next snapshot is the server's answer either way.
+      await actor.waitNext(() => true, 10_000);
+    } catch (error) {
+      if (trace) console.log(`      [trace] ${actor.player.label} ${action.type} did not land: ${String(error)}`);
+      // Refused or lost. Re-read and decide again rather than replaying a plan
+      // built from a state the server has already moved past.
+      await nextSnapshot(clients, 2_000);
     }
   }
 
-  const finalState = clients[0]!.state;
-  if (!finalState?.gameOver) {
+  const finalState = freshest();
+  if (!finalState.gameOver) {
     console.log(
-      `    stuck at round ${finalState?.round} phase ${finalState?.phase} lives ${finalState?.players
-        .map((player) => player.lives)
-        .join("/")}`,
+      `    stuck at round ${finalState.round} phase ${finalState.phase} turn ${
+        finalState.turnPlayerId?.slice(0, 4) ?? "none"
+      } lives ${finalState.players.map((player) => player.lives).join("/")}`,
     );
     throw new Error("game did not finish");
   }

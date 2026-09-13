@@ -328,6 +328,18 @@ function armTurn(state: MiaState, timings: Timings, now: number): void {
   state.deadlineAt = now + timings.turnMs;
 }
 
+/**
+ * Hand the cup to `playerId` with a fresh roll. There is one cup, so the dice
+ * of whoever held it before go back in it — leaving them on the table would
+ * expose a concluded bluff at the next reveal.
+ */
+function takeCup(state: MiaState, playerId: string, dice: [Die, Die]): void {
+  for (const player of state.players) {
+    player.dice = player.id === playerId ? dice : null;
+  }
+  state.diceOwnerId = playerId;
+}
+
 /** Seed a fresh round with `starterId` holding the cup. */
 export function startRound(state: MiaState, starterId: string | null, now = Date.now()): void {
   state.round += 1;
@@ -469,9 +481,7 @@ function applyRoll(state: MiaState, playerId: string, timings: Timings, now: num
   if (!moves.canRoll) return err("wrong-phase", "You cannot roll right now.");
 
   const player = playerById(state, playerId)!;
-  const dice = rollDice();
-  player.dice = dice;
-  state.diceOwnerId = playerId;
+  takeCup(state, playerId, rollDice());
   state.phase = "announcing";
   armTurn(state, timings, now);
   pushEvent(state, now, "roll", `${player.name} rolls in secret.`, { playerId });
@@ -539,9 +549,7 @@ function applyBelieve(state: MiaState, playerId: string, timings: Timings, now: 
   }
 
   const player = playerById(state, playerId)!;
-  const dice = rollDice();
-  player.dice = dice;
-  state.diceOwnerId = playerId;
+  takeCup(state, playerId, rollDice());
   state.phase = "announcing";
   armTurn(state, timings, now);
   pushEvent(state, now, "believe", `${player.name} believes and takes the cup.`, { playerId });
@@ -744,9 +752,11 @@ export function cloneState(state: MiaState): MiaState {
 
 /** How much of a state snapshot one particular viewer is allowed to see. */
 export interface Visibility {
-  /** True when this player's dice count should be filled in. */
+  /** The player this view is being built for. */
+  viewerId: string;
+  /** True when the viewer is holding the cup and may see their own dice. */
   ownDice: boolean;
-  /** True when the announcer's actual dice are face up (reveal or later). */
+  /** True when the doubted player's dice are face up (reveal or later). */
   revealedDice: boolean;
   /** True when the winner's identity should be filled in. */
   winner: boolean;
@@ -756,6 +766,7 @@ export function visibilityFor(state: MiaState, viewerId: string): Visibility {
   const isOwner = state.diceOwnerId !== null && state.diceOwnerId === viewerId;
   const phaseShowsDice = state.phase === "revealing" || state.phase === "finished";
   return {
+    viewerId,
     ownDice: isOwner && !phaseShowsDice,
     revealedDice: phaseShowsDice,
     winner: state.gameOver !== null,
@@ -763,16 +774,17 @@ export function visibilityFor(state: MiaState, viewerId: string): Visibility {
 }
 
 /**
- * Strip what this viewer must not see. Dice are the only secret: they belong to
- * the player holding the cup, and become public the moment a doubt is called or
- * the game ends.
+ * Strip what this viewer must not see. Dice are the only secret, and they are
+ * secret *per player*: seeing your own cup must never hand you anybody else's.
+ * Exactly one pair of dice can ever be visible — your own while you hold the
+ * cup, or the doubted player's once it is turned over.
  */
 export function redactState(state: MiaState, visibility: Visibility): MiaState {
   const view = cloneState(state);
   for (const player of view.players) {
-    if (!visibility.ownDice && !visibility.revealedDice) {
-      player.dice = null;
-    }
+    const isOwnCup = visibility.ownDice && player.id === visibility.viewerId;
+    const isFaceUp = visibility.revealedDice && player.id === state.diceOwnerId;
+    if (!isOwnCup && !isFaceUp) player.dice = null;
   }
   if (!visibility.winner && view.gameOver) {
     // Keep the finished flag but hide who won until the reveal lands.

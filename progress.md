@@ -48,61 +48,79 @@ Status snapshot, written after pausing work at the user's request.
    shareable join link redirected and lost the table id. Fixed with
    `"html_handling": "none"` and `"not_found_handling": "none"`.
 
-## Current blocker
+## Fixed: the e2e harness stall
 
-`scripts/e2e.ts` (the local end-to-end harness) still cannot finish a game. It
-gets through identity, lobby, table creation, the WebSocket upgrade, and the
-first two turns, then wedges.
+`scripts/e2e.ts` wedged on turn two. The server was never at fault — the bug
+was in the harness's decision loop, and there were two of them.
 
-Latest trace (`MIA_TRACE=1 MIA_STEP_LIMIT=60 node scripts/e2e.ts`):
+**1. Cross-client staleness with no wait.** The loop read `turnPlayerId` from
+player one's snapshot, looked up that player's client, and then checked whether
+*that* client's own snapshot agreed. Clients receive the same broadcast
+microseconds apart, so the actor was routinely still a beat behind. When the two
+views disagreed the loop `break`ed out of the retry without awaiting anything —
+so it burned the entire step budget in microseconds and reported a stall. Two
+runs wedged at different phases for exactly this reason.
 
-```
-step 0: round 1 phase deciding turn 1f8a standing - lives 6/6/6
-  [trace] actor=p1 phase=deciding turn=1f8a cup=none standing=- seq=5
-          queue=[roll, announce 31]
-  [trace] actor=p3 phase=deciding turn=16be cup=1f8a standing=31 seq=6
-          queue=[believe, announce 32]
-stuck at round 1 phase announcing lives 6/6/6
-```
+Fixed by inverting the selection: the actor is now chosen as *the client whose
+own view says it is its own turn*, so a stale snapshot simply means no actor is
+found yet. Every path that cannot act now awaits the next broadcast
+(`nextSnapshot`) instead of spinning.
 
-So p3 chose `believe` then `announce 32`, sent both, and the table stayed in
-`announcing` with p1's 31 still standing. The next loop iteration reads p1's
-snapshot, whose turn is no longer current, breaks out of the retry loop without
-acting, and spins. The evidence points at the **harness**, not the server:
+**2. Stale precomputed action queues.** `autoPlaySequence` returns pairs such as
+`[believe, announce 32]`, where the announcement is derived from the pre-believe
+state. The driver sent both back to back, so the second action was stale by
+construction. The loop now takes **one** action per iteration and recomputes it
+from the actor's current view.
 
-- `test/room.test.ts` drives the same sequence (`roll`, `announce`, `believe`,
-  `announce`, `doubt`) over real WebSockets in workerd and passes, including two
-  chained announcements and the D1 write on game over.
-- The harness sends `believe` and its queued `announce` back to back, waiting on
-  a fresh snapshot after each. The `believe` wait predicate is
-  `state.phase === "announcing"`, which is also true of the state that existed
-  *before* the believe, and the `announce` wait is for
-  `lastAnnouncement?.value === value` where `value` was computed from the
-  pre-believe snapshot.
+Supporting fixes: a server refusal is now always recorded *and* rejects pending
+waiters (it could previously be swallowed, so a refusal looked like a timeout);
+waiters clear their timers on settle; and a `logSeq`-based stall detector fails
+the run with real diagnostics after 30s of no progress instead of silently
+exhausting the step budget.
 
-Prime suspects, in order:
+**3. The harness needed a real strategy.** It had been reusing the server's idle
+fallback, which always announces the minimum legal value. That climbs the whole
+21-value ladder every round (~40 turns) and leaves the standing announcement a
+bluff virtually every time, so the "a failed doubt cost the doubter a life"
+check could never have passed. `chooseAction` now announces the truth whenever
+the truth is legal and doubts opportunistically, off a seeded PRNG
+(`MIA_SEED`) so a failing run replays exactly.
 
-1. The `waitNext` predicate for `believe`/`roll` (`phase === "announcing"`)
-   cannot distinguish the pre-action state from the post-action state, so a
-   queued action can be released against the wrong snapshot.
-2. `autoPlaySequence` is computed once from a snapshot, then its actions are
-   played one at a time; if a snapshot arrives between them the second action is
-   stale by construction. Recomputing the queue from the actor's own lookahead
-   state between actions is the likely correct shape.
-3. `attempt < 2` retry budget in the driver may be too small once a stale
-   snapshot is involved.
+## Bugs found and fixed (continued)
 
-Diagnostics added and still in place: `MIA_TRACE=1` prints each decision
-(actor, phase, turn, cup, standing, sequence, chosen queue) and each retry;
-`MIA_STEP_LIMIT` caps the loop so a wedged run exits quickly. `Client` now
-rejects pending waiters on a server `error` message, so rejections surface
-instead of silently looping.
+6. **The shared redaction helper leaked every player's dice to the cup holder.**
+   `redactState` asked only *whether* the viewer could see dice, not *whose*, so
+   a viewer holding the cup received every other player's dice too — the entire
+   bluff, exposed. The Durable Object has its own correct `redactFor`, so
+   nothing leaked over the wire, but the shared module used by the tests and the
+   client was a divergent, weaker second implementation of the security
+   boundary. `redactState` now filters per player: your own dice while you hold
+   the cup, or the doubted player's once they are face up, and nothing else.
+7. **Player names were never percent-decoded.** The Worker forwards the name to
+   the Durable Object as `X-Mia-Name`, percent-encoded because headers are
+   latin-1 and Culture ship names are full of spaces. The DO decoded
+   `X-Mia-Table-Name` but not `X-Mia-Name`, so the first green run announced its
+   winner as `Unacceptable%20Behaviour` — mangled in the roster, the event log
+   and the D1 result rows alike. Both headers now go through one tolerant
+   `decodeHeader`.
+8. **Dice were left behind on every previous cup holder.** `believe` set the new
+   holder's dice without clearing the old holder's, so mid-round several players
+   carried live dice in the state and a reveal turned all of them face up. There
+   is one cup: `takeCup` now clears the others.
+
+## Verified end to end
+
+`node scripts/e2e.ts` against `wrangler dev`: **25/25 checks pass**, twice, with
+a different game each run. A representative run: 17 rounds, 16 reveals, 6 caught
+bluffs costing the announcer, 10 failed doubts costing the doubter, one
+double-Mia penalty in the earlier run, a single winner, the `tables` row flipped
+to `finished`, the game and its three per-player rows in D1 via `/api/history`,
+every error path (404/400/405, bare `/api`), and a mid-game reconnect that
+restores the roster and leaves the cup where it was.
+
+`npx vitest run`: 45 passing (39 unit + 6 workers). Both typechecks clean.
 
 ## Not started
-
-- Local e2e passing (blocker above). The timer-expiry and reconnect checks in
-  the harness are written but have never run to completion; the timer itself is
-  covered by `test/room.test.ts` with a fast clock.
 - `npx wrangler deploy --temporary` and live-URL verification.
 - One redeploy into the same cached temporary account; confirm D1 and DO state
   survive.
