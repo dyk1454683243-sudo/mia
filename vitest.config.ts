@@ -9,12 +9,12 @@ export default defineConfig({
     // Vitest 3.0 spells this `workspace`; the two suites need different runtimes.
     workspace: [
       {
-        // Pure rules engine: plain Node, no Workers runtime needed.
+        // Pure rules engine and client helpers: plain Node, no Workers runtime.
         test: {
           name: "unit",
           root,
           environment: "node",
-          include: ["test/mia.test.ts"],
+          include: ["test/mia.test.ts", "test/clock.test.ts"],
         },
       },
       defineWorkersProject({

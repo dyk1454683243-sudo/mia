@@ -337,7 +337,7 @@ A task is **Done** only once it has been reviewed.
 | B1 — abandoned-table alarm loop | **Done** — `ea28513`, reviewed | Follow-ups in B11 |
 | B2 — finishing places from seat order | **Done** — `07fb73e`, reviewed | |
 | B3 — lost result write | **Done** — `eb8d1db`, reviewed | Follow-ups in B10, B11 |
-| B4 — frozen turn countdown | Open | Pre-deploy |
+| B4 — frozen turn countdown | Fixed, awaiting review | Pre-deploy |
 | B5 — host tab-close bricks the table | Open | Pre-deploy |
 | B6 — duplicate redaction implementations | Open | |
 | B7 — session key creation race | Open | |

@@ -13,7 +13,8 @@ import {
   type MiaState,
 } from "../../src/shared/mia";
 import type { ClientMessage, StateView, TableSummary } from "../../src/shared/protocol";
-import { api, escapeHtml, secondsLeft, TableSocket } from "./net";
+import { TurnClock } from "../../src/shared/clock";
+import { api, escapeHtml, TableSocket } from "./net";
 
 const PIPS: Record<number, string[]> = {
   1: ["c"],
@@ -68,6 +69,8 @@ interface PageState {
 const app = document.querySelector<HTMLElement>("#app")!;
 const tableId = location.pathname.startsWith("/t/") ? decodeURIComponent(location.pathname.slice(3)) : "";
 const state: PageState = { table: null, view: null, error: null, lastCountdown: null };
+/** Drift is captured when a snapshot lands, then reused for every tick. */
+const clock = new TurnClock();
 let socket: TableSocket | null = null;
 
 function send(message: ClientMessage): void {
@@ -184,7 +187,7 @@ function renderPlay(view: StateView): string {
   const you = playerById(game, view.you);
   const standing = game.lastAnnouncement;
   const turnPlayer = playerById(game, game.turnPlayerId ?? "");
-  const countdown = secondsLeft(view.deadlineAt, view.serverTime);
+  const countdown = clock.secondsLeft(view.deadlineAt);
   const reveal = game.pendingDoubt ?? game.lastReveal;
   const turnIsMine = game.turnPlayerId !== null && game.turnPlayerId === view.you;
 
@@ -353,6 +356,7 @@ async function boot(): Promise<void> {
   document.title = `${state.table.name} — Mia`;
   socket = new TableSocket(tableId, {
     onState: (view) => {
+      clock.sync(view.serverTime);
       state.view = view;
       render();
     },
@@ -367,7 +371,7 @@ async function boot(): Promise<void> {
 window.setInterval(() => {
   const view = state.view;
   if (!view || view.deadlineAt === null) return;
-  const remaining = secondsLeft(view.deadlineAt, view.serverTime);
+  const remaining = clock.secondsLeft(view.deadlineAt);
   if (remaining !== state.lastCountdown) {
     state.lastCountdown = remaining;
     render();

@@ -130,13 +130,6 @@ export class TableSocket {
   }
 }
 
-/** Countdown helper that tolerates a client clock that disagrees with the server. */
-export function secondsLeft(deadlineAt: number | null, serverTime: number): number | null {
-  if (deadlineAt === null) return null;
-  const drift = Date.now() - serverTime;
-  return Math.max(0, Math.ceil((deadlineAt - (Date.now() - drift)) / 1000));
-}
-
 export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")

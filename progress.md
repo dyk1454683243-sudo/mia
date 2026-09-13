@@ -276,6 +276,45 @@ test — the same pattern B1's `emptyTtlMs` uses — not by failing a real D1
 binding. Both fields are extra test-only surface in the DO for **B9** to clean
 up.
 
+## Fixed: B4 — the turn countdown never counted down
+
+`secondsLeft` measured the client/server drift and used it in the same
+expression, so `deadline - (Date.now() - (Date.now() - serverTime))` collapsed to
+`deadline - serverTime` — a constant for the life of a snapshot. The 500ms
+interval in `table.ts` re-rendered, but always with the same number, so a
+60-second turn sat still and then jumped when the next broadcast landed.
+
+- The countdown is now a small pure `TurnClock` in a new `src/shared/clock.ts`.
+  Its `sync(serverTime)` is the **only** place the drift is measured — once per
+  snapshot — and `secondsLeft(deadlineAt)` evaluates against a live `Date.now()`
+  on every call.
+- `table.ts` keeps one clock, calls `clock.sync(view.serverTime)` in the
+  socket's `onState`, and reads `clock.secondsLeft(view.deadlineAt)` in both the
+  render and the interval, so the displayed value falls between broadcasts.
+- The old `secondsLeft` in `client/src/net.ts` is gone. The new module is pure
+  (no DOM, no Cloudflare imports) so it unit-tests in plain Node; both
+  typechecks and the browser build cover it.
+
+Verified: `npx vitest run` **58 passing (45 unit + 13 workers)**; both
+typechecks clean; `vite build` clean; `scripts/e2e.ts` still **25/25**. The
+harness is protocol-level and never loads the page, so it cannot exercise this
+fix — it is a non-regression check only. New `test/clock.test.ts` unit tests, on
+a mocked clock:
+
+- from a single `sync`, the value falls 60 → 59 → 30 → 1 → 0 across ticks, with
+  no further snapshot, and never goes negative;
+- a client clock five minutes ahead or five minutes behind still counts down at
+  the right rate;
+- a fresh snapshot re-measures the drift and adopts the new deadline;
+- a null deadline yields null.
+
+The first test was confirmed to fail against the original arithmetic: with the
+drift re-derived inside the countdown it reports a constant 60 instead of 59.
+
+Not verified: nothing renders this in a browser yet. R1 is the task that
+actually puts the table page on screen at 375×812, and the countdown belongs on
+its checklist. Nothing is deployed, so there is no live countdown either.
+
 ## Not started
 
 Broken down as tasks **R1–R6** in the "Remaining work — handoff tasks" section
@@ -298,8 +337,8 @@ that table is the authoritative list of what is left, and a task counts as done
 only once it has been reviewed.
 
 **B1** (`ea28513`), **B2** (`07fb73e`) and **B3** (`eb8d1db`) are done and
-reviewed. **B4–B5 are still pre-deploy**: a frozen turn countdown and a host who
-closes their tab leaving the table permanently unstartable.
+reviewed. **B4 is fixed** (awaiting review); **B5 is still pre-deploy**: a host
+who closes their tab leaving the table permanently unstartable.
 
 ### Review of B3 (`eb8d1db`) — approved
 
