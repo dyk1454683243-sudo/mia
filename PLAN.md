@@ -336,7 +336,7 @@ A task is **Done** only once it has been reviewed.
 | R6 — config hygiene, hand-over report | Open | Blocked on R5 |
 | B1 — abandoned-table alarm loop | **Done** — `ea28513`, reviewed | Follow-ups in B11 |
 | B2 — finishing places from seat order | **Done** — `07fb73e`, reviewed | |
-| B3 — lost result write | Fixed, awaiting review | Pre-deploy |
+| B3 — lost result write | **Done** — `eb8d1db`, reviewed | Follow-ups in B10, B11 |
 | B4 — frozen turn countdown | Open | Pre-deploy |
 | B5 — host tab-close bricks the table | Open | Pre-deploy |
 | B6 — duplicate redaction implementations | Open | |
@@ -655,32 +655,36 @@ follow-ups in **B10** and the caution added to **R5**.
 
 ---
 
-## B3 — A failed result write is lost, despite a comment claiming it retries
+## B3 — A failed result write is lost — **DONE** (`eb8d1db`)
 
-**Severity: medium-high.** Silent data loss at the exact moment that matters.
+`writeResults` swallowed a D1 failure behind a comment claiming the next load
+would retry; nothing did. The fix also caught a second, sharper bug the task had
+missed: the constructor *inferred* `resultsWritten` from `state.gameOver`, so a
+reload after a failed write marked the result written and dropped it for good.
 
-`writeResults` (`table-room.ts:451`) catches a D1 failure and leaves
-`resultsWritten` false with the comment "the next load retries the write". There
-is no such retry: `writeResults` is only called from `commit`
-(`table-room.ts:444`), and no further commits happen once the game is over. A
-transient D1 error therefore loses the result permanently, and the `tables` row
-is never flipped to `finished` either — so the table keeps being advertised in
-the lobby until it goes stale.
+Fixed by persisting a `resultsWritten` marker written only once D1 has the rows,
+retrying on the alarm with a 1s→5min capped backoff, giving a pending result
+precedence over both the phase dispatch and the reaper, arming an immediate
+alarm on load, and making `syncTableRow("finished")` rethrow so a failed lobby
+update keeps the retry alive.
 
-**Do.** Retry on a backoff via the alarm, and attempt the write on DO load when
-`state.gameOver !== null && !resultsWritten`. Keep it idempotent — `recordGame`
-is already `ON CONFLICT DO NOTHING` (`src/worker/db.ts:236`), so re-running is
-safe. Either way, delete the comment or make it true.
+**Reviewed and approved.** Verified independently: 54 tests pass, both
+typechecks clean, e2e 25/25. Three mutations each break exactly one test —
+restoring `resultsWritten = gameOver !== null`, removing the reaper guard, and
+removing the retry arming. Unlike B1, the mechanisms are pinned individually,
+and the reap test invokes `maybeReapEmptyRoom` directly rather than relying on
+an outer path. The `state.abort()` eviction test is the right way to prove the
+load-time retry.
 
-**Interaction with B1 (`ea28513`), which must be handled here.** The reaper now
-`deleteAll()`s an abandoned table an hour after it empties, and that includes a
-finished game whose result write failed. Any load-time retry can therefore only
-fire inside the TTL. `maybeReapEmptyRoom` must not delete a room with
-`gameOver !== null && !resultsWritten` — attempt the write first, and only reap
-once it has succeeded (or give up loudly rather than silently).
+Review notes, carried forward:
 
-**Acceptance.** A test with a failing D1 stub that asserts the write is retried
-and eventually succeeds, and that the table row reaches `finished`.
+- **A permanently failing D1 now makes every finished table immortal.** The
+  pending-result check is the first thing `ensureAlarm` does, so the room is
+  never reaped and retries every 5 minutes forever — in tension with B1, whose
+  point was that abandoned rooms must stop billing. The author called this out
+  as a deliberate trade-off (the result is the only copy of the game). Bounding
+  it is **B11**.
+- **Idempotency is asserted but never exercised.** See **B10**.
 
 ---
 
@@ -821,6 +825,18 @@ workers tests still pass.
 
 ## B10 — Minor gaps, worth one cleanup pass
 
+- **The partial-failure retry path is untested.** `writeResults` claims a retry
+  after a partial failure is safe because `recordGame` is idempotent
+  (`ON CONFLICT DO NOTHING`), but the test fault injection throws *before*
+  `recordGame`, so every covered failure is a total one. The case that actually
+  exercises idempotency — the `game_players` rows land and then
+  `syncTableRow("finished")` throws — is never driven. Inject a failure between
+  the two and assert the retry produces no duplicate rows.
+- **Fault injection lives in the production write path.** `resultWriteFailures`
+  and `resultWriteAttempts` (`src/worker/table-room.ts`) are test-only state,
+  and `writeResults` checks the failure counter on every real write. They are
+  private with no RPC surface — much better than the `__*ForTest` methods in
+  **B9** — but fold them into whatever that task does about test seams.
 - **`eliminationIndex` counter miscounts old-shaped records.**
   `resolveEliminations` (`src/shared/mia.ts`) computes the next index with
   `filter((p) => p.eliminationIndex !== null)`, and `undefined !== null` is
@@ -895,5 +911,18 @@ stalled in `revealing` with no clock to resolve it. Nothing pins this.
 player's `doubt`) that asserts an alarm is armed and the reveal resolves into
 the next round.
 
+**3. An unwritable result keeps a room alive forever.** `eb8d1db` gave a pending
+result precedence over the reaper — correctly, since it is the only copy of the
+game — but with no upper bound. If D1 is durably broken, every finished table
+retries every 5 minutes indefinitely and is never collected, which is the B1
+billing problem at a slower rate. The author flagged the trade-off deliberately;
+this is the follow-up.
+
+**Do.** Bound the total retry window (hours, not forever). On expiry, log the
+full result payload loudly enough to be recoverable from logs, then let the
+reaper take the room.
+
 **Acceptance.** A test for each: one asserting a stuck auto-play stops re-arming
-and the room is eventually reaped, one asserting an auto-played reveal resolves.
+and the room is eventually reaped, one asserting an auto-played reveal resolves,
+one asserting a room whose result never lands is eventually given up on and
+collected.

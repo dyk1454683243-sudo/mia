@@ -297,9 +297,27 @@ reviewing B1's fix added **B11**. `PLAN.md` opens with a **status board** —
 that table is the authoritative list of what is left, and a task counts as done
 only once it has been reviewed.
 
-**B1** (`ea28513`) and **B2** (`07fb73e`) are done and reviewed. **B3 is fixed**
-(awaiting review); **B4–B5 are still pre-deploy**: a frozen turn countdown and a
-host who closes their tab leaving the table permanently unstartable.
+**B1** (`ea28513`), **B2** (`07fb73e`) and **B3** (`eb8d1db`) are done and
+reviewed. **B4–B5 are still pre-deploy**: a frozen turn countdown and a host who
+closes their tab leaving the table permanently unstartable.
+
+### Review of B3 (`eb8d1db`) — approved
+
+Independently confirmed: 54 tests pass (41 unit + 13 workers), both typechecks
+clean, e2e 25/25. I re-ran the author's three mutations and got the same result
+they reported — restoring `resultsWritten = gameOver !== null`, removing the
+reaper guard, and removing the retry arming each break exactly one test. The
+mechanisms are pinned individually this time, not just the outcome, and the
+reap test invokes `maybeReapEmptyRoom` directly instead of relying on an outer
+path. Finding the constructor's `gameOver`-inference bug, which the task had
+not identified, is the sharpest part of the fix.
+
+Two follow-ups recorded in `PLAN.md` rather than fixed here: a durably broken
+D1 now keeps every finished table alive forever, retrying at the 5-minute cap
+and never reaped — a deliberate trade-off the author flagged, bounded in
+**B11**; and the idempotency claim is never exercised, because the fault
+injection throws before `recordGame`, so only total failures are covered
+(**B10**).
 
 ### Review of B2 (`07fb73e`) — approved
 
