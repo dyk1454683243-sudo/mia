@@ -9,9 +9,9 @@ import { ensureSchema, getConfig, insertConfigIfAbsent } from "../src/worker/db"
 import { resolveSigningKeyMaterial, SIGNING_KEY_CONFIG } from "../src/worker/session";
 
 describe("signing key", () => {
-  // Schema setup belongs outside the tests: storage is isolated per test file,
-  // and each test's own writes are rolled back, so creating the tables inside a
-  // test would leave the next one without them.
+  // Schema setup belongs outside the tests: storage is isolated per test file and
+  // is not rolled back between tests in a file, so creating the tables in the
+  // first test would work by accident and break the moment tests are reordered.
   beforeAll(async () => {
     await ensureSchema(env);
   });
