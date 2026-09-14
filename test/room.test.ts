@@ -11,10 +11,6 @@ import { signCookie } from "../src/worker/session";
 import { clampAlarmTime, resultWriteBackoffMs } from "../src/worker/table-room";
 import { TestTableRoom } from "./table-room-test";
 
-declare module "cloudflare:test" {
-  interface ProvidedEnv extends Env {}
-}
-
 /** Fast clock for tests: a turn expires in a second. */
 const FAST = { turnMs: 1_000, revealMs: 400, roundStartMs: 150 };
 /**

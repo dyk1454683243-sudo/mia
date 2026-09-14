@@ -151,7 +151,9 @@ npm run typecheck # tsc --noEmit for the worker and the client projects
 `npm test` runs two projects: `unit` covers the ranking, legal moves, every
 doubt outcome, elimination, placement and the countdown arithmetic in plain
 Node; `workers` drives a real `TableRoom` through `@cloudflare/vitest-pool-workers`
-with a real D1 and real WebSockets.
+with a real D1 and real WebSockets. Storage in the `workers` project is isolated
+per test **file**, not per test — see the issue #12 note in
+[progress.md](progress.md) before writing a test that depends on rollback.
 
 With `npm run dev` running in another terminal, two more harnesses exercise the
 running server end to end:
