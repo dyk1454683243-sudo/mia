@@ -664,7 +664,7 @@ export class TableRoom extends DurableObject<Env> {
       await this.reportError(playerId, "This table has no id, so its result could not be recorded.");
       return;
     }
-    const next = createGameState(this.tableId(), state.tableName, seats);
+    const next = createGameState(this.tableId(), state.tableName, seats, Date.now(), this.timings);
     next.hostId = state.hostId ?? hostId;
     await this.resetResultsWrite();
     await this.commit(next);
