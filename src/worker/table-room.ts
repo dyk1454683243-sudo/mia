@@ -23,7 +23,7 @@ import {
   STARTING_LIVES,
   type Timings,
 } from "../shared/mia";
-import type { ClientMessage, ServerMessage, StateView } from "../shared/protocol";
+import type { ClientMessage, ErrorCode, ServerMessage, StateView } from "../shared/protocol";
 import { recordGame, updateTable, type FinalPlayer } from "./db";
 
 const STATE_KEY = "room";
@@ -157,11 +157,12 @@ export class TableRoom extends DurableObject<Env> {
     this.ctx.acceptWebSocket(server, [playerId]);
     server.serializeAttachment({ playerId, name: playerName } satisfies SocketAttachment);
 
-    await this.handleConnect(playerId, playerName, tableName, tableId, hostId);
+    await this.handleConnect(server, playerId, playerName, tableName, tableId, hostId);
     return new Response(null, { status: 101, webSocket: client });
   }
 
   private async handleConnect(
+    socket: WebSocket,
     playerId: string,
     name: string,
     tableName: string,
@@ -203,7 +204,7 @@ export class TableRoom extends DurableObject<Env> {
         return;
       }
       if (next.players.length >= MAX_PLAYERS) {
-        this.sendTo(playerId, { type: "error", message: `That table is full (${MAX_PLAYERS} players).` });
+        this.rejectJoin(socket, "table-full", `That table is full (${MAX_PLAYERS} players).`);
         return;
       }
       next.players.push({
@@ -225,6 +226,22 @@ export class TableRoom extends DurableObject<Env> {
     await this.commit(next);
     await this.syncTableRow();
     await this.ensureAlarm();
+  }
+
+  /**
+   * Turn a connection away for good. The coded error is sent first — frames are
+   * ordered, so the client reads the reason before the close — and then the
+   * socket is closed rather than left in `getWebSockets()`, where it would keep
+   * receiving the table's broadcasts and inflate every snapshot's `connected`
+   * list with a player who has no seat.
+   */
+  private rejectJoin(socket: WebSocket, code: ErrorCode, message: string): void {
+    this.send(socket, { type: "error", code, message });
+    try {
+      socket.close(1008, message);
+    } catch {
+      /* already closing; the close handler will still run */
+    }
   }
 
   private newLobbyState(

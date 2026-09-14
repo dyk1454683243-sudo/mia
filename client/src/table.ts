@@ -70,12 +70,14 @@ interface PageState {
   table: TableSummary | null;
   view: StateView | null;
   error: string | null;
+  /** A terminal reason this client will never get a seat; stops reconnecting. */
+  fatal: string | null;
   lastCountdown: number | null;
 }
 
 const app = document.querySelector<HTMLElement>("#app")!;
 const tableId = location.pathname.startsWith("/t/") ? decodeURIComponent(location.pathname.slice(3)) : "";
-const state: PageState = { table: null, view: null, error: null, lastCountdown: null };
+const state: PageState = { table: null, view: null, error: null, fatal: null, lastCountdown: null };
 /** Drift is captured when a snapshot lands, then reused for every tick. */
 const clock = new TurnClock();
 let socket: TableSocket | null = null;
@@ -317,10 +319,31 @@ function paint(html: string): void {
 function render(): void {
   const view = state.view;
   const title = state.table?.name ?? view?.state.tableName ?? "Table";
+  const topbar = `<header class="topbar"><a class="brand" href="/">Mia</a><span class="table-title">${escapeHtml(
+    title,
+  )}</span></header>`;
+
+  // A terminal refusal (a full table) outranks everything: there is no snapshot
+  // coming, so "Connecting…" would be a lie the page told forever.
+  if (state.fatal !== null) {
+    paint(`${topbar}
+      <main class="page"><section class="card">
+        <h2>Can’t join this table</h2>
+        <p class="muted">${escapeHtml(state.fatal)}</p>
+        <a class="primary link" href="/">Back to the lobby</a>
+      </section></main>`);
+    return;
+  }
+
   if (!view) {
-    paint(`
-      <header class="topbar"><a class="brand" href="/">Mia</a><span class="table-title">${escapeHtml(title)}</span></header>
-      <main class="page"><section class="card"><p class="muted">Connecting…</p></section></main>`);
+    // The error is rendered here too, not only beside a snapshot: an error that
+    // arrives before the first snapshot is otherwise invisible until it is
+    // cleared by the toast timer, which is exactly the stuck page this fixes.
+    paint(`${topbar}
+      <main class="page">
+        ${state.error ? `<p class="toast">${escapeHtml(state.error)}</p>` : ""}
+        <section class="card"><p class="muted">Connecting…</p></section>
+      </main>`);
     return;
   }
 
@@ -394,7 +417,18 @@ async function boot(): Promise<void> {
       state.view = view;
       render();
     },
-    onError: (message) => toast(message),
+    onError: (message, code) => {
+      // "Table full" is terminal: there is no seat and no snapshot to wait for.
+      // Stop the socket so the reconnect loop cannot spin, and show the reason
+      // as a page rather than a toast that fades and leaves "Connecting…".
+      if (code === "table-full") {
+        state.fatal = message;
+        socket?.close();
+        render();
+        return;
+      }
+      toast(message);
+    },
     onClose: () => render(),
   });
   socket.connect();
