@@ -51,9 +51,25 @@ human-only step.
 `main` is protected by the `protect-main` ruleset, with **no bypass actors** —
 the rule binds the repo owner too, because the agent token acts as the owner.
 
+**An agent must not merge a PR it wrote.** Opening or updating a PR is the end of
+an agent's work on it: push, open the PR, report, stop. Merging is a decision a
+human owns, because it is the step that makes a change permanent, and no amount
+of green checks, review comments or `MERGEABLE`/`CLEAN` status is a substitute
+for a human saying so.
+
+- **Never merge your own PR** — not with `gh pr merge`, not with `gh api`, not by
+  any other route. Do not ask for the ability, and do not treat the absence of
+  required checks as permission.
+- **You may merge only when a human explicitly delegates that specific PR to
+  you** ("go ahead and merge #12"). That delegation is per PR and does not carry
+  over: approval of one PR, a general "keep going", or an earlier merge is never
+  standing authority for the next one.
+- If you believe a PR is ready, **say so and stop.** Leave it open for a human.
+  A PR sitting open is the correct resting state, not a task left unfinished.
 - **Never push directly to `main`.** Work on a branch and open a PR.
 - **Never force-push** (`--force`, `-f`) or delete a branch on the remote.
-- Merging needs no approvals, so a solo PR can be merged once checks pass.
+- The ruleset requires no approving reviews, so nothing technical stops a merge.
+  That is a property of the config, **not** a grant of authority — see above.
 - If a PR refuses to merge, the likely cause is GitHub's
   `require_extra_approval_for_unattributed_changes` rule: commits whose
   authorship doesn't map to a GitHub account need an extra approval. Report it
