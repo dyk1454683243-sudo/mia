@@ -1254,3 +1254,109 @@ prose, a human can require an approving review on `main` from an account the
 agent cannot authenticate as. That is a repo-administration step, deliberately
 not something an agent should do for itself.
 
+## Fixed: the flaky isolated-storage pop (issue #12) — solution A was a dead end
+
+Issue #12 left the flake to an ASCII table of peer ranges and guessed that
+solution A — `@cloudflare/vitest-pool-workers@0.12.21` plus `vitest ^3.2.0` —
+was "the cheapest credible fix", with the honest caveat that it was not *known*
+to work. It is not: **solution A cannot fix this, and neither can any other
+version that stays on Vitest 3.**
+
+**The evidence.** The failing assertion is not in miniflare, where the error text
+suggests. It is in the pool package's own isolated-storage code,
+`popStackedStorage` / `pushStackedStorage`:
+
+```js
+assert2(name.endsWith(".sqlite"), `Expected .sqlite, got ${namePath}`);
+```
+
+Extracting the published tarballs and counting that line settles it:
+
+| Version | `Expected .sqlite` occurrences |
+| --- | --- |
+| 0.9.14 (what was installed) | 2 |
+| **0.12.21 (solution A's target)** | **2** |
+| 0.13.0 | 0 |
+| 0.13.5 | 0 |
+| 0.22.0 | 0 |
+
+Identical text at identical line numbers in 0.9.14 and 0.12.21. The assertion
+first disappears in **0.13.0**, which requires Vitest 4 (`^4.1.0`) — the peer
+split in the issue was accurate, but its inference ("staying on Vitest 3 is
+therefore cheapest") pointed at the one band of versions where the bug is
+guaranteed to survive.
+
+The upstream PR that looks like the fix, [workers-sdk#5667][5667], was **closed
+without being merged** in December 2024, and the issue behind it, [workers-sdk#5629][5629],
+was closed separately. The assertion was not patched; the storage model was
+rearchitected. The 0.13.0 release notes say so directly: *"Storage is isolated
+per test file instead of per test"*, and `isolatedStorage` was removed as an
+option outright. So the flake disappears because the code that could fail is
+gone, not because it was made more careful.
+
+[5667]: https://github.com/cloudflare/workers-sdk/pull/5667
+[5629]: https://github.com/cloudflare/workers-sdk/issues/5629
+
+**What was done instead — solution B.** `@cloudflare/vitest-pool-workers`
+**0.22.0** + `vitest` **4.1.11**, verified green. Three things had to change
+beyond the version bump, and the issue underestimated two of them:
+
+- `defineWorkersProject()` from `.../config` is **removed**; the entry point no
+  longer exists. It is replaced by a `cloudflareTest()` Vite plugin, with the old
+  `test.poolOptions.workers` options passed directly to it.
+- Vitest 4 renames `test.workspace` to `test.projects`.
+- `isolatedStorage` is gone. `test/room.test.ts` and `test/session.test.ts` both
+  carried a `declare module "cloudflare:test" { interface ProvidedEnv extends Env {} }`
+  block; `ProvidedEnv` no longer exists, and `env` is now typed `Cloudflare.Env`
+  from the generated types, so both blocks were deleted. The `cloudflare:test`
+  *module* declaration also moved to the `@cloudflare/vitest-pool-workers/types`
+  subpath, so `tsconfig.worker.json`'s `types` entry had to follow it — without
+  that, `env` is untyped and 28 implicit-`any` errors cascade out of it.
+
+The `cloudflare:test` imports themselves (`env`, `SELF`, `runInDurableObject`,
+`runDurableObjectAlarm`) still work and are deliberately left alone: pooling the
+rename to `cloudflare:workers` + `exports.default.fetch()` would take an
+integration-test change through a flake fix. That migration is the next
+generation of this package anyway (`@cloudflare/vitest-plugin@1.x`), and is a
+separate task.
+
+**One trap worth keeping.** pool-workers 0.22.0 pins `miniflare`
+`5.20260815.0-alpha`, whose `workerd` is `1.20260815.1` and **refuses the
+project's `compatibilityDate: "2026-09-12"`**:
+
+```
+This Worker requires compatibility date "2026-09-12", but the newest date
+supported by this server binary is "2026-08-22".
+```
+
+The easy "fix" is to walk the test compatibility date back to August, which
+would quietly run the suite under different runtime defaults than production.
+Instead `package.json` carries `"overrides": { "miniflare": "5.20260911.0-alpha" }`,
+which is the same miniflare the project's own `wrangler` 4.131.1 resolves to, and
+therefore the same `workerd` (`1.20260911.1`). Tests and production stay on one
+runtime vintage. **If `wrangler` is bumped, this override should be re-checked** —
+it is pinned to a `wrangler`-selected version and will not move on its own.
+
+**Verified.** `npm run typecheck` clean, `npm test` **75 passing (47 unit + 28
+workers)**, `npm run build` clean, and the workers project **28/28 on four
+consecutive runs**. `npm audit` 0 vulnerabilities.
+
+**And one real Linux run.** `ci.yml` executes on `ubuntu-latest`, so the PR
+produced an actual run on the platform that flakes: **75 passing (75), 4 files,
+no errors**, `npm test` green in 60.26s, every step of the job successful. That
+is more than the local evidence, and it is still **one** run — at the issue's
+historical ~1-in-3 rate it is weak on its own; combined with the assertion being
+absent it is reassuring, but it does not *measure* the rate.
+
+**The residual risk, stated plainly.** The bulk of the verification was on
+**macOS**, where the flake never reproduced (0 times in 3 pre-change attempts per
+the issue). The flake is a loaded-Linux-runner timing effect, so passing locally
+is not evidence it is gone. The strong argument is structural: the assertion that
+threw does not exist in 0.22.0, so `Expected .sqlite, got …sqlite-shm` has no code
+path left to come from. That is reasoning, not a rate. The ~10-job Linux matrix
+the issue suggested is still the way to *measure* it — and re-running a failed job
+needs the **Actions** permission the agent token does not carry, so that
+measurement needs a human.
+
+
+

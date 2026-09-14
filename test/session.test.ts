@@ -8,14 +8,10 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { ensureSchema, getConfig, insertConfigIfAbsent } from "../src/worker/db";
 import { resolveSigningKeyMaterial, SIGNING_KEY_CONFIG } from "../src/worker/session";
 
-declare module "cloudflare:test" {
-  interface ProvidedEnv extends Env {}
-}
-
 describe("signing key", () => {
-  // Schema setup belongs in the outer storage context: `isolatedStorage` rolls
-  // a test's own writes back, so creating the tables inside a test would leave
-  // the next one without them.
+  // Schema setup belongs outside the tests: storage is isolated per test file,
+  // and each test's own writes are rolled back, so creating the tables inside a
+  // test would leave the next one without them.
   beforeAll(async () => {
     await ensureSchema(env);
   });
