@@ -273,3 +273,7 @@ commit it, and never paste its contents anywhere.
   migration step.
 - This is a low-stakes demo: there is no rate limiting and no abuse protection
   beyond the 8-seat table cap.
+
+## License
+
+[MIT](LICENSE) © 2026 Leslie Hensley
