@@ -161,6 +161,25 @@ describe("turn flow", () => {
     expect(moves.canDoubt).toBe(false);
   });
 
+  it("honours a non-default roundStartMs for the first round and every later round", () => {
+    // #5: the round-start beat used the module default, so this knob was
+    // silently ignored. Pin it at both places a round is seeded.
+    const FAST = { turnMs: 1_000, revealMs: 400, roundStartMs: 150 };
+    const first = createGameState("t1", "Test table", seats("anna", "bo"), T0, FAST);
+    expect(first.deadlineAt).toBe(T0 + 150);
+    expect(first.roundEndsAt).toBe(T0 + 150);
+    beginRoundPlay(first, FAST, T0);
+    expect(first.deadlineAt).toBe(T0 + FAST.turnMs);
+
+    let state = must(applyAction(first, { type: "roll", playerId: "anna" }, FAST, T0));
+    state = must(applyAction(state, { type: "announce", playerId: "anna", value: 31 }, FAST, T0));
+    state = must(applyAction(state, { type: "doubt", playerId: "bo" }, FAST, T0));
+    const next = resolveReveal(state, FAST, T0);
+    expect(next.round).toBe(2);
+    expect(next.deadlineAt).toBe(T0 + 150);
+    expect(next.roundEndsAt).toBe(T0 + 150);
+  });
+
   it("rejects actions from the wrong player", () => {
     const state = playing("anna", "bo");
     expect(fails(applyAction(state, { type: "roll", playerId: "bo" }, TIMINGS, T0))).toBe("not-your-turn");

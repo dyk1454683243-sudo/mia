@@ -254,6 +254,7 @@ export function createGameState(
   tableName: string,
   seats: Seat[],
   now = Date.now(),
+  timings: Timings = DEFAULT_TIMINGS,
 ): MiaState {
   const state: MiaState = {
     tableId,
@@ -288,7 +289,7 @@ export function createGameState(
     gameOver: null,
   };
   pushEvent(state, now, "start", `${tableName} — first to lose all ${STARTING_LIVES} lives is out.`);
-  startRound(state, seats[0]?.id ?? null, now);
+  startRound(state, seats[0]?.id ?? null, timings, now);
   return state;
 }
 
@@ -356,7 +357,12 @@ function takeCup(state: MiaState, playerId: string, dice: [Die, Die]): void {
 }
 
 /** Seed a fresh round with `starterId` holding the cup. */
-export function startRound(state: MiaState, starterId: string | null, now = Date.now()): void {
+export function startRound(
+  state: MiaState,
+  starterId: string | null,
+  timings: Timings = DEFAULT_TIMINGS,
+  now = Date.now(),
+): void {
   state.round += 1;
   state.lastAnnouncement = null;
   state.pendingDoubt = null;
@@ -373,7 +379,7 @@ export function startRound(state: MiaState, starterId: string | null, now = Date
   state.phase = "roundStart";
   // The round-start beat also runs on the single alarm.
   state.turnStartedAt = now;
-  state.deadlineAt = now + DEFAULT_TIMINGS.roundStartMs;
+  state.deadlineAt = now + timings.roundStartMs;
   state.roundEndsAt = state.deadlineAt;
   const starterPlayer = playerById(state, starter ?? "");
   pushEvent(state, now, "round", `Round ${state.round} — ${starterPlayer?.name ?? "nobody"} takes the cup.`);
@@ -701,7 +707,7 @@ export function resolveReveal(state: MiaState, timings: Timings, now = Date.now(
   // out, the next living player after them does.
   const starter = loser && !loser.eliminated ? loser.id : nextLivingFrom(next, loserId);
   next.pendingDoubt = null;
-  startRound(next, starter, now);
+  startRound(next, starter, timings, now);
   next.roundEndsAt = next.deadlineAt;
   return next;
 }

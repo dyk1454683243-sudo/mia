@@ -16,7 +16,7 @@ const FAST = { turnMs: 1_000, revealMs: 400, roundStartMs: 150 };
 /**
  * Human-paced clock: a real turn length so the server never auto-plays while a
  * test is driving seats by hand, with a quick reveal beat. The round-start beat
- * is not configurable and is always 2 seconds.
+ * matches the engine default so it cannot expire mid-drive.
  */
 const DRIVE = { turnMs: 60_000, revealMs: 200, roundStartMs: 2_000 };
 
