@@ -79,6 +79,14 @@ function renderTables(): string {
         .map((table) => {
           const inGame = table.status === "playing";
           const full = table.playerCount >= table.maxPlayers;
+          // A full waiting table has no seat left, so its label must not be a
+          // live join link: "Full" used to navigate straight into a page that
+          // could only ever say "Connecting…".
+          const action = inGame
+            ? `<a class="primary link" href="/t/${encodeURIComponent(table.id)}">Watch</a>`
+            : full
+              ? `<button class="primary" type="button" disabled>Full</button>`
+              : `<a class="primary link" href="/t/${encodeURIComponent(table.id)}">Join</a>`;
           return `<li class="table-row">
             <div class="table-meta">
               <span class="name">${escapeHtml(table.name)}</span>
@@ -86,7 +94,7 @@ function renderTables(): string {
                 inGame ? "in progress" : `waiting · opened ${relativeTime(table.createdAt)}`
               }</span>
             </div>
-            <a class="primary link" href="/t/${encodeURIComponent(table.id)}">${inGame ? "Watch" : full ? "Full" : "Join"}</a>
+            ${action}
           </li>`;
         })
         .join("")}

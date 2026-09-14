@@ -51,6 +51,7 @@ interface TestSocket {
   ws: WebSocket;
   states: StateView[];
   errors: string[];
+  errorCodes: (string | undefined)[];
   nextState(predicate?: (view: StateView) => boolean, timeoutMs?: number): Promise<StateView>;
   send(message: unknown): void;
   close(): void;
@@ -72,12 +73,14 @@ async function connect(tableId: string, player: { name: string; cookie: string }
 
   const states: StateView[] = [];
   const errors: string[] = [];
+  const errorCodes: (string | undefined)[] = [];
   const waiters: { predicate: (view: StateView) => boolean; resolve: (view: StateView) => void }[] = [];
 
   ws.addEventListener("message", (event) => {
     const message = JSON.parse(String(event.data)) as ServerMessage;
     if (message.type === "error") {
       errors.push(message.message);
+      errorCodes.push(message.code);
       return;
     }
     states.push(message);
@@ -94,6 +97,7 @@ async function connect(tableId: string, player: { name: string; cookie: string }
     ws,
     states,
     errors,
+    errorCodes,
     nextState(predicate = () => true, timeoutMs = 5_000) {
       const existing = states.find(predicate);
       if (existing) return Promise.resolve(existing);
@@ -339,6 +343,37 @@ describe("TableRoom", () => {
 
     socket.close();
   });
+
+  it("turns a ninth player away with a coded error and closes the socket", async () => {
+    const players = [];
+    for (let index = 0; index < 8; index++) players.push(await makePlayer(`Player ${index + 1}`));
+    const tableId = await createTableRow("Full house", players[0]!.id);
+    const sockets: TestSocket[] = [];
+    for (const player of players) sockets.push(await connect(tableId, player));
+    await sockets[7]!.nextState((view) => view.state.players.length === 8);
+    await waitFor(async () => (await playerCount(tableId)) === 8);
+
+    const ninth = await makePlayer("Ninth");
+    const ninthSocket = await connect(tableId, ninth);
+
+    // The rejection is explicit and machine-readable, not a silent limbo.
+    await waitFor(() => ninthSocket.errors.length > 0);
+    expect(ninthSocket.errors).toEqual(["That table is full (8 players)."]);
+    expect(ninthSocket.errorCodes).toEqual(["table-full"]);
+
+    // The rejected socket is closed server-side, so it cannot linger as a ghost
+    // in every snapshot's `connected` list or keep receiving broadcasts.
+    await waitFor(async () => (await socketCount(tableId)) === 8, 5_000);
+
+    // No seat was ever created for the ninth player.
+    const state = await readState(tableId);
+    expect(state?.players).toHaveLength(8);
+    expect(state?.players.map((player) => player.name)).not.toContain("Ninth");
+    expect(await playerCount(tableId)).toBe(8);
+    expect(ninthSocket.states.every((view) => !view.state.players.some((player) => player.name === "Ninth"))).toBe(true);
+
+    for (const socket of sockets) socket.close();
+  }, 20_000);
 
   it("keeps a player's dice private until a doubt reveals them", async () => {
     const anna = await makePlayer("Anna");

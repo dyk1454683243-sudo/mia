@@ -2,7 +2,7 @@
  * HTTP and WebSocket plumbing for the browser. No framework: every render is a
  * pure function of the latest server snapshot.
  */
-import type { ClientMessage, HistoryEntry, ServerMessage, StateView, TableSummary } from "../../src/shared/protocol";
+import type { ClientMessage, ErrorCode, HistoryEntry, ServerMessage, StateView, TableSummary } from "../../src/shared/protocol";
 
 export interface Me {
   id: string;
@@ -46,7 +46,7 @@ export const api = {
 
 export interface SocketHandlers {
   onState: (view: StateView) => void;
-  onError: (message: string) => void;
+  onError: (message: string, code?: ErrorCode) => void;
   onOpen?: () => void;
   onClose?: () => void;
 }
@@ -89,7 +89,7 @@ export class TableSocket {
         return;
       }
       if (parsed.type === "state") this.handlers.onState(parsed);
-      else if (parsed.type === "error") this.handlers.onError(parsed.message);
+      else if (parsed.type === "error") this.handlers.onError(parsed.message, parsed.code);
     });
 
     const finish = () => {

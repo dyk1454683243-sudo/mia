@@ -89,8 +89,19 @@ export interface StateView {
   connected: string[];
 }
 
+/**
+ * The errors a client must act on rather than merely toast. A bare error is
+ * informational and may be transient; a coded one changes what the page shows.
+ */
+export type ErrorCode = "table-full";
+
 export interface ErrorMessage {
   type: "error";
+  /**
+   * Optional machine-readable kind. `table-full` is terminal: the rejected
+   * client stops reconnecting and offers the lobby instead of "Connecting…".
+   */
+  code?: ErrorCode;
   message: string;
 }
 
