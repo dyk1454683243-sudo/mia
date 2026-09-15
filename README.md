@@ -93,6 +93,11 @@ browser ──HTTP──► Worker ──► D1          (identity, table direct
   each viewer, and your dice are the only ones you can ever be sent before a
   reveal.
 
+This section is the summary. The reasoning behind each choice — what was
+rejected and why, the traps that are invisible in the code, and the boundaries
+between layers — lives in [docs/](docs/README.md), which is written for anyone
+about to change the system.
+
 ---
 
 ## Requirements
@@ -152,8 +157,9 @@ npm run typecheck # tsc --noEmit for the worker and the client projects
 doubt outcome, elimination, placement and the countdown arithmetic in plain
 Node; `workers` drives a real `TableRoom` through `@cloudflare/vitest-pool-workers`
 with a real D1 and real WebSockets. Storage in the `workers` project is isolated
-per test **file**, not per test — see the issue #12 note in
-[progress.md](progress.md) before writing a test that depends on rollback.
+per test **file**, not per test, so rows written by one test are still there for
+the next — see [docs/testing.md](docs/testing.md) before writing a test that
+assumes a clean database.
 
 With `npm run dev` running in another terminal, two more harnesses exercise the
 running server end to end:
@@ -248,6 +254,7 @@ scripts/
   e2e.ts          protocol-level end-to-end checks
   bots.ts         seat bots at a table a human is playing at
   ui-check.ts     headless-browser verification and screenshots
+docs/             lower-level architecture and rationale (start at docs/README.md)
 wrangler.jsonc    Worker, assets, D1 and Durable Object bindings
 ```
 
