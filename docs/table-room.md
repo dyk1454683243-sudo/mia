@@ -188,9 +188,16 @@ bricked by an absent host. WebSocket arrival order is never authority — over a
 real network it is arbitrary, and using it meant the friend who opened the link
 could start while the creator was refused.
 
-`tableId()` returns `""` when the upgrade carried no table id, and `writeResults`
-refuses to write against it rather than guessing. A result row against `"unknown"`
-is worse than a loud failure, because it is unrecoverable.
+`tableId()` returns the state's table id, or `""` when there is no state at all.
+`writeResults` refuses to write against `""`, but that guard never fires on the
+path it was meant to cover: `fetch` reads the id as
+`request.headers.get("X-Mia-Table-Id") ?? "unknown"`, so an upgrade that carried
+none stores the literal `"unknown"`, and `writeResults` only runs when a state
+with a `gameOver` exists — with no state it returns on `gameOver === null` before
+the guard. The intent is right, because a result row against `"unknown"` is worse
+than a loud failure, but the sentinel is mismatched and a finished game on such a
+room writes its row against `"unknown"` anyway. The code fix is tracked in
+[issue #25](https://github.com/hensleyl/mia/issues/25).
 
 ## Test seams
 

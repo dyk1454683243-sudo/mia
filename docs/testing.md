@@ -49,10 +49,18 @@ for `ForTest`; there were no matches.
 
 ## The fast clock is how timers are tested
 
-The 60-second turn clock is not waited out. A test sets a fast `Timings` through
-`__setTimingsForTest`, and `runDurableObjectAlarm` fires the alarm directly. The
-reveal beat, the round-start beat, the auto-play path, the stagnant-wake cap and
-the give-up window are all exercised this way. The consequence for
+The 60-second turn clock is not waited out, but no single mechanism covers every
+timer path. A test that needs a beat to expire on its own shortens the clock by
+setting a fast `Timings` through `__setTimingsForTest`: that is what exercises the
+auto-play path ("auto-plays a turn that nobody takes") and the reveal and
+round-start beats ("resolves an auto-played reveal into the next round"). Two
+other routes cover the rest. `runResultRetry` makes a retry due and fires the
+alarm directly with `runDurableObjectAlarm`, which pins the retry that outlives
+the empty-table TTL and the retry after an object reload; the retry-until-it-lands
+and partial-write cases, like the give-up window once
+`__setResultRetryWindowForTest` shortens it, run on the ordinary alarm clock. The
+stagnant-wake cap takes its own route: the test injects a wedged auto-play and
+waits for the cap to hand the room to the reaper. The consequence for
 [known-gaps.md](known-gaps.md) is that the real 60-second interaction between the
 alarm and a live socket is never tested end to end.
 
@@ -82,10 +90,11 @@ cover the assembled system, and they need a running `wrangler dev` (or a deploye
 - **`scripts/e2e.ts`** speaks the protocol. It mints real players over HTTP, opens
   real WebSockets, and drives whole games, asserting the redaction boundary, the
   lobby, the error paths, a mid-game reconnect and the D1 result rows. Its
-  strategy is seeded by `MIA_SEED` so a failing run replays exactly, and every
-  iteration takes one action recomputed from the actor's own current view — the
-  earlier version precomputed action pairs, and the second action in such a pair
-  is stale by construction.
+  strategy is seeded by `MIA_SEED`, so the same seed makes the same decisions;
+  the dice still come from the server, though, so a failing run does not replay
+  exactly. Every iteration takes one action recomputed from the actor's own
+  current view — the earlier version precomputed action pairs, and the second
+  action in such a pair is stale by construction.
 - **`scripts/ui-check.ts`** drives the real client in headless Chromium at a phone
   viewport, plays a full game against bots, captures screenshots and fails on any
   console error.
