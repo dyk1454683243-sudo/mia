@@ -61,9 +61,11 @@ stateDiagram-v2
 
 Reading the diagram with the code open:
 
-- **`deciding` is the player's real decision.** If nothing stands they may roll
-  (opening the round) or doubt is unavailable; if something stands they may
-  believe or doubt.
+- **`deciding` is the player's real decision.** With nothing standing,
+  `lastAnnouncement` is null: `canRoll` is true while `canBelieve` and `canDoubt`
+  are both false, so rolling to open the round is the only move. Once something
+  stands, `canRoll` is false and the choice is believe or doubt — unless nothing
+  outranks the standing value (Mia), which closes believe too and forces a doubt.
 - **`announcing` means you already hold the cup.** Rolling and believing both
   `takeCup` and move straight to `announcing`; an announcement is the only legal
   action there. This is why a player holding the cup cannot doubt: core rules say

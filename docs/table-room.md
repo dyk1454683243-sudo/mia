@@ -50,8 +50,8 @@ given is clamped forward by at least one second. The clamp is not cosmetic:
 recomputed from an unchanged deadline it fires immediately again, forever. That
 was a real billing bug on abandoned tables. `ensureAlarm` is the main chooser of
 targets; `alarm`, `retryResults`, `writeResults` and the constructor call
-`scheduleAlarm` directly for their own deadlines. `clampAlarmTime` is unit-tested
-to never return a past time.
+`scheduleAlarm` directly for their own deadlines. `clampAlarmTime` has a direct
+test in `test/room.test.ts` that it never returns a past time.
 
 ```mermaid
 flowchart TD

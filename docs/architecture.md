@@ -61,9 +61,8 @@ move: the game state is in the object's memory and in its own storage. The
 alternative — a shared coordinator or a row-level lock in D1 — buys nothing here
 and adds a failure mode the game does not have.
 
-The object is reached with `env.TABLE.getByName(tableId)`: the table id doubles as
-the object's name, because `getByName` gives a name a stable one-to-one mapping to
-an object. The id is passed along on the upgrade anyway, per the comment in
+The table id doubles as the object's name — `getByName` keeps that mapping
+one-to-one. The id is passed along on the upgrade anyway, per the comment in
 `table-room.ts`: an object cannot reliably recover its own name from inside
 `fetch`, so the Worker forwards the canonical `X-Mia-Table-Id` instead.
 
@@ -80,10 +79,11 @@ It also does two things people forget it does:
 - **The upgrade is where authority is attached.** The Worker looks up the D1
   `tables` row, then overwrites `X-Mia-Player`, `X-Mia-Name`, `X-Mia-Table-Name`,
   `X-Mia-Table-Id` and `X-Mia-Host-Id` on the forwarded request. A client cannot
-  forge any of them because the Worker uses `set`, not `append`; a test in
-  `test/room.test.ts` deliberately tries. Any future header the Durable Object
-  trusts must be added to this list, because the object itself has no way to tell
-  a forwarded header from a client-supplied one.
+  forge any of them because the Worker uses `set`, not `append`: a client-supplied
+  value is replaced rather than joined by a second one. Nothing pins that yet (see
+  issue #24). Any future header the Durable Object trusts must be added to this
+  list, because the object itself has no way to tell a forwarded header from a
+  client-supplied one.
 - **Cross-site writes are rejected before routing.** A non-GET request whose
   `Sec-Fetch-Site` header is neither `same-origin` nor `none` gets a 403. That is
   cheap CSRF cover for the demo; it does not protect against a non-browser
