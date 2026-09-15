@@ -44,9 +44,9 @@ retry of a failed D1 result write — shares one "next deadline", recomputed aft
 every state change. The alternative, one timer per concern, is not available, and
 pretending otherwise produces a table that silently drops one of its clocks.
 
-`scheduleAlarm` is the only method that calls `setAlarm`, and every target it is
-given is clamped forward by at least one second. The clamp is not cosmetic:
-`setAlarm` with a past timestamp fires immediately, and if the target is
+`scheduleAlarm` is the only method that calls `setAlarm`, and a target that is
+already in the past is clamped forward by at least one second. The clamp is not
+cosmetic: `setAlarm` with a past timestamp fires immediately, and if the target is
 recomputed from an unchanged deadline it fires immediately again, forever. That
 was a real billing bug on abandoned tables. `ensureAlarm` is the main chooser of
 targets; `alarm`, `retryResults`, `writeResults` and the constructor call

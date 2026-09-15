@@ -155,4 +155,4 @@ a doubt, and asserts nobody sees the stray pair — precisely because the earlie
 victory condition could not tell the two implementations apart.
 
 `visibilityFor` and `redactState` are exported separately so the visibility rule
-can be reasoned about (and tested) without building a whole view.
+can be reasoned about without building a whole view.
