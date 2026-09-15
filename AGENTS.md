@@ -1,8 +1,9 @@
 # Working on mia
 
 Conventions for any coding agent (Claude Code, Codex, Cursor, Aider, …).
-Product and architecture live in [README.md](README.md) and [PLAN.md](PLAN.md);
-this file is about how to operate on the repo safely.
+The product and the summary architecture live in [README.md](README.md); the
+lower-level architecture and the reasons behind it live in
+[docs/](docs/README.md); this file is about how to operate on the repo safely.
 
 ## Commands
 
@@ -15,6 +16,28 @@ this file is about how to operate on the repo safely.
 | Deploy (disposable account) | `npm run deploy:temporary` |
 
 Run `npm run typecheck && npm test` before opening a pull request.
+
+## Documentation
+
+Read [docs/](docs/README.md) — not just the code — whenever you are about to
+change behavior rather than merely read it, and especially before touching
+routing, the Durable Object alarm, redaction, identity, or persistence. The pages
+carry the decisions and rejected alternatives that the code cannot, plus the
+invariants other layers rely on.
+
+| Page | Read it when |
+| --- | --- |
+| [docs/architecture.md](docs/architecture.md) | You need the request and WebSocket topology, where each kind of state lives, or why routing avoids SPA fallback. |
+| [docs/game-engine.md](docs/game-engine.md) | You are touching `src/shared/mia.ts`: the ranking, phases, legal moves, doubt resolution or redaction. |
+| [docs/table-room.md](docs/table-room.md) | You are touching `src/worker/table-room.ts`: hibernation, alarms, persistence order, reaping or the result write. |
+| [docs/client.md](docs/client.md) | You are touching the browser: the reconnect lifecycle, the stale-move stamp or the countdown clock. |
+| [docs/identity-and-storage.md](docs/identity-and-storage.md) | You are touching the cookie, the D1 schema, or what does and does not reach D1. |
+| [docs/testing.md](docs/testing.md) | You are adding or debugging tests; it explains the test-only Durable Object subclass and per-file storage isolation. |
+| [docs/known-gaps.md](docs/known-gaps.md) | You are deciding whether something is a bug or a stated limit, or looking for the open issue. |
+
+Keep `docs/` current as part of a change that alters a decision. Update the page
+that owns the decision rather than adding a new page; a stale page is worse than
+none.
 
 ## GitHub access
 
