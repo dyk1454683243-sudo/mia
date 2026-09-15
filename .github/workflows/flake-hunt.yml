@@ -1,0 +1,49 @@
+name: Flake hunt
+
+# Manual only. Ten parallel legs turn "not seen since" into a number.
+on:
+  workflow_dispatch:
+    inputs:
+      filter:
+        description: 'Optional -t filter, e.g. "resolves an auto-played reveal". Empty runs the whole workers project.'
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  hunt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      # Each leg is an independent sample: one failure must not cancel the rest.
+      fail-fast: false
+      matrix:
+        leg: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+          cache: npm
+
+      - run: npm ci
+
+      # No `npm run types` here: worker-configuration.d.ts is a declaration
+      # file, and vitest strips types rather than checking them. Verified — the
+      # workers project passes with the file deleted.
+      - name: Run the workers project (leg ${{ matrix.leg }})
+        env:
+          # Via env, not inlined into the script: an input interpolated straight
+          # into `run:` is a shell-injection seam.
+          FILTER: ${{ inputs.filter }}
+        run: |
+          if [ -n "$FILTER" ]; then
+            npx vitest run --project workers -t "$FILTER"
+          else
+            npm run test:workers
+          fi
