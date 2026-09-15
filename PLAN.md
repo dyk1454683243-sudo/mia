@@ -573,9 +573,6 @@ history.
 
 State these as known and intentional rather than fixing them mid-task:
 
-- `toSummary`'s `hostName` is hardcoded to `"someone"`
-  (`src/worker/db.ts:144`). The client never renders it, so it is a dead field,
-  not a visible bug. Populating it needs a join against `players`.
 - The 60-second turn timer never fires during normal harness play. Its
   behaviour is covered deterministically by `test/room.test.ts` with a fast
   clock, not end to end.

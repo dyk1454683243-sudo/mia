@@ -155,12 +155,11 @@ interface TableRow {
   updated_at: number;
 }
 
-function toSummary(row: TableRow, hostName = "someone"): TableSummary {
+function toSummary(row: TableRow): TableSummary {
   return {
     id: row.id,
     name: row.name,
     hostId: row.host_id,
-    hostName,
     status: row.status as TableSummary["status"],
     playerCount: row.player_count,
     maxPlayers: row.max_players,

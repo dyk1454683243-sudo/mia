@@ -14,7 +14,6 @@ export interface TableSummary {
   id: string;
   name: string;
   hostId: string;
-  hostName: string;
   status: "waiting" | "playing" | "finished" | "abandoned";
   playerCount: number;
   maxPlayers: number;
