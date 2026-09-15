@@ -5,13 +5,12 @@
  * Routing deliberately avoids SPA fallback and `run_worker_first`: the two HTML
  * pages are real files, `/t/:id` is not, so it reaches this Worker.
  */
+import { MAX_PLAYERS } from "../shared/mia";
+import type { CreateTableResponse, HistoryEntry, TableSummary } from "../shared/protocol";
 import { createTable, ensureSchema, getTable, listHistory, listOpenTables, renamePlayer } from "./db";
 import { attachSession, ensurePlayer, isLocalRequest, validateName, validateTableName, type SessionPlayer } from "./session";
-import type { CreateTableResponse, HistoryEntry, TableSummary } from "../shared/protocol";
 
 export { TableRoom } from "./table-room";
-
-const MAX_PLAYERS = 8;
 
 function isApiPath(pathname: string): boolean {
   return pathname === "/api" || pathname.startsWith("/api/");
@@ -67,7 +66,7 @@ export default {
       if (request.method !== "GET" && request.method !== "HEAD") return methodNotAllowed(["GET", "HEAD"]);
       const session = await ensurePlayer(request, env, { secure });
       const asset = await env.ASSETS.fetch(new Request(new URL(htmlEntry, url), request));
-      return attachSession(decorate(asset), session, secure);
+      return attachSession(decorate(asset), session);
     }
 
     if (!isApiPath(url.pathname)) {
@@ -89,7 +88,7 @@ export default {
 async function handleApi(request: Request, env: Env, url: URL, secure: boolean): Promise<Response> {
   await ensureSchema(env);
   const session = await ensurePlayer(request, env, { secure });
-  const respond = (response: Response): Response => attachSession(decorate(response), session, secure);
+  const respond = (response: Response): Response => attachSession(decorate(response), session);
 
   const segments = url.pathname.split("/").filter((part) => part.length > 0);
   // segments[0] === "api"

@@ -27,6 +27,8 @@ export function ensureSchema(env: Env): Promise<unknown> {
          last_seen_at INTEGER NOT NULL
        )`,
     ),
+    // `createTable` binds the real value from MAX_PLAYERS. This schema default
+    // is a floor for hand-written rows only; it is not how the app sets the cap.
     env.DB.prepare(
       `CREATE TABLE IF NOT EXISTS tables (
          id TEXT PRIMARY KEY,

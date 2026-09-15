@@ -183,7 +183,7 @@ export function isLocalRequest(url: URL): boolean {
 }
 
 /** Put the session cookie on a response that is heading back to the browser. */
-export function attachSession(response: Response, session: SessionPlayer, secure: boolean): Response {
+export function attachSession(response: Response, session: SessionPlayer): Response {
   if (session.cookie === null) return response;
   const next = new Response(response.body, response);
   next.headers.append("Set-Cookie", session.cookie);

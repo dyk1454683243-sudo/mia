@@ -11,7 +11,7 @@
  * They share the WebSocket client and the strategy with `scripts/e2e.ts`
  * through `scripts/lib.ts`; this file only drives them.
  */
-import type { MiaState } from "../src/shared/mia.ts";
+import { MAX_PLAYERS, type MiaState } from "../src/shared/mia.ts";
 import { api, chooseAction, Client, createPlayer, makeRandom, nextSnapshot } from "./lib.ts";
 
 const tableId = process.argv[2] ?? "";
@@ -25,8 +25,8 @@ if (!tableId) {
   console.error("usage: node scripts/bots.ts <tableId> [count]");
   process.exit(1);
 }
-if (!Number.isInteger(count) || count < 1 || count > 7) {
-  console.error("count must be an integer from 1 to 7 (a table seats 8 including you)");
+if (!Number.isInteger(count) || count < 1 || count > MAX_PLAYERS - 1) {
+  console.error(`count must be an integer from 1 to ${MAX_PLAYERS - 1} (a table seats ${MAX_PLAYERS} including you)`);
   process.exit(1);
 }
 

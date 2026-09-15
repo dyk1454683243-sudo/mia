@@ -6,7 +6,9 @@ import {
   formatValue,
   isDouble,
   legalMoves,
+  MAX_PLAYERS,
   MIA,
+  MIN_PLAYERS,
   playerById,
   rollValue,
   STARTING_LIVES,
@@ -129,7 +131,7 @@ function renderWaiting(view: StateView): string {
   const isHost = hostId !== null && hostId === view.you;
   // If the creator is not around, anyone seated may start (B5's case).
   const canStart = isHost || !hostHere;
-  const enough = players.length >= 2;
+  const enough = players.length >= MIN_PLAYERS;
   const rows = players
     .map(
       (player, index) => `<li class="roster-row">
@@ -143,7 +145,7 @@ function renderWaiting(view: StateView): string {
 
   const controls = canStart
     ? `<button class="primary big" data-action="start" ${enough ? "" : "disabled"}>
-         ${enough ? "Start the game" : "Waiting for at least 2 players…"}
+         ${enough ? "Start the game" : `Waiting for at least ${MIN_PLAYERS} players…`}
        </button>`
     : `<p class="waiting-line">Waiting for ${escapeHtml(host?.name ?? "the table's creator")} to start…</p>`;
   const hostAway =
@@ -154,7 +156,7 @@ function renderWaiting(view: StateView): string {
   return `
     <section class="card room-card">
       <h2>${escapeHtml(state.table?.name ?? view.state.tableName)}</h2>
-      <p class="muted">${players.length} of 8 seats taken · ${STARTING_LIVES} lives each</p>
+      <p class="muted">${players.length} of ${MAX_PLAYERS} seats taken · ${STARTING_LIVES} lives each</p>
       <ul class="roster">${rows}</ul>
       ${controls}
       ${hostAway}

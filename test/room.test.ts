@@ -4,7 +4,7 @@
  */
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
-import type { Die, MiaState } from "../src/shared/mia";
+import { MAX_PLAYERS, MIN_PLAYERS, type Die, type MiaState } from "../src/shared/mia";
 import type { ServerMessage, StateView } from "../src/shared/protocol";
 import { ensureSchema } from "../src/worker/db";
 import { signCookie } from "../src/worker/session";
@@ -40,7 +40,7 @@ async function createTableRow(name: string, hostId: string): Promise<string> {
   await ensureSchema(env);
   await env.DB.prepare(
     `INSERT INTO tables (id, name, host_id, status, player_count, max_players, created_at, updated_at)
-     VALUES (?1, ?2, ?3, 'waiting', 0, 8, ?4, ?4)`,
+     VALUES (?1, ?2, ?3, 'waiting', 0, ${MAX_PLAYERS}, ?4, ?4)`,
   )
     .bind(id, name, hostId, now)
     .run();
@@ -344,36 +344,51 @@ describe("TableRoom", () => {
     socket.close();
   });
 
-  it("turns a ninth player away with a coded error and closes the socket", async () => {
+  it("turns away the player beyond the seat cap with a coded error and closes the socket", async () => {
     const players = [];
-    for (let index = 0; index < 8; index++) players.push(await makePlayer(`Player ${index + 1}`));
+    for (let index = 0; index < MAX_PLAYERS; index++) players.push(await makePlayer(`Player ${index + 1}`));
     const tableId = await createTableRow("Full house", players[0]!.id);
     const sockets: TestSocket[] = [];
     for (const player of players) sockets.push(await connect(tableId, player));
-    await sockets[7]!.nextState((view) => view.state.players.length === 8);
-    await waitFor(async () => (await playerCount(tableId)) === 8);
+    await sockets[MAX_PLAYERS - 1]!.nextState((view) => view.state.players.length === MAX_PLAYERS);
+    await waitFor(async () => (await playerCount(tableId)) === MAX_PLAYERS);
 
-    const ninth = await makePlayer("Ninth");
-    const ninthSocket = await connect(tableId, ninth);
+    const overflow = await makePlayer("Overflow");
+    const overflowSocket = await connect(tableId, overflow);
 
     // The rejection is explicit and machine-readable, not a silent limbo.
-    await waitFor(() => ninthSocket.errors.length > 0);
-    expect(ninthSocket.errors).toEqual(["That table is full (8 players)."]);
-    expect(ninthSocket.errorCodes).toEqual(["table-full"]);
+    await waitFor(() => overflowSocket.errors.length > 0);
+    expect(overflowSocket.errors).toEqual([`That table is full (${MAX_PLAYERS} players).`]);
+    expect(overflowSocket.errorCodes).toEqual(["table-full"]);
 
     // The rejected socket is closed server-side, so it cannot linger as a ghost
     // in every snapshot's `connected` list or keep receiving broadcasts.
-    await waitFor(async () => (await socketCount(tableId)) === 8, 5_000);
+    await waitFor(async () => (await socketCount(tableId)) === MAX_PLAYERS, 5_000);
 
-    // No seat was ever created for the ninth player.
+    // No seat was ever created for the overflow player.
     const state = await readState(tableId);
-    expect(state?.players).toHaveLength(8);
-    expect(state?.players.map((player) => player.name)).not.toContain("Ninth");
-    expect(await playerCount(tableId)).toBe(8);
-    expect(ninthSocket.states.every((view) => !view.state.players.some((player) => player.name === "Ninth"))).toBe(true);
+    expect(state?.players).toHaveLength(MAX_PLAYERS);
+    expect(state?.players.map((player) => player.name)).not.toContain("Overflow");
+    expect(await playerCount(tableId)).toBe(MAX_PLAYERS);
+    expect(overflowSocket.states.every((view) => !view.state.players.some((player) => player.name === "Overflow"))).toBe(
+      true,
+    );
 
     for (const socket of sockets) socket.close();
   }, 20_000);
+
+  it("refuses to start a table with fewer than MIN_PLAYERS players", async () => {
+    const anna = await makePlayer("Anna");
+    const tableId = await createTableRow("Too small", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    await annaSocket.nextState((view) => view.state.players.length === 1);
+
+    annaSocket.send({ type: "start" });
+    await waitFor(() => annaSocket.errors.length > 0);
+    expect(annaSocket.errors).toEqual([`You need at least ${MIN_PLAYERS} players to start.`]);
+
+    annaSocket.close();
+  });
 
   it("keeps a player's dice private until a doubt reveals them", async () => {
     const anna = await makePlayer("Anna");

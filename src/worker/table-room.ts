@@ -17,6 +17,8 @@ import {
   finalStandings,
   type MiaAction,
   type MiaState,
+  MAX_PLAYERS,
+  MIN_PLAYERS,
   playerById,
   resolveReveal,
   type Seat,
@@ -63,7 +65,6 @@ const EMPTY_TABLE_TTL_MS = 60 * 60 * 1000;
  * loop. Nudging forward breaks the cycle while still waking promptly.
  */
 const MIN_ALARM_DELAY_MS = 1_000;
-const MAX_PLAYERS = 8;
 
 interface SocketAttachment {
   playerId: string;
@@ -658,8 +659,8 @@ export class TableRoom extends DurableObject<Env> {
       await this.reportError(playerId, "The game already started.");
       return;
     }
-    if (state.players.length < 2) {
-      await this.reportError(playerId, "You need at least 2 players to start.");
+    if (state.players.length < MIN_PLAYERS) {
+      await this.reportError(playerId, `You need at least ${MIN_PLAYERS} players to start.`);
       return;
     }
     // The table's creator starts. Arrival order is not authority: the D1 row
