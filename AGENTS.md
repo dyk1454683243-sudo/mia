@@ -52,28 +52,67 @@ human-only step.
 the rule binds the repo owner too, because the agent token acts as the owner.
 
 **An agent must not merge a PR it wrote.** Opening or updating a PR is the end of
-an agent's work on it: push, open the PR, report, stop. Merging is a decision a
-human owns, because it is the step that makes a change permanent, and no amount
-of green checks, review comments or `MERGEABLE`/`CLEAN` status is a substitute
-for a human saying so.
+an agent's work on it: push, open the PR, report, stop. Merging is the step that
+makes a change permanent, and the agent that wrote a change is the last one who
+should decide it belongs in `main`.
 
 - **Never merge your own PR** — not with `gh pr merge`, not with `gh api`, not by
   any other route. Do not ask for the ability, and do not treat the absence of
-  required checks as permission.
-- **You may merge only when a human explicitly delegates that specific PR to
-  you** ("go ahead and merge #12"). That delegation is per PR and does not carry
-  over: approval of one PR, a general "keep going", or an earlier merge is never
-  standing authority for the next one.
-- If you believe a PR is ready, **say so and stop.** Leave it open for a human.
-  A PR sitting open is the correct resting state, not a task left unfinished.
+  required checks as permission. No amount of green checks, review comments or
+  `MERGEABLE`/`CLEAN` status is a substitute for a judgement you are not allowed
+  to make.
+- If you believe your own PR is ready, **say so and stop.** Leave it open. A PR
+  sitting open is the correct resting state, not a task left unfinished.
 - **Never push directly to `main`.** Work on a branch and open a PR.
 - **Never force-push** (`--force`, `-f`) or delete a branch on the remote.
 - The ruleset requires no approving reviews, so nothing technical stops a merge.
-  That is a property of the config, **not** a grant of authority — see above.
+  That is a property of the config, **not** a grant of authority.
 - If a PR refuses to merge, the likely cause is GitHub's
   `require_extra_approval_for_unattributed_changes` rule: commits whose
   authorship doesn't map to a GitHub account need an extra approval. Report it
   rather than rewriting history to work around it.
+
+### When you may merge
+
+Two cases, and no others.
+
+**A human delegates a specific PR to you** — "go ahead and merge #12". That
+delegation is per PR and does not carry over: approval of one PR, a general "keep
+going", or an earlier merge is never standing authority for the next one.
+
+**You are supervising another agent, and a human asked you to merge what you
+approve.** A supervisor reviewing a delegate's work is a second, independent
+reading before the change becomes permanent, which is the thing the rule above
+is protecting. Having spawned the delegate yourself does not disqualify you —
+what disqualifies you is having written the code. Every one of these must hold:
+
+- **You wrote none of it.** Not the implementation, not the tests, not a fixup
+  commit, not a one-line typo fix on the branch. Touching the branch makes you an
+  author and puts the PR back under "never merge your own".
+- **A human framed this run as supervision with merge authority** — "review the
+  PRs, merge them if you approve". Being a supervisor is not itself authority;
+  the human granting the merge step is. It covers the PRs of that run and expires
+  with it.
+- **You reviewed the change itself**, not the delegate's account of it. Read the
+  full diff. A delegate reporting "typecheck clean, all tests pass" is a claim to
+  check, not a result to relay.
+- **Checks are green and you confirmed it independently** — `npm run typecheck &&
+  npm test` on the branch, not just the delegate's word that it passed.
+- **Your verdict is recorded on the PR** before you merge it, so the reasoning
+  survives in a place a human can read later.
+- **Anything you would not merge goes back to the delegate.** Write the concerns
+  on the PR and hand it back for revision. Do not fix it yourself and then merge
+  it — that is authoring the change and approving it in one move, which is
+  exactly what none of this permits.
+
+Merging still stops at the first real doubt. "The delegate says it works and
+nothing is obviously wrong" is not approval; if you would not defend the change
+to the human afterwards, leave it open and say why.
+
+The harness has its own say. A permission classifier may refuse `gh pr merge` as
+self-approval no matter what this file allows, because it cannot see which agent
+wrote what. That refusal is not a problem to route around — report it and let the
+human press the button.
 
 ## Issues
 
