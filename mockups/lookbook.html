@@ -1,0 +1,1205 @@
+<title>Mia Lookbook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+/* ============================================================ tokens ===== */
+:root{
+  --ground:#E3E7E1;
+  --grid:rgba(20,32,26,.055);
+  --surface:#F6F7F3;
+  --surface-2:#ECEFE8;
+  --ink:#171D19;
+  --ink-2:#415047;
+  --ink-3:#6D7C73;
+  --line:rgba(23,29,25,.16);
+  --line-soft:rgba(23,29,25,.09);
+  --brass:#9A7420;
+  --brass-bright:#C79A3A;
+  --doubt:#AE3A31;
+  --true:#2E7A55;
+  --shadow:0 18px 40px -22px rgba(9,20,15,.5);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0E1311;
+    --grid:rgba(255,255,255,.04);
+    --surface:#161D1A;
+    --surface-2:#1C2521;
+    --ink:#E9EEE8;
+    --ink-2:#AFBDB4;
+    --ink-3:#7D8C84;
+    --line:rgba(255,255,255,.14);
+    --line-soft:rgba(255,255,255,.07);
+    --brass:#E8C46A;
+    --brass-bright:#F0D389;
+    --doubt:#E2685F;
+    --true:#6FCF97;
+    --shadow:0 20px 44px -24px rgba(0,0,0,.9);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0E1311;
+  --grid:rgba(255,255,255,.04);
+  --surface:#161D1A;
+  --surface-2:#1C2521;
+  --ink:#E9EEE8;
+  --ink-2:#AFBDB4;
+  --ink-3:#7D8C84;
+  --line:rgba(255,255,255,.14);
+  --line-soft:rgba(255,255,255,.07);
+  --brass:#E8C46A;
+  --brass-bright:#F0D389;
+  --doubt:#E2685F;
+  --true:#6FCF97;
+  --shadow:0 20px 44px -24px rgba(0,0,0,.9);
+}
+
+*{box-sizing:border-box}
+
+body{
+  background-color:var(--ground);
+  background-image:radial-gradient(var(--grid) 1px, transparent 1px);
+  background-size:22px 22px;
+  color:var(--ink);
+  font:400 17px/1.6 "Newsreader", Georgia, "Times New Roman", serif;
+  padding:0 20px calc(4rem + env(safe-area-inset-bottom));
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:74rem;margin:0 auto}
+
+h1,h2,h3{font-family:"Syne","Helvetica Neue",Arial,sans-serif;text-wrap:balance;margin:0}
+.mono,code,.eyebrow,.cost,.tag,.idx a,.no{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+
+.eyebrow{
+  font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--ink-3);font-weight:500;
+}
+
+/* =========================================================== masthead ==== */
+.masthead{padding-block:3.4rem 2rem}
+.mark{display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
+.mark b{
+  font-family:"Syne",sans-serif;font-weight:800;font-size:clamp(2.6rem,9vw,4.4rem);
+  letter-spacing:.14em;color:var(--brass);line-height:.9;
+}
+.mark .rule{flex:1;height:1px;background:var(--line);min-width:2rem}
+.masthead h1{
+  font-size:clamp(1.55rem,4.4vw,2.5rem);font-weight:700;line-height:1.14;
+  margin-top:1.5rem;max-width:22ch;
+}
+.lede{max-width:56ch;color:var(--ink-2);font-size:1.12rem;margin:1rem 0 0}
+.lede em{color:var(--ink);font-style:italic}
+
+/* the standing read on today's UI */
+.read{
+  margin-top:2.4rem;border:1px solid var(--line);border-radius:3px;
+  background:var(--surface);box-shadow:var(--shadow);
+  padding:1.4rem 1.5rem;
+}
+.read h2{font-size:.78rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+.read ul{list-style:none;margin:.9rem 0 0;padding:0;display:grid;gap:.75rem}
+.read li{display:grid;grid-template-columns:5.4rem minmax(0,1fr);gap:1rem;align-items:baseline;font-size:1rem;color:var(--ink-2)}
+.read li span{
+  font-family:"IBM Plex Mono",monospace;font-size:.66rem;letter-spacing:.12em;text-transform:uppercase;
+  padding:.2rem .45rem;border:1px solid var(--line);border-radius:2px;text-align:center;color:var(--ink-3);
+}
+.read li.keep span{color:var(--true);border-color:color-mix(in srgb,var(--true) 45%,transparent)}
+.read li.thin span{color:var(--doubt);border-color:color-mix(in srgb,var(--doubt) 45%,transparent)}
+.read li b{color:var(--ink);font-weight:600}
+
+/* index */
+.idx{margin-top:2rem;border-top:1px solid var(--line);padding-top:1.2rem}
+.idx ol{list-style:none;margin:.8rem 0 0;padding:0;display:grid;gap:.1rem;grid-template-columns:repeat(auto-fill,minmax(15rem,1fr))}
+.idx a{
+  display:flex;gap:.7rem;align-items:baseline;text-decoration:none;color:var(--ink-2);
+  font-size:.82rem;padding:.42rem .5rem;border-radius:2px;
+}
+.idx a:hover,.idx a:focus-visible{background:var(--surface);color:var(--ink);outline:none}
+.idx a i{color:var(--brass);font-style:normal;font-weight:600}
+.idx a:focus-visible{box-shadow:0 0 0 2px var(--brass)}
+
+/* ============================================================= plates ==== */
+.actbar{
+  margin-top:3.4rem;display:flex;align-items:center;gap:1rem;
+}
+.actbar h2{font-size:1rem;font-weight:700;letter-spacing:.04em;white-space:nowrap}
+.actbar .rule{flex:1;height:1px;background:var(--brass);opacity:.55}
+.actbar .eyebrow{white-space:nowrap}
+
+.plate{border-top:1px solid var(--line-soft);padding-block:2.6rem;display:grid;gap:1.5rem}
+.plate:first-of-type{border-top:none}
+.phead{display:flex;gap:1rem;align-items:baseline;flex-wrap:wrap}
+.no{font-size:1.5rem;font-weight:600;color:var(--brass);line-height:1}
+.phead h3{font-size:1.5rem;font-weight:700;line-height:1.15}
+.phead .tag{
+  font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);
+  border:1px solid var(--line);border-radius:100px;padding:.22rem .6rem;
+}
+.pbody{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2rem;align-items:start}
+.prose{max-width:40rem;display:grid;gap:.9rem}
+.prose p{margin:0;color:var(--ink-2)}
+.prose p b{color:var(--ink);font-weight:600}
+.prose .pull{
+  font-size:1.2rem;line-height:1.4;color:var(--ink);font-weight:500;
+  border-left:2px solid var(--brass);padding-left:1rem;
+}
+.cost{
+  font-size:.76rem;line-height:1.65;color:var(--ink-3);
+  border-top:1px dashed var(--line);padding-top:.7rem;margin:.3rem 0 0;
+}
+.cost span{color:var(--brass);letter-spacing:.1em;text-transform:uppercase;font-size:.66rem;font-weight:600}
+code{font-size:.84em;background:var(--surface-2);padding:.1em .35em;border-radius:2px;color:var(--ink-2)}
+@media (max-width:880px){
+  .pbody{grid-template-columns:1fr;justify-items:center;gap:1.4rem}
+  .prose{justify-self:stretch}
+}
+
+/* ====================================================== phone chrome ===== */
+.phone{
+  width:300px;height:620px;border-radius:36px;padding:9px;flex:none;
+  background:linear-gradient(160deg,#3a423e,#171c1a 40%,#2b332f);
+  box-shadow:0 26px 50px -26px rgba(0,0,0,.72), 0 0 0 1px rgba(255,255,255,.07) inset;
+}
+.phone.sm{width:236px;height:490px;border-radius:30px;padding:7px}
+.screen{
+  width:100%;height:100%;border-radius:28px;overflow:hidden;position:relative;
+  font-family:ui-rounded,"SF Pro Rounded",-apple-system,"Segoe UI",system-ui,sans-serif;
+  font-size:12.5px;line-height:1.4;
+  display:flex;flex-direction:column;
+}
+.phone.sm .screen{border-radius:23px;font-size:11px}
+.land{width:min(100%,600px);height:360px;border-radius:14px;padding:8px;background:linear-gradient(160deg,#3a423e,#171c1a);box-shadow:0 26px 50px -26px rgba(0,0,0,.72)}
+.land .screen{border-radius:8px;font-size:11.5px}
+
+/* screen worlds ----------------------------------------------------------- */
+.felt{
+  --m-bg:radial-gradient(circle at 50% -10%,#14563f 0%,#0b3d2e 45%,#072a20 100%);
+  --m-ink:#F4EFE3;--m-dim:#A9C2B6;--m-gold:#E8C46A;--m-line:rgba(255,255,255,.12);
+  --m-card:rgba(255,255,255,.055);--m-chip:#F3E9D2;--m-danger:#E2685F;--m-good:#6FCF97;
+}
+.wood{
+  --m-bg:linear-gradient(175deg,#C9A574 0%,#B98F5C 40%,#A87B49 100%);
+  --m-ink:#2C1B0D;--m-dim:#6B4E31;--m-gold:#7A3E1D;--m-line:rgba(58,33,12,.22);
+  --m-card:rgba(255,248,235,.62);--m-chip:#FFF6E4;--m-danger:#9B2B1F;--m-good:#3C6B37;
+}
+.neon{
+  --m-bg:linear-gradient(180deg,#160B2B 0%,#0C0620 60%,#05030F 100%);
+  --m-ink:#EAF6FF;--m-dim:#8E7FC4;--m-gold:#FF4FD8;--m-line:rgba(126,92,255,.34);
+  --m-card:rgba(120,70,255,.12);--m-chip:#26F5D0;--m-danger:#FF3B6B;--m-good:#26F5D0;
+}
+.press{
+  --m-bg:#EFEADF;
+  --m-ink:#14120E;--m-dim:#5E5850;--m-gold:#B4341F;--m-line:rgba(20,18,14,.26);
+  --m-card:transparent;--m-chip:#14120E;--m-danger:#B4341F;--m-good:#14120E;
+}
+.screen{background:var(--m-bg);color:var(--m-ink)}
+
+/* ======================================================= mockup atoms ==== */
+.m-top{
+  display:flex;align-items:center;gap:.5rem;padding:1.5rem .85rem .55rem;
+  border-bottom:1px solid var(--m-line);flex:none;
+}
+.m-brand{font-weight:800;letter-spacing:.14em;color:var(--m-gold);font-size:1.05em}
+.m-tname{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.m-round{font-size:.72em;letter-spacing:.09em;text-transform:uppercase;color:var(--m-dim)}
+.m-body{flex:1;overflow:hidden;padding:.7rem .7rem 0;display:flex;flex-direction:column;gap:.55rem}
+.m-card{background:var(--m-card);border:1px solid var(--m-line);border-radius:12px;padding:.7rem}
+.m-lab{font-size:.68em;letter-spacing:.11em;text-transform:uppercase;color:var(--m-dim);margin:0 0 .35rem;font-weight:600}
+.m-fine{font-size:.82em;color:var(--m-dim);margin:.3rem 0 0}
+.m-btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:.35rem;
+  background:linear-gradient(180deg,var(--m-gold),color-mix(in srgb,var(--m-gold) 78%,#000));
+  color:#24312C;font-weight:700;border-radius:10px;padding:.6rem .95rem;border:none;font-size:1em;
+}
+.m-btn.ghost{background:transparent;color:var(--m-ink);border:1px solid var(--m-line);font-weight:600}
+
+/* dice */
+.m-die{
+  width:28px;height:28px;border-radius:7px;background:var(--m-chip);flex:none;
+  display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);padding:4px;
+  box-shadow:inset 0 -2px 0 rgba(0,0,0,.14),0 1px 3px rgba(0,0,0,.35);
+}
+.m-die.lg{width:40px;height:40px;border-radius:9px;padding:6px}
+.m-die.sm{width:20px;height:20px;border-radius:5px;padding:3px}
+.m-die i{width:5px;height:5px;border-radius:50%;background:#26332D;align-self:center;justify-self:center}
+.m-die.lg i{width:7px;height:7px}
+.m-die.sm i{width:3.5px;height:3.5px}
+.m-die i.tl{grid-area:1/1}.m-die i.tr{grid-area:1/3}
+.m-die i.ml{grid-area:2/1}.m-die i.c{grid-area:2/2}.m-die i.mr{grid-area:2/3}
+.m-die i.bl{grid-area:3/1}.m-die i.br{grid-area:3/3}
+.m-die.hid{background:transparent;border:1px dashed var(--m-line);box-shadow:none;
+  display:flex;align-items:center;justify-content:center;color:var(--m-dim);font-weight:700}
+.m-dice{display:flex;gap:.3rem}
+
+/* value chips */
+.m-chip{
+  display:inline-flex;align-items:center;justify-content:center;background:var(--m-chip);color:#24312C;
+  font-weight:800;border-radius:9px;padding:.3rem .6rem;letter-spacing:.02em;
+}
+.m-chip.mia{background:linear-gradient(180deg,var(--m-gold),color-mix(in srgb,var(--m-gold) 75%,#000));letter-spacing:.16em}
+.m-chip.big{font-size:1.7em;padding:.4rem .85rem;border-radius:12px}
+
+/* lives */
+.m-lives{display:flex;gap:4px;align-items:center}
+.m-lives i{width:7px;height:7px;border-radius:50%;background:var(--m-danger);box-shadow:0 0 6px color-mix(in srgb,var(--m-danger) 60%,transparent)}
+.m-lives i.gone{background:var(--m-line);box-shadow:none}
+
+/* roster rows */
+.m-row{display:flex;align-items:center;gap:.5rem;padding:.45rem .55rem;border-radius:10px;border:1px solid transparent}
+.m-row .nm{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.m-row.on{border-color:var(--m-gold);background:color-mix(in srgb,var(--m-gold) 9%,transparent)}
+.m-pill{font-size:.64em;letter-spacing:.1em;text-transform:uppercase;border:1px solid var(--m-line);border-radius:100px;padding:.15rem .45rem;color:var(--m-dim)}
+.m-pill.turn{color:var(--m-good);border-color:color-mix(in srgb,var(--m-good) 50%,transparent)}
+
+/* ================================================= plate 1 · the ring ==== */
+.ring-felt{
+  position:relative;flex:none;margin:.3rem -.1rem 0;aspect-ratio:1/1.12;border-radius:50%;
+  background:radial-gradient(ellipse at 50% 38%,#14624a 0%,#0c4534 58%,#07301f 100%);
+  border:2px solid rgba(232,196,106,.28);
+  box-shadow:inset 0 0 40px rgba(0,0,0,.45),0 10px 30px -12px rgba(0,0,0,.6);
+}
+.seat{position:absolute;transform:translate(-50%,-50%);text-align:center;width:62px}
+.seat .av{
+  width:30px;height:30px;border-radius:50%;margin:0 auto 3px;display:grid;place-items:center;
+  background:rgba(255,255,255,.09);border:1.5px solid var(--m-line);font-weight:800;font-size:.86em;color:var(--m-ink);
+}
+.seat .nm{font-size:.66em;color:var(--m-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.seat .m-lives{justify-content:center;margin-top:2px}
+.seat .m-lives i{width:4px;height:4px}
+.seat.act .av{border-color:var(--m-gold);background:rgba(232,196,106,.2);box-shadow:0 0 0 4px rgba(232,196,106,.14)}
+.seat.act .nm{color:var(--m-ink);font-weight:700}
+.seat.out{opacity:.38}
+.seat .say{
+  position:absolute;left:50%;transform:translateX(-50%);bottom:-16px;
+  background:var(--m-chip);color:#24312C;border-radius:8px;padding:1px 5px;font-size:.62em;font-weight:800;white-space:nowrap;
+}
+.ring-mid{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;width:130px}
+.ring-mid .m-lab{margin-bottom:.2rem}
+.arrow{position:absolute;left:50%;top:50%;width:2px;height:58px;background:linear-gradient(180deg,transparent,var(--m-gold));transform-origin:50% 0;border-radius:2px;opacity:.75}
+
+/* ================================================ plate 2 · the ladder === */
+.ladder{flex:1;display:flex;flex-direction:column;gap:3px;overflow:hidden;padding-bottom:.5rem}
+.rung{
+  display:flex;align-items:center;gap:.5rem;padding:.3rem .55rem;border-radius:8px;
+  border:1px solid var(--m-line);background:rgba(255,255,255,.04);
+}
+.rung .v{font-weight:800;width:3.1em;letter-spacing:.02em;font-variant-numeric:tabular-nums}
+.rung .bar{flex:1;height:4px;border-radius:2px;background:linear-gradient(90deg,var(--m-good),transparent)}
+.rung .hint{font-size:.68em;color:var(--m-dim)}
+.rung.top{background:linear-gradient(90deg,rgba(232,196,106,.32),rgba(232,196,106,.06));border-color:var(--m-gold)}
+.rung.top .v{color:var(--m-gold);letter-spacing:.14em}
+.rung.dead{opacity:.32;background:transparent}
+.rung.dead .bar{background:var(--m-line)}
+.cutline{display:flex;align-items:center;gap:.5rem;margin:.25rem 0}
+.cutline .l{flex:1;height:1px;background:repeating-linear-gradient(90deg,var(--m-gold) 0 5px,transparent 5px 10px)}
+.cutline b{font-size:.64em;letter-spacing:.1em;text-transform:uppercase;color:var(--m-gold)}
+.rung.stand{border-color:var(--m-gold);background:rgba(232,196,106,.12)}
+.rung.yours{border-style:dashed;border-color:rgba(255,255,255,.3);background:transparent;opacity:.75}
+.rung.yours .v{color:var(--m-ink)}
+.rung.yours .hint{color:var(--m-ink)}
+
+/* ================================================ plate 3 · the cup ===== */
+.cup-stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.8rem;position:relative}
+.cup{
+  width:126px;height:104px;border-radius:12px 12px 46% 46%/8px 8px 26% 26%;
+  background:linear-gradient(160deg,#6E4322,#3D2313 60%,#28170C);
+  border:2px solid rgba(0,0,0,.35);
+  box-shadow:0 16px 26px -14px rgba(0,0,0,.8),inset 0 6px 12px rgba(255,255,255,.1);
+  display:grid;place-items:center;position:relative;
+}
+.cup::after{content:"";position:absolute;top:8px;left:12px;right:12px;height:7px;border-radius:50%;background:rgba(0,0,0,.4)}
+.cup .peek{display:flex;gap:.4rem;filter:blur(0);opacity:1}
+.hold-pad{
+  width:92px;height:92px;border-radius:50%;display:grid;place-items:center;text-align:center;
+  border:2px solid var(--m-gold);color:var(--m-gold);font-size:.7em;letter-spacing:.14em;text-transform:uppercase;font-weight:700;
+  background:radial-gradient(circle,rgba(232,196,106,.18),transparent 70%);
+  animation:pulse 2.4s ease-in-out infinite;
+}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(232,196,106,.32)}50%{box-shadow:0 0 0 12px rgba(232,196,106,0)}}
+.shake-note{display:flex;align-items:center;gap:.4rem;font-size:.76em;color:var(--m-dim)}
+
+/* ============================================= plate 4 · the showdown === */
+.duel{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.5rem;position:relative}
+.duel-pair{display:flex;align-items:center;gap:.7rem}
+.duel-col{text-align:center;display:grid;gap:.35rem;justify-items:center}
+.vs{font-weight:800;color:var(--m-dim);font-size:.8em;letter-spacing:.1em}
+.stamp{
+  transform:rotate(-8deg);border:3px solid var(--m-danger);color:var(--m-danger);
+  font-weight:800;letter-spacing:.2em;font-size:1.15em;padding:.2rem .8rem;border-radius:6px;
+  background:color-mix(in srgb,var(--m-danger) 12%,transparent);
+  animation:slam .9s cubic-bezier(.2,1.5,.4,1) both;
+}
+@keyframes slam{0%{transform:rotate(-8deg) scale(2.4);opacity:0}60%{opacity:1}100%{transform:rotate(-8deg) scale(1);opacity:1}}
+.duel-face{
+  width:30px;height:30px;border-radius:50%;display:inline-grid;place-items:center;flex:none;
+  background:rgba(255,255,255,.09);border:1.5px solid var(--m-line);font-weight:800;font-size:.8em;
+}
+.duel-face.gold{border-color:var(--m-gold);background:rgba(232,196,106,.18)}
+.duel-face.sm{width:24px;height:24px;font-size:.7em}
+.toll{display:flex;align-items:center;gap:.4rem;font-size:.85em}
+.toll .x{color:var(--m-danger);font-weight:800}
+
+/* =============================================== plate 5 · the gap ====== */
+.gauge{display:grid;gap:.4rem}
+.gauge .track{height:26px;border-radius:13px;background:rgba(255,255,255,.07);border:1px solid var(--m-line);position:relative;overflow:hidden}
+.gauge .fill{position:absolute;inset:0 26% 0 0;background:linear-gradient(90deg,var(--m-good),#E8C46A 62%,var(--m-danger));opacity:.85}
+.gauge .mk{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--m-ink)}
+.gauge .ends{display:flex;justify-content:space-between;font-size:.68em;color:var(--m-dim)}
+.ringclock{width:52px;height:52px;flex:none;position:relative;display:grid;place-items:center}
+.ringclock svg{position:absolute;inset:0;transform:rotate(-90deg)}
+.ringclock b{font-size:.85em;font-weight:800}
+.heatbar{height:5px;border-radius:3px;background:linear-gradient(90deg,var(--m-danger) 38%,rgba(255,255,255,.08) 38%)}
+
+/* ============================================== plate 6 · the ticker ==== */
+.bubble{display:flex;gap:.4rem;align-items:flex-start;margin-bottom:.4rem}
+.bubble .who{font-size:.68em;color:var(--m-dim);white-space:nowrap;padding-top:.2rem;width:5.8em;text-align:right;flex:none;overflow:hidden;text-overflow:ellipsis}
+.bubble .msg{background:rgba(255,255,255,.08);border-radius:10px 10px 10px 3px;padding:.28rem .5rem;font-size:.86em}
+.bubble.you .msg{background:color-mix(in srgb,var(--m-gold) 22%,transparent)}
+.bubble .msg.sys{background:transparent;color:var(--m-dim);padding-left:0;font-style:italic}
+.emotes{display:flex;gap:.35rem;flex-wrap:wrap}
+.emote{border:1px solid var(--m-line);border-radius:100px;padding:.28rem .55rem;font-size:.8em;background:rgba(255,255,255,.05);display:flex;gap:.25rem;align-items:center}
+.emote b{color:var(--m-gold);font-size:.85em}
+
+/* ============================================= plate 7 · lives strip ==== */
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:3px;overflow:hidden}
+.cell{background:var(--surface);padding:1.1rem 1rem;display:grid;gap:.6rem;align-content:start}
+.cell h4{margin:0;font-family:"Syne",sans-serif;font-size:.95rem;font-weight:700}
+.cell p{margin:0;font-size:.85rem;color:var(--ink-3);line-height:1.5}
+.cell .demo{min-height:52px;display:flex;align-items:center;gap:6px}
+/* candles */
+.candle{width:9px;height:30px;border-radius:2px;background:linear-gradient(180deg,#F6EDD6,#D8C69C);position:relative}
+.candle::before{content:"";position:absolute;top:-11px;left:50%;transform:translateX(-50%);width:8px;height:12px;border-radius:50% 50% 50% 50%/60% 60% 40% 40%;background:radial-gradient(circle at 50% 70%,#FFE9A8,#FF9A32 60%,rgba(255,80,0,0));filter:blur(.2px)}
+.candle.out{opacity:.4}
+.candle.out::before{content:"";background:none;box-shadow:none;width:3px;height:8px;background:linear-gradient(180deg,rgba(150,150,150,.6),transparent)}
+/* chalk */
+.slate{background:#2A302D;border-radius:4px;padding:.55rem .7rem;display:flex;gap:9px;align-items:center}
+.tally{width:2px;height:22px;background:#F2EDE0;border-radius:2px;transform:rotate(4deg);box-shadow:0 0 2px rgba(255,255,255,.4)}
+.lostpair{position:relative;display:flex;gap:9px}
+.lostpair::after{content:"";position:absolute;left:-4px;right:-4px;top:50%;height:2px;background:#F2EDE0;opacity:.5;transform:rotate(-18deg)}
+.tally.gone{opacity:.22}
+/* chips */
+.pokerchip{width:24px;height:24px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#F07A6E,#B23A31);border:2px dashed rgba(255,255,255,.55);margin-left:-5px;box-shadow:0 2px 4px rgba(0,0,0,.3)}
+.pokerchip:first-child{margin-left:0}
+.pokerchip.gone{background:radial-gradient(circle at 35% 30%,#8C948F,#5A625D);opacity:.5}
+/* pips demo */
+.pipdemo{display:flex;gap:5px}
+.pipdemo i{width:9px;height:9px;border-radius:50%;background:#E2685F;box-shadow:0 0 7px rgba(226,104,95,.6)}
+.pipdemo i.gone{background:var(--line);box-shadow:none}
+
+/* ============================================ plate 8 · lobby room ===== */
+.room{display:grid;grid-template-columns:1fr 1fr;gap:.55rem}
+.minitable{
+  aspect-ratio:1/.82;border-radius:50%/44%;position:relative;
+  background:radial-gradient(ellipse at 50% 35%,#14624a,#0b3d2e 70%);
+  border:1.5px solid var(--m-line);display:grid;place-items:center;text-align:center;
+}
+.minitable.live{border-color:var(--m-good);box-shadow:0 0 0 3px rgba(111,207,151,.12)}
+.minitable.full{opacity:.5}
+.minitable .tn{font-size:.72em;font-weight:700;padding:0 .4rem;line-height:1.2}
+.minitable .st{font-size:.62em;color:var(--m-dim)}
+.minitable s{position:absolute;width:7px;height:7px;border-radius:50%;background:var(--m-gold);transform:translate(-50%,-50%)}
+.minitable s.empty{background:transparent;border:1px solid var(--m-line)}
+
+/* ============================================ plate 9 · filmstrip ====== */
+.film{display:flex;gap:4px;overflow:hidden}
+.frame{flex:1;border:1px solid var(--m-line);border-radius:7px;padding:.35rem .25rem;text-align:center;background:rgba(255,255,255,.04);display:grid;gap:.2rem;justify-items:center}
+.frame .n{font-size:.58em;color:var(--m-dim)}
+.frame .v{font-size:.78em;font-weight:800}
+.frame.doubt{border-color:var(--m-danger)}
+.frame.doubt .v{color:var(--m-danger)}
+.statrow{display:flex;justify-content:space-between;gap:.4rem;text-align:center}
+.stat{flex:1}
+.stat b{display:block;font-size:1.3em;font-weight:800;color:var(--m-gold);font-variant-numeric:tabular-nums}
+.stat span{font-size:.62em;letter-spacing:.08em;text-transform:uppercase;color:var(--m-dim)}
+
+/* =========================================== plate 10 · mood trio ====== */
+.trio{display:flex;gap:1.1rem;flex-wrap:wrap;justify-content:center}
+.moodcap{text-align:center;display:grid;gap:.45rem;justify-items:center;max-width:236px}
+.moodcap h4{font-family:"Syne",sans-serif;font-size:1rem;margin:0;font-weight:700}
+.moodcap p{margin:0;font-size:.84rem;color:var(--ink-3);line-height:1.5}
+.press .m-top{border-bottom:2px solid var(--m-ink)}
+.press .m-card{border:1.5px solid var(--m-ink);border-radius:0;background:transparent}
+.press .m-chip{border-radius:0;background:var(--m-ink);color:#EFEADF}
+.press .m-btn{border-radius:0;background:var(--m-gold);color:#EFEADF}
+.press .m-die{border:1.5px solid var(--m-ink);background:transparent;box-shadow:none}
+.press .m-die i{background:var(--m-ink)}
+.press .m-lives i{background:var(--m-gold);box-shadow:none}
+.press .m-brand{font-family:"Syne",sans-serif}
+.neon .m-brand{text-shadow:0 0 10px currentColor}
+.neon .m-card{backdrop-filter:blur(2px);box-shadow:0 0 18px rgba(126,92,255,.16) inset}
+.neon .m-chip{background:var(--m-chip);color:#05030F;box-shadow:0 0 14px rgba(38,245,208,.5)}
+.neon .m-chip.mia{background:var(--m-gold);color:#fff;box-shadow:0 0 18px rgba(255,79,216,.6)}
+.neon .m-btn{background:linear-gradient(180deg,#FF4FD8,#7A3CFF);color:#fff;box-shadow:0 0 18px rgba(255,79,216,.45)}
+.neon .m-btn.ghost{background:transparent;box-shadow:none}
+.press .m-btn.ghost{background:transparent;color:var(--m-ink)}
+.wood .m-btn.ghost{background:transparent}
+.neon .m-die{background:#EAF6FF}
+.wood .m-btn{color:#FFF6E4}
+.wood .m-card{box-shadow:0 2px 0 rgba(58,33,12,.12)}
+
+/* =========================================== plate 11 · wide layout ==== */
+.deck{display:grid;grid-template-columns:132px minmax(0,1fr) 140px;gap:8px;height:100%;padding:8px}
+.deck .col{display:flex;flex-direction:column;gap:6px;min-height:0}
+.deck .m-card{padding:.5rem}
+.deck-felt{
+  flex:1;border-radius:50%;position:relative;
+  background:radial-gradient(ellipse at 50% 35%,#14624a,#0b3d2e 62%,#07301f 100%);
+  border:2px solid rgba(232,196,106,.25);box-shadow:inset 0 0 30px rgba(0,0,0,.45);
+}
+.logline{font-size:.86em;color:var(--m-dim);padding:.15rem 0;border-bottom:1px solid var(--m-line)}
+.logline b{color:var(--m-ink);font-weight:600}
+.logline:last-child{border-bottom:none}
+
+/* ================================================= plate 12 · notes ==== */
+.notes{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(17rem,1fr));gap:.1rem 2rem}
+.notes li{padding:.85rem 0;border-bottom:1px solid var(--line-soft);font-size:.96rem;color:var(--ink-2);line-height:1.55}
+.notes li b{color:var(--ink);font-weight:600;font-family:"Syne",sans-serif;font-size:.92rem;display:block;margin-bottom:.15rem}
+
+/* ==================================================== closing ========== */
+.closer{margin-top:3rem;border-top:2px solid var(--brass);padding-top:1.6rem;display:grid;gap:1.1rem}
+.closer h2{font-size:1.5rem;font-weight:700}
+.picks{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:1rem}
+.pick{border:1px solid var(--line);border-radius:3px;background:var(--surface);padding:1rem 1.1rem;display:grid;gap:.4rem;box-shadow:var(--shadow)}
+.pick .eyebrow{color:var(--brass)}
+.pick h4{margin:0;font-family:"Syne",sans-serif;font-size:1.05rem;font-weight:700}
+.pick p{margin:0;font-size:.9rem;color:var(--ink-2);line-height:1.5}
+footer{margin-top:2.6rem;padding-top:1rem;border-top:1px solid var(--line-soft);font-size:.78rem;color:var(--ink-3)}
+footer p{margin:.2rem 0}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <div class="mark">
+    <b>MIA</b>
+    <span class="rule"></span>
+    <span class="eyebrow">Twelve plates &middot; interface directions</span>
+  </div>
+  <h1>Twelve ways the table could look.</h1>
+  <p class="lede">The game already works: two to eight phones, six lives each, sixty seconds a turn, and a hardcoded ladder from <em>3&middot;1</em> up to <em>Mia</em>. What follows is a lookbook, not a spec — some plates are an afternoon of CSS, some need state the server doesn't keep yet, and one or two are frankly silly. Every mockup below is drawn live in the page, so pinch and poke at them.</p>
+
+  <section class="read">
+    <h2>The standing read</h2>
+    <ul>
+      <li class="keep"><span>keeps</span>The <b>felt-and-brass palette</b> is right. Dark green reads as a card table instantly, and the gold is doing real work marking whose turn it is.</li>
+      <li class="keep"><span>keeps</span><b>One column, thumb-reachable.</b> Everything important lands in the bottom third. Don't lose that.</li>
+      <li class="thin"><span>thin</span>The <b>announce grid</b> is twenty-one identical buttons in reading order. The ranking is the whole game and the UI makes you already know it.</li>
+      <li class="thin"><span>thin</span><b>The reveal is a paragraph.</b> The most dramatic second in Mia currently arrives as body copy inside a card.</li>
+      <li class="thin"><span>thin</span><b>No table.</b> A vertical roster is a list of accounts; Mia is people sitting in a circle watching each other lie.</li>
+    </ul>
+  </section>
+
+  <nav class="idx" aria-label="Contents">
+    <span class="eyebrow">Contents</span>
+    <ol>
+      <li><a href="#p1"><i>01</i> Table in the round</a></li>
+      <li><a href="#p2"><i>02</i> The ladder</a></li>
+      <li><a href="#p3"><i>03</i> Hold to peek</a></li>
+      <li><a href="#p4"><i>04</i> The showdown</a></li>
+      <li><a href="#p5"><i>05</i> The size of the lie</a></li>
+      <li><a href="#p6"><i>06</i> Table talk without chat</a></li>
+      <li><a href="#p7"><i>07</i> Six lives, four ways</a></li>
+      <li><a href="#p8"><i>08</i> Lobby as a room</a></li>
+      <li><a href="#p9"><i>09</i> Watching &amp; the replay</a></li>
+      <li><a href="#p10"><i>10</i> Three moods</a></li>
+      <li><a href="#p11"><i>11</i> The big screen</a></li>
+      <li><a href="#p12"><i>12</i> Small delights</a></li>
+    </ol>
+  </nav>
+</header>
+
+<main>
+
+<!-- =================================================== ACT I ============ -->
+<div class="actbar"><span class="eyebrow">Act one</span><span class="rule"></span><h2>Re-staging the round</h2></div>
+
+<!-- ------------------------------------------------------------ 01 ----- -->
+<article class="plate" id="p1">
+  <div class="phead"><span class="no">01</span><h3>Table in the round</h3><span class="tag">layout</span></div>
+  <div class="pbody">
+    <div class="phone">
+      <div class="screen felt">
+        <div class="m-top"><span class="m-brand">MIA</span><span class="m-tname">Kitchen table</span><span class="m-round">Round 7</span></div>
+        <div class="m-body">
+          <div class="ring-felt">
+            <div class="ring-mid">
+              <p class="m-lab">Standing</p>
+              <span class="m-chip big">6&middot;2</span>
+              <p class="m-fine" style="font-size:.72em;margin-top:.15rem">Damp Ferret &rarr; you</p>
+            </div>
+            <div class="seat act" style="left:50%;top:10%">
+              <div class="av">DF</div><div class="nm">Damp Ferret</div>
+              <div class="m-lives"><i></i><i></i><i></i><i></i><i class="gone"></i><i class="gone"></i></div>
+              <span class="say">&ldquo;6&middot;2&rdquo;</span>
+            </div>
+            <div class="seat" style="left:87%;top:44%">
+              <div class="av">LK</div><div class="nm">Loud Kettle</div>
+              <div class="m-lives"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+            </div>
+            <div class="seat out" style="left:72%;top:86%">
+              <div class="av">MP</div><div class="nm">Mild Peril</div>
+              <div class="m-lives"><i class="gone"></i><i class="gone"></i><i class="gone"></i><i class="gone"></i><i class="gone"></i><i class="gone"></i></div>
+            </div>
+            <div class="seat" style="left:28%;top:86%">
+              <div class="av">SW</div><div class="nm">Slightly Wet</div>
+              <div class="m-lives"><i></i><i></i><i></i><i class="gone"></i><i class="gone"></i><i class="gone"></i></div>
+            </div>
+            <div class="seat" style="left:13%;top:44%">
+              <div class="av" style="border-color:#F4EFE3">You</div><div class="nm">you</div>
+              <div class="m-lives"><i></i><i></i><i></i><i></i><i></i><i class="gone"></i></div>
+            </div>
+          </div>
+          <div class="m-card" style="display:flex;align-items:center;gap:.5rem;margin-top:.6rem">
+            <div style="flex:1">
+              <p class="m-lab" style="margin:0">Your cup</p>
+              <p class="m-fine" style="margin:.1rem 0 0">Hidden until the reveal.</p>
+            </div>
+            <span class="m-dice"><span class="m-die"><i class="tl"></i><i class="c"></i><i class="br"></i></span><span class="m-die"><i class="c"></i></span></span>
+          </div>
+          <div class="m-card" style="flex:1;overflow:hidden">
+            <p class="m-lab">Table talk</p>
+            <div class="logline"><b>Damp Ferret</b> claims 6&middot;2</div>
+            <div class="logline"><b>Mild Peril</b> is out</div>
+            <div class="logline"><b>Loud Kettle</b> doubted &mdash; lost 1</div>
+          </div>
+          <div style="display:flex;gap:.5rem;padding:.6rem 0 .9rem">
+            <button class="m-btn" style="flex:1">Believe &amp; roll</button>
+            <button class="m-btn ghost" style="flex:1;border-color:#E2685F;color:#E2685F">Doubt</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="prose">
+      <p class="pull">A list tells you who is playing. A circle tells you who is about to lie to you.</p>
+      <p>Seats sit on an ellipse, the cup's path is a brass needle pointing from the last announcer at you, and the standing claim lives dead centre where everyone's eyes already are. Eliminated players stay in their chair, greyed — Mia is a game you keep watching after you're out.</p>
+      <p>The speech bubble is the single biggest win: <b>what someone claimed stays attached to their face</b>, so "Damp Ferret has claimed a double three rounds running" becomes something you can see rather than something you have to remember.</p>
+      <p>Five seats fit comfortably; eight needs a tighter ellipse and initials-only avatars. Rotate the ring so <b>you are always at the bottom</b>, the way it works at a real table.</p>
+      <p class="cost"><span>Build cost</span> Client-only. Every field is already in the snapshot — <code>players</code>, <code>lives</code>, <code>announcement</code>, <code>turn</code>. It is a different <code>renderPlaying()</code>, nothing more.</p>
+    </div>
+  </div>
+</article>
+
+<!-- ------------------------------------------------------------ 02 ----- -->
+<article class="plate" id="p2">
+  <div class="phead"><span class="no">02</span><h3>The ladder</h3><span class="tag">the big one</span></div>
+  <div class="pbody">
+    <div class="phone">
+      <div class="screen felt">
+        <div class="m-top"><span class="m-brand">MIA</span><span class="m-tname">Kitchen table</span><span class="m-round">Round 7</span></div>
+        <div class="m-body">
+          <p class="m-lab" style="margin:0">You rolled <b style="color:#F4EFE3">3&middot;1</b> &mdash; the worst there is. Climb anyway.</p>
+          <div class="ladder">
+            <div class="rung top"><span class="v">MIA</span><span class="bar" style="background:linear-gradient(90deg,#E8C46A,transparent)"></span><span class="hint">beats everything &middot; costs 2</span></div>
+            <div class="rung"><span class="v">6&middot;6</span><span class="bar"></span><span class="hint">double</span></div>
+            <div class="rung"><span class="v">5&middot;5</span><span class="bar"></span><span class="hint">double</span></div>
+            <div class="rung"><span class="v">4&middot;4</span><span class="bar"></span><span class="hint">double</span></div>
+            <div class="rung"><span class="v">3&middot;3</span><span class="bar"></span><span class="hint">double</span></div>
+            <div class="rung"><span class="v">2&middot;2</span><span class="bar"></span><span class="hint">double</span></div>
+            <div class="rung"><span class="v">1&middot;1</span><span class="bar"></span><span class="hint">beats every mixed roll</span></div>
+            <div class="rung"><span class="v">6&middot;5</span><span class="bar"></span><span class="hint">safest lie</span></div>
+            <div class="rung"><span class="v">6&middot;4</span><span class="bar"></span><span class="hint"></span></div>
+            <div class="rung"><span class="v">6&middot;3</span><span class="bar"></span><span class="hint">one rung up</span></div>
+            <div class="cutline"><b>must beat</b><span class="l"></span></div>
+            <div class="rung stand"><span class="v">6&middot;2</span><span class="bar" style="background:none"></span><span class="hint">standing &middot; Damp Ferret</span></div>
+            <div class="rung dead"><span class="v">6&middot;1</span><span class="bar"></span><span class="hint"></span></div>
+            <div class="rung dead"><span class="v">5&middot;4</span><span class="bar"></span><span class="hint">&hellip;nine more&hellip;</span></div>
+            <div class="rung yours"><span class="v">3&middot;1</span><span class="bar" style="background:none"></span><span class="hint">in your cup</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="prose">
+      <p class="pull">Twenty-one buttons in a grid is a lookup table. One vertical ladder is the rules.</p>
+      <p>The ranking is hardcoded and famously counter-intuitive — <code>11</code> beats <code>65</code>, <code>21</code> beats everything — so draw it as the ladder it is. The standing claim is a brass cut line: <b>everything below it is dimmed and untappable</b>, everything above it is a legal lie, and the rung you actually hold sits down in the dark where you can see how far you have to climb.</p>
+      <p>The list scrolls, one thumb, with the cut line pinned just under the fold so the cheapest legal claim is always the first thing under your finger. Little hints ride along the right: <em>double</em>, <em>beats every mixed roll</em>, <em>costs 2 if they doubt and you're telling the truth</em>.</p>
+      <p>A first-timer learns the ranking in one round instead of three games. That is the whole argument.</p>
+      <p class="cost"><span>Build cost</span> Client-only. <code>legalMoves()</code> and the <code>RANKING</code> array already give the exact ordering and the cut point.</p>
+    </div>
+  </div>
+</article>
+
+<!-- ------------------------------------------------------------ 03 ----- -->
+<article class="plate" id="p3">
+  <div class="phead"><span class="no">03</span><h3>Hold to peek</h3><span class="tag">whimsy</span></div>
+  <div class="pbody">
+    <div class="phone">
+      <div class="screen felt">
+        <div class="m-top"><span class="m-brand">MIA</span><span class="m-tname">Kitchen table</span><span class="m-round">Round 7</span></div>
+        <div class="m-body">
+          <div class="m-card" style="text-align:center">
+            <p class="m-lab" style="margin:0">Standing announcement</p>
+            <span class="m-chip big">6&middot;2</span>
+          </div>
+          <div class="cup-stage">
+            <div class="cup">
+              <span class="peek"><span class="m-die lg"><i class="tl"></i><i class="c"></i><i class="br"></i></span><span class="m-die lg"><i class="c"></i></span></span>
+            </div>
+            <div class="hold-pad">Hold<br>to look</div>
+            <p class="m-fine" style="text-align:center;max-width:15rem">Let go and they're covered again. Nobody else ever sees them &mdash; not even a screenshot of your friend's phone.</p>
+            <div class="shake-note">&#127922; or shake the phone to roll</div>
+          </div>
+          <div style="padding-bottom:.9rem">
+            <button class="m-btn" style="width:100%">Announce&hellip;</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="prose">
+      <p class="pull">Your dice are secret. Make secrecy something your hand does, not something a caption claims.</p>
+      <p>Right now the dice sit face-up in your own roster row for the whole round. It is correct — the server redacts everybody else's — but it doesn't <b>feel</b> secret, and it means anyone glancing over your shoulder on the sofa has the whole game.</p>
+      <p>So: the cup sits closed. Press and hold, the cup lifts and your two dice are there; lift your thumb and they're gone. It is the physical gesture from the real game, it solves the sofa problem, and it puts a tiny cost on looking — which is exactly the tension Mia runs on.</p>
+      <p>Then take the obvious next step: <b>shake the phone to roll</b> (<code>devicemotion</code>), with a rattle and a haptic tap when the dice settle. On desktop the cup is a click-and-hold, and the shake is the space bar.</p>
+      <p class="cost"><span>Build cost</span> Client-only, plus a permission prompt for motion on iOS. Worth gating behind a "tap to roll" fallback that always works.</p>
+    </div>
+  </div>
+</article>
+
+<!-- ------------------------------------------------------------ 04 ----- -->
+<article class="plate" id="p4">
+  <div class="phead"><span class="no">04</span><h3>The showdown</h3><span class="tag">the money shot</span></div>
+  <div class="pbody">
+    <div class="phone">
+      <div class="screen felt">
+        <div class="m-top"><span class="m-brand">MIA</span><span class="m-tname">Kitchen table</span><span class="m-round">Round 7</span></div>
+        <div class="m-body">
+          <div class="duel">
+            <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.2rem">
+              <span class="duel-face">LK</span>
+              <span class="m-lab" style="margin:0">doubted</span>
+              <span class="duel-face gold">DF</span>
+            </div>
+            <div class="duel-pair">
+              <div class="duel-col">
+                <span class="m-chip mia big">MIA</span>
+                <span class="m-lab" style="margin:0">claimed</span>
+              </div>
+              <span class="vs">vs</span>
+              <div class="duel-col">
+                <span class="m-dice"><span class="m-die lg"><i class="tl"></i><i class="tr"></i><i class="c"></i><i class="bl"></i><i class="br"></i></span><span class="m-die lg"><i class="tl"></i><i class="c"></i><i class="br"></i></span></span>
+                <span class="m-lab" style="margin:0">actually</span>
+              </div>
+            </div>
+            <div class="stamp">BLUFF</div>
+            <p class="m-fine" style="text-align:center;max-width:16rem">Damp Ferret waved Mia around holding <b style="color:#F4EFE3">5&middot;3</b>.</p>
+            <div class="toll"><span class="x">&minus;1</span> Damp Ferret
+              <span class="m-lives" style="margin-left:.3rem"><i></i><i></i><i></i><i class="gone"></i><i class="gone"></i><i class="gone"></i></span>
+            </div>
+            <p class="m-fine" style="text-align:center">They start the next round.</p>
+          </div>
+          <div class="m-card" style="display:flex;justify-content:space-between;align-items:center;gap:.4rem">
+            <span class="m-lab" style="margin:0">Still in</span>
+            <span style="display:flex;gap:.45rem;align-items:center">
+              <span class="duel-face sm gold">DF</span><span class="duel-face sm">LK</span>
+              <span class="duel-face sm">SW</span><span class="duel-face sm" style="border-color:#F4EFE3">You</span>
+            </span>
+          </div>
+          <div style="padding-bottom:.9rem"><button class="m-btn ghost" style="width:100%">Deal the next round &middot; 4s</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="prose">
+      <p class="pull">This is the second everyone leans in for. Give it the whole screen and three beats.</p>
+      <p>Today the verdict arrives as a sentence inside a card. Instead, take over the screen for four seconds and play it: <b>the cup lifts</b>, <b>the dice tumble and settle</b>, <b>the stamp slams down</b> — <span style="color:var(--doubt);font-weight:600">BLUFF</span> in red, <span style="color:var(--true);font-weight:600">TRUE</span> in green, and <span style="color:var(--brass);font-weight:600">MIA</span> in brass with a double-weight thud when the real 21 costs the doubter two lives.</p>
+      <p>Note the asymmetry worth designing for: a caught bluff and an honest claim are opposite emotions and currently share a layout. Claimed-versus-actual side by side makes the comparison the picture, and the verdict line underneath just names it.</p>
+      <p>Auto-advance on a visible four-second timer so nobody is waiting on the one player who put their phone down — matching how the turn clock already fails safe.</p>
+      <p class="cost"><span>Build cost</span> Client-only for the staging; the <code>reveal</code> payload already carries claimed, actual, verdict and lives lost. Add a short "let it play" delay before the next round's alarm fires and you also need a server nudge.</p>
+    </div>
+  </div>
+</article>
+
+<!-- ------------------------------------------------------------ 05 ----- -->
+<article class="plate" id="p5">
+  <div class="phead"><span class="no">05</span><h3>The size of the lie</h3><span class="tag">information design</span></div>
+  <div class="pbody">
+    <div class="phone">
+      <div class="screen felt">
+        <div class="m-top"><span class="m-brand">MIA</span><span class="m-tname">Kitchen table</span><span class="m-round">Round 7</span></div>
+        <div class="m-body">
+          <div class="m-card" style="display:flex;gap:.7rem;align-items:center">
+            <div class="ringclock">
+              <svg viewBox="0 0 52 52" aria-hidden="true">
+                <circle cx="26" cy="26" r="22" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="4"></circle>
+                <circle cx="26" cy="26" r="22" fill="none" stroke="#E2685F" stroke-width="4" stroke-linecap="round" stroke-dasharray="138" stroke-dashoffset="96"></circle>
+              </svg>
+              <b>12</b>
+            </div>
+            <div style="flex:1">
+              <p class="m-lab" style="margin:0">Your move</p>
+              <p style="margin:.1rem 0 0;font-size:.9em">Believe and climb, or call Damp Ferret a liar.</p>
+            </div>
+          </div>
+
+          <div class="m-card">
+            <p class="m-lab">How big a lie is this?</p>
+            <div class="gauge">
+              <div class="track">
+                <div class="fill"></div>
+                <div class="mk" style="left:26%"></div>
+              </div>
+              <div class="ends"><span>3&middot;1 yours</span><span>MIA</span></div>
+            </div>
+            <p class="m-fine">The cheapest legal claim is <b style="color:#F4EFE3">6&middot;3</b> &mdash; that's <b style="color:#F4EFE3">nine rungs</b> above what you're holding. There is no honest move left.</p>
+          </div>
+
+          <div class="m-card">
+            <p class="m-lab">Reading the table</p>
+            <div style="display:grid;gap:.45rem">
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:.82em"><span>Damp Ferret</span><span style="color:#A9C2B6">bluffed 4 of 6</span></div>
+                <div class="heatbar" style="background:linear-gradient(90deg,#E2685F 67%,rgba(255,255,255,.08) 67%)"></div>
+              </div>
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:.82em"><span>Loud Kettle</span><span style="color:#A9C2B6">bluffed 1 of 5</span></div>
+                <div class="heatbar" style="background:linear-gradient(90deg,#6FCF97 20%,rgba(255,255,255,.08) 20%)"></div>
+              </div>
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:.82em"><span>you</span><span style="color:#A9C2B6">doubted 0 times</span></div>
+                <div class="heatbar" style="background:linear-gradient(90deg,#E8C46A 4%,rgba(255,255,255,.08) 4%)"></div>
+              </div>
+            </div>
+            <p class="m-fine" style="font-size:.76em">Glass table is on. Switch it off in table settings.</p>
+          </div>
+          <div style="display:flex;gap:.5rem;margin-top:auto;padding:.4rem 0 .9rem">
+            <button class="m-btn" style="flex:1">Believe &amp; roll</button>
+            <button class="m-btn ghost" style="flex:1;border-color:#E2685F;color:#E2685F">Doubt 6&middot;2</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="prose">
+      <p class="pull">Mia is arithmetic about other people. Show the arithmetic; keep the people guessing.</p>
+      <p><b>The gap gauge.</b> The distance between the dice in your cup and the cheapest thing you're allowed to say <em>is</em> your hand. Nine rungs means you are lying through your teeth and your face has to not show it. One rung means you can shrug and say 6&middot;3 like it's nothing. The client can compute this today and currently doesn't say a word about it.</p>
+      <p><b>The clock as a ring</b> that fills red rather than a grey "60S" pill — the same information, but it gets loud on its own in the last ten seconds instead of needing you to read it.</p>
+      <p><b>Reading the table</b> is the speculative one: bluff rate per player, accumulated across the game. It makes late rounds much richer and it slightly ruins the bluffing, which is either the best or worst idea on this page. Ship it as a table option — <em>Glass table: on</em> — rather than a default.</p>
+      <p class="cost"><span>Build cost</span> Gauge and ring: client-only. Bluff rates need the room to keep per-player tallies across rounds and put them in the snapshot — real work in <code>table-room.ts</code>, and a decision about whether it belongs in the finished-game row in D1.</p>
+    </div>
+  </div>
+</article>
+
+<!-- =================================================== ACT II =========== -->
+<div class="actbar"><span class="eyebrow">Act two</span><span class="rule"></span><h2>The table around the game</h2></div>
+
+<!-- ------------------------------------------------------------ 06 ----- -->
+<article class="plate" id="p6">
+  <div class="phead"><span class="no">06</span><h3>Table talk without chat</h3><span class="tag">social</span></div>
+  <div class="pbody">
+    <div class="phone">
+      <div class="screen felt">
+        <div class="m-top"><span class="m-brand">MIA</span><span class="m-tname">Kitchen table</span><span class="m-round">Round 7</span></div>
+        <div class="m-body">
+          <div class="m-card" style="flex:1;overflow:hidden">
+            <p class="m-lab">Table talk</p>
+            <div class="bubble"><span class="who">round 7</span><span class="msg sys">Damp Ferret takes the cup.</span></div>
+            <div class="bubble"><span class="who">Damp Ferret</span><span class="msg">&ldquo;Six&hellip; two.&rdquo; &#128064;</span></div>
+            <div class="bubble"><span class="who">Loud Kettle</span><span class="msg">&#129320; sure you did</span></div>
+            <div class="bubble you"><span class="who">you</span><span class="msg">&#128558;</span></div>
+            <div class="bubble"><span class="who">Slightly Wet</span><span class="msg">&#128079; &#128079;</span></div>
+            <div class="bubble"><span class="who">round 7</span><span class="msg sys">Mild Peril is out. Five left.</span></div>
+            <div class="bubble"><span class="who">Damp Ferret</span><span class="msg">&#129296;</span></div>
+            <div class="bubble"><span class="who">round 8</span><span class="msg sys">Loud Kettle takes the cup.</span></div>
+            <div class="bubble"><span class="who">Loud Kettle</span><span class="msg">&ldquo;One&hellip; one.&rdquo;</span></div>
+            <div class="bubble you"><span class="who">you</span><span class="msg">&#129320;</span></div>
+            <div class="bubble"><span class="who">Slightly Wet</span><span class="msg">&#128064;</span></div>
+          </div>
+          <div class="m-card">
+            <p class="m-lab">Say something</p>
+            <div class="emotes">
+              <span class="emote">&#129320; <b>liar</b></span>
+              <span class="emote">&#128064; <b>watching</b></span>
+              <span class="emote">&#128558; <b>oof</b></span>
+              <span class="emote">&#128079; <b>nice</b></span>
+              <span class="emote">&#129296; <b>honest</b></span>
+              <span class="emote">&#127922; <b>roll it</b></span>
+            </div>
+            <p class="m-fine">Six taps, no keyboard, nothing to moderate.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="prose">
+      <p class="pull">"There is no chat" is a good decision. "There is nothing to say" isn't.</p>
+      <p>Free text on a link-shareable table means moderation, abuse reports, and a whole class of problem this project has correctly refused. A fixed vocabulary of six emotes gets you most of the fun with none of that: nothing to moderate, nothing to translate, and a hard cap on how obnoxious anyone can be.</p>
+      <p>The trick is to let the emotes <b>share the log</b> rather than float over it, so the running story of the round and the peanut gallery read as one conversation. Rate-limit to one emote per player per turn and the noise problem solves itself.</p>
+      <p>The deliciously mean version: log <b>who doubted whom</b> as a running grudge, and open the post-game card with "Loud Kettle called you a liar four times, and was right twice."</p>
+      <p class="cost"><span>Build cost</span> Server work. A new client message kind, a broadcast, a per-turn rate limit, and a decision about whether emotes belong in the persisted log or are purely ephemeral. (Ephemeral is right — they should not survive a reconnect replay.)</p>
+    </div>
+  </div>
+</article>
+
+<!-- ------------------------------------------------------------ 07 ----- -->
+<article class="plate" id="p7">
+  <div class="phead"><span class="no">07</span><h3>Six lives, four ways</h3><span class="tag">detail study</span></div>
+  <div class="pbody" style="grid-template-columns:1fr">
+    <div class="strip">
+      <div class="cell">
+        <h4>Pips <span style="color:var(--ink-3);font-weight:400;font-size:.8rem">&mdash; today</span></h4>
+        <div class="demo"><span class="pipdemo"><i></i><i></i><i></i><i></i><i class="gone"></i><i class="gone"></i></span></div>
+        <p>Compact, glanceable, already shipped. Weakness: six identical dots are hard to count at a glance and the difference between "four left" and "three left" is a dark dot at the end of a row.</p>
+      </div>
+      <div class="cell">
+        <h4>Candles</h4>
+        <div class="demo">
+          <span class="candle"></span><span class="candle"></span><span class="candle"></span><span class="candle"></span><span class="candle out"></span><span class="candle out"></span>
+        </div>
+        <p>Losing a life snuffs a flame and a thread of smoke drifts up. Reads instantly across the table, carries genuine dread at one flame left, and gives the whole board ambient motion. Costs vertical space.</p>
+      </div>
+      <div class="cell">
+        <h4>Chalk tally</h4>
+        <div class="demo"><span class="slate"><span class="tally"></span><span class="tally"></span><span class="tally"></span><span class="tally"></span><span class="lostpair"><span class="tally gone"></span><span class="tally gone"></span></span></span></div>
+        <p>The pub original: lives scratched on a slate, struck through as they go. Countable at a glance in the way dots aren't, and it dates the game to the beer-hall it came from.</p>
+      </div>
+      <div class="cell">
+        <h4>Chips</h4>
+        <div class="demo"><span style="display:flex"><span class="pokerchip"></span><span class="pokerchip"></span><span class="pokerchip"></span><span class="pokerchip"></span><span class="pokerchip gone" style="margin-left:10px"></span><span class="pokerchip gone"></span></span></div>
+        <p>A stack that gets shorter, with the lost chips sliding off toward the pot. Best physical metaphor and the most expensive to draw; overlapping discs also count badly at small sizes.</p>
+      </div>
+    </div>
+    <div class="prose" style="max-width:none;margin-top:1.4rem">
+      <p><b>The pick:</b> candles on the round table (plate 01), where there's room and the motion earns its keep; pips everywhere they're incidental. Whichever wins, <b>put the number next to it</b> — a screen reader currently gets six list items, and a red-green colourblind player gets a row of similar dots. <code>4 lives</code> beside the glyph fixes both and costs nothing.</p>
+      <p class="cost"><span>Build cost</span> Client-only, all four. The candle flame is one CSS gradient and the smoke is a keyframe; skip both under <code>prefers-reduced-motion</code>.</p>
+    </div>
+  </div>
+</article>
+
+<!-- ------------------------------------------------------------ 08 ----- -->
+<article class="plate" id="p8">
+  <div class="phead"><span class="no">08</span><h3>Lobby as a room</h3><span class="tag">layout</span></div>
+  <div class="pbody">
+    <div class="phone">
+      <div class="screen felt">
+        <div class="m-top"><span class="m-brand">MIA</span><span class="m-tname">Tonight</span><span class="m-round">5 tables</span></div>
+        <div class="m-body">
+          <div class="m-card" style="display:flex;align-items:center;gap:.5rem">
+            <div style="flex:1"><p class="m-lab" style="margin:0">You are</p><b>Slightly Wet</b></div>
+            <button class="m-btn ghost" style="align-self:center;padding:.45rem .7rem">Reroll name</button>
+          </div>
+          <p class="m-lab" style="margin:.2rem 0 0">Pull up a chair</p>
+          <div class="room">
+            <div class="minitable live">
+              <s style="left:50%;top:6%"></s><s style="left:88%;top:32%"></s><s class="empty" style="left:78%;top:80%"></s><s style="left:22%;top:80%"></s><s style="left:12%;top:32%"></s>
+              <div><div class="tn">Kitchen table</div><div class="st">4 of 8 &middot; waiting</div></div>
+            </div>
+            <div class="minitable">
+              <s style="left:50%;top:6%"></s><s class="empty" style="left:88%;top:32%"></s><s class="empty" style="left:78%;top:80%"></s><s class="empty" style="left:22%;top:80%"></s><s style="left:12%;top:32%"></s>
+              <div><div class="tn">Two of us</div><div class="st">2 of 8 &middot; waiting</div></div>
+            </div>
+            <div class="minitable full">
+              <s style="left:50%;top:6%"></s><s style="left:88%;top:32%"></s><s style="left:78%;top:80%"></s><s style="left:22%;top:80%"></s><s style="left:12%;top:32%"></s>
+              <div><div class="tn">Ferret's revenge</div><div class="st">round 12 &middot; watch</div></div>
+            </div>
+            <div class="minitable">
+              <s style="left:50%;top:6%"></s><s style="left:88%;top:32%"></s><s style="left:78%;top:80%"></s><s class="empty" style="left:22%;top:80%"></s><s class="empty" style="left:12%;top:32%"></s>
+              <div><div class="tn">Sunday lot</div><div class="st">3 of 8 &middot; waiting</div></div>
+            </div>
+            <div class="minitable full">
+              <s style="left:50%;top:6%"></s><s style="left:88%;top:32%"></s><s style="left:78%;top:80%"></s><s style="left:22%;top:80%"></s><s style="left:12%;top:32%"></s>
+              <div><div class="tn">Eight of them</div><div class="st">round 3 &middot; watch</div></div>
+            </div>
+            <div class="minitable" style="border-style:dashed;background:none">
+              <div><div class="tn" style="color:#E8C46A">&#43; New table</div><div class="st">you get a link</div></div>
+            </div>
+            <div class="minitable" style="border:none;background:none">
+              <div><div class="st" style="padding:0 .5rem">Tables clear themselves out when everyone leaves.</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="prose">
+      <p class="pull">Five rows that all say "0/8 players &middot; waiting" is a database query wearing a list.</p>
+      <p>Draw the tables as tables. Filled seats are brass dots on the rim, empty ones are outlines — so <b>"nearly ready" and "just opened" look different from across the room</b>, and you join the one that's about to start instead of reading five identical lines.</p>
+      <p>A table mid-game keeps its ring lit and offers <em>Watch</em> instead of <em>Join</em>, which is already the behaviour and currently reads as a subtly different button label. New table is the empty chair in the corner.</p>
+      <p>Whimsy budget, well spent: the dots on a waiting table <b>drift very slightly</b>, like people shifting in their seats. Idle tables feel occupied rather than abandoned.</p>
+      <p class="cost"><span>Build cost</span> Client-only — the lobby's <code>TableSummary</code> already carries name, seat count and phase. Showing <em>which</em> seats are filled is cosmetic; any consistent arrangement reads fine.</p>
+    </div>
+  </div>
+</article>
+
+<!-- ------------------------------------------------------------ 09 ----- -->
+<article class="plate" id="p9">
+  <div class="phead"><span class="no">09</span><h3>Watching &amp; the replay</h3><span class="tag">new surface</span></div>
+  <div class="pbody">
+    <div class="phone">
+      <div class="screen felt">
+        <div class="m-top"><span class="m-brand">MIA</span><span class="m-tname">Ferret's revenge</span><span class="m-round">Final</span></div>
+        <div class="m-body">
+          <div class="m-card" style="text-align:center">
+            <p class="m-lab" style="margin:0">&#127942; Loud Kettle wins</p>
+            <p class="m-fine" style="margin-top:.2rem">12 rounds &middot; 38 minutes &middot; 5 players</p>
+          </div>
+          <div class="m-card">
+            <p class="m-lab">The last round, frame by frame</p>
+            <div class="film">
+              <div class="frame"><span class="n">DF</span><span class="v">5&middot;2</span></div>
+              <div class="frame"><span class="n">you</span><span class="v">6&middot;1</span></div>
+              <div class="frame"><span class="n">SW</span><span class="v">1&middot;1</span></div>
+              <div class="frame"><span class="n">LK</span><span class="v" style="color:#E8C46A">MIA</span></div>
+              <div class="frame doubt"><span class="n">DF</span><span class="v">doubt</span></div>
+              <div class="frame"><span class="n">truth</span><span class="v" style="color:#6FCF97">2&middot;1</span></div>
+            </div>
+            <p class="m-fine">Loud Kettle actually had it. Damp Ferret lost two and the game.</p>
+          </div>
+          <div class="m-card">
+            <p class="m-lab">How you played</p>
+            <div class="statrow">
+              <div class="stat"><b>9</b><span>claims</span></div>
+              <div class="stat"><b>6</b><span>bluffs</span></div>
+              <div class="stat"><b>2</b><span>caught</span></div>
+              <div class="stat"><b>67%</b><span>liar rate</span></div>
+            </div>
+            <p class="m-fine" style="text-align:center">You told the truth twice all game. Both times, nobody believed you.</p>
+          </div>
+          <div class="m-card" style="flex:1">
+            <p class="m-lab">Final table</p>
+            <div class="logline"><b>1st</b> Loud Kettle &mdash; 3 lives left</div>
+            <div class="logline"><b>2nd</b> Damp Ferret &mdash; out, round 12</div>
+            <div class="logline"><b>3rd</b> you &mdash; out, round 11</div>
+            <div class="logline"><b>4th</b> Slightly Wet &mdash; out, round 9</div>
+          </div>
+          <div style="display:flex;gap:.5rem;padding-bottom:.9rem">
+            <button class="m-btn" style="flex:1">Rematch</button>
+            <button class="m-btn ghost" style="flex:1">Share the card</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="prose">
+      <p class="pull">The game ends with a trophy and a button back to the lobby. It should end with a story you want to send someone.</p>
+      <p>The last round as a filmstrip — every claim in order, the doubt in red, the truth at the end — is the shareable object. It's six small cells and it explains exactly how the game was won, including to the two people who were already out and watching.</p>
+      <p>Per-player stats turn a one-off table into a thing people compare. <b>"You told the truth twice all game"</b> is the kind of line that gets screenshotted, and it falls straight out of data the room already has in its log.</p>
+      <p><b>Rematch</b> is the missing button. A table is single-use by design, so the honest version creates a <em>new</em> table pre-seeded with the same players and drops the link into everyone's open socket before they close the tab.</p>
+      <p class="cost"><span>Build cost</span> The real one on this page. Stats need per-game tallies; the filmstrip needs the round's claims kept past the reveal; rematch needs a new table created from an old one and a way to tell the old room's sockets about it. The finished-game row in D1 is the natural home for the summary.</p>
+    </div>
+  </div>
+</article>
+
+<!-- =================================================== ACT III ========== -->
+<div class="actbar"><span class="eyebrow">Act three</span><span class="rule"></span><h2>Whole different moods</h2></div>
+
+<!-- ------------------------------------------------------------ 10 ----- -->
+<article class="plate" id="p10">
+  <div class="phead"><span class="no">10</span><h3>Three moods</h3><span class="tag">same screen, three worlds</span></div>
+  <div class="pbody" style="grid-template-columns:1fr">
+    <p class="prose" style="max-width:56ch;margin:0"><span style="color:var(--ink-2)">The same moment — Damp Ferret has claimed 6&middot;2 and it's your call — rendered three ways. Only the tokens change; the layout underneath is identical, which is the argument for making the palette a swappable set in the first place.</span></p>
+    <div class="trio">
+
+      <div class="moodcap">
+        <div class="phone sm">
+          <div class="screen wood">
+            <div class="m-top"><span class="m-brand">MIA</span><span class="m-tname">Stammtisch</span><span class="m-round">R7</span></div>
+            <div class="m-body">
+              <div class="m-card" style="text-align:center;border-radius:50%;padding:.7rem .5rem">
+                <p class="m-lab" style="margin:0">On the mat</p>
+                <span class="m-chip big" style="background:#FFF6E4;color:#2C1B0D">6&middot;2</span>
+                <p class="m-fine" style="font-size:.78em">Damp Ferret</p>
+              </div>
+              <div class="m-card">
+                <div class="m-row"><span class="nm">Damp Ferret</span><span class="slate" style="padding:.3rem .45rem;gap:5px"><span class="tally" style="height:14px"></span><span class="tally" style="height:14px"></span><span class="tally" style="height:14px"></span><span class="tally gone" style="height:14px"></span></span></div>
+                <div class="m-row on"><span class="nm">you</span><span class="slate" style="padding:.3rem .45rem;gap:5px"><span class="tally" style="height:14px"></span><span class="tally" style="height:14px"></span><span class="tally" style="height:14px"></span><span class="tally" style="height:14px"></span></span></div>
+              </div>
+              <div class="m-card" style="flex:1">
+                <p class="m-lab">Last orders</p>
+                <div class="logline">Damp Ferret claims 6&middot;2</div>
+                <div class="logline">Slightly Wet believed</div>
+                <div class="logline">Mild Peril is out</div>
+              </div>
+              <div style="display:flex;gap:.4rem;margin-top:auto;padding-bottom:.8rem">
+                <button class="m-btn" style="flex:1">Believe</button>
+                <button class="m-btn ghost" style="flex:1;border-color:#9B2B1F;color:#9B2B1F">Doubt</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <h4>Stammtisch</h4>
+        <p>Scrubbed oak, beer mats for cards, lives chalked on the slate behind the bar. Leans into the game's actual origin and is the only direction here that works in daylight on a phone at a picnic table.</p>
+      </div>
+
+      <div class="moodcap">
+        <div class="phone sm">
+          <div class="screen neon">
+            <div class="m-top"><span class="m-brand">MIA</span><span class="m-tname">NIGHT SHIFT</span><span class="m-round">R7</span></div>
+            <div class="m-body">
+              <div class="m-card" style="text-align:center">
+                <p class="m-lab" style="margin:0">Claim on the wire</p>
+                <span class="m-chip big">6&middot;2</span>
+                <p class="m-fine" style="font-size:.78em">DAMP_FERRET</p>
+              </div>
+              <div class="m-card">
+                <div class="m-row"><span class="nm">DAMP_FERRET</span><span class="m-lives"><i></i><i></i><i></i><i class="gone"></i></span></div>
+                <div class="m-row on"><span class="nm">YOU</span><span class="m-pill turn">12s</span></div>
+              </div>
+              <div class="m-card" style="flex:1">
+                <p class="m-lab">Feed</p>
+                <div class="logline">DAMP_FERRET claims 6&middot;2</div>
+                <div class="logline">SLIGHTLY_WET believed</div>
+                <div class="logline">MILD_PERIL flatlined</div>
+              </div>
+              <div style="display:flex;gap:.4rem;margin-top:auto;padding-bottom:.8rem">
+                <button class="m-btn" style="flex:1">BELIEVE</button>
+                <button class="m-btn ghost" style="flex:1;border-color:#FF3B6B;color:#FF3B6B">DOUBT</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <h4>Night shift</h4>
+        <p>Magenta and cyan on deep violet, everything glowing a little. Pure whimsy, zero heritage, and the right skin for a "late game, everyone's punchy" mode. The timer ring looks fantastic in this one.</p>
+      </div>
+
+      <div class="moodcap">
+        <div class="phone sm">
+          <div class="screen press">
+            <div class="m-top"><span class="m-brand">MIA</span><span class="m-tname">No. 7</span><span class="m-round">R7</span></div>
+            <div class="m-body">
+              <div class="m-card" style="text-align:center">
+                <p class="m-lab" style="margin:0">It is claimed</p>
+                <span class="m-chip big">6&middot;2</span>
+                <p class="m-fine" style="font-size:.78em">by Damp Ferret</p>
+              </div>
+              <div class="m-card">
+                <div class="m-row"><span class="nm">Damp Ferret</span><span class="m-lives"><i></i><i></i><i></i><i class="gone"></i></span></div>
+                <div class="m-row on"><span class="nm">You</span><span class="m-pill">your turn</span></div>
+              </div>
+              <div class="m-card" style="flex:1">
+                <p class="m-lab">The record</p>
+                <div class="logline">Damp Ferret claims 6&middot;2</div>
+                <div class="logline">Slightly Wet believed</div>
+                <div class="logline">Mild Peril is out</div>
+              </div>
+              <div style="display:flex;gap:.4rem;margin-top:auto;padding-bottom:.8rem">
+                <button class="m-btn" style="flex:1">Believe</button>
+                <button class="m-btn ghost" style="flex:1;border-color:#14120E;color:#14120E">Doubt</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <h4>Two-colour press</h4>
+        <p>Newsprint stock, one red ink, hard rules and no radius. The accessible option by accident — enormous contrast, no colour-only meaning — and a genuinely distinctive light theme for people who won't play a dark-green game outdoors.</p>
+      </div>
+
+    </div>
+    <div class="prose" style="max-width:none;margin-top:1.6rem">
+      <p class="cost"><span>Build cost</span> Client-only if the palette is already a token block in <code>styles.css</code> — which it is. A mood is a class on <code>&lt;body&gt;</code> and a second <code>:root</code> block. Making it a <em>table</em> setting rather than a personal one is the only server question, and personal is the better answer.</p>
+    </div>
+  </div>
+</article>
+
+<!-- =================================================== ACT IV =========== -->
+<div class="actbar"><span class="eyebrow">Act four</span><span class="rule"></span><h2>Elsewhere, and the small stuff</h2></div>
+
+<!-- ------------------------------------------------------------ 11 ----- -->
+<article class="plate" id="p11">
+  <div class="phead"><span class="no">11</span><h3>The big screen</h3><span class="tag">desktop &amp; the shared TV</span></div>
+  <div class="pbody" style="grid-template-columns:1fr">
+    <div class="land">
+      <div class="screen felt">
+        <div class="deck">
+          <div class="col">
+            <div class="m-card" style="flex:1">
+              <p class="m-lab">At the table</p>
+              <div class="m-row"><span class="nm">Damp Ferret</span></div>
+              <div class="m-lives" style="padding:0 .55rem .3rem"><i></i><i></i><i></i><i></i><i class="gone"></i><i class="gone"></i></div>
+              <div class="m-row on"><span class="nm">you</span><span class="m-pill turn">12s</span></div>
+              <div class="m-lives" style="padding:0 .55rem .3rem"><i></i><i></i><i></i><i></i><i></i><i class="gone"></i></div>
+              <div class="m-row"><span class="nm">Loud Kettle</span></div>
+              <div class="m-lives" style="padding:0 .55rem .3rem"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="m-row"><span class="nm">Slightly Wet</span></div>
+              <div class="m-lives" style="padding:0 .55rem .3rem"><i></i><i></i><i></i><i class="gone"></i><i class="gone"></i><i class="gone"></i></div>
+              <div class="m-row" style="opacity:.45"><span class="nm">Mild Peril</span><span class="m-pill">out</span></div>
+            </div>
+          </div>
+          <div class="col">
+            <div class="deck-felt">
+              <div class="ring-mid" style="width:120px">
+                <p class="m-lab" style="margin-bottom:.15rem">Standing</p>
+                <span class="m-chip big">6&middot;2</span>
+              </div>
+              <div class="seat act" style="left:50%;top:13%"><div class="av">DF</div><div class="nm">Damp Ferret</div><span class="say">&ldquo;6&middot;2&rdquo;</span></div>
+              <div class="seat" style="left:86%;top:50%"><div class="av">LK</div><div class="nm">Loud Kettle</div></div>
+              <div class="seat" style="left:50%;top:87%"><div class="av" style="border-color:#F4EFE3">You</div><div class="nm">you</div></div>
+              <div class="seat out" style="left:14%;top:50%"><div class="av">MP</div><div class="nm">Mild Peril</div></div>
+            </div>
+            <div style="display:flex;gap:6px">
+              <button class="m-btn" style="flex:1">Believe &amp; roll</button>
+              <button class="m-btn ghost" style="flex:1;border-color:#E2685F;color:#E2685F">Doubt 6&middot;2</button>
+            </div>
+          </div>
+          <div class="col">
+            <div class="m-card" style="flex:1;overflow:hidden">
+              <p class="m-lab">Table talk</p>
+              <div class="logline"><b>Damp Ferret</b> claims 6&middot;2</div>
+              <div class="logline"><b>Slightly Wet</b> believed, claimed 5&middot;4</div>
+              <div class="logline"><b>Mild Peril</b> is out</div>
+              <div class="logline"><b>Loud Kettle</b> doubted &mdash; lost 1</div>
+              <div class="logline">Round 7 begins</div>
+            </div>
+            <div class="m-card">
+              <p class="m-lab" style="margin:0">Your cup</p>
+              <div class="m-dice" style="margin-top:.3rem"><span class="m-die"><i class="tl"></i><i class="c"></i><i class="br"></i></span><span class="m-die"><i class="c"></i></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="prose" style="max-width:none;margin-top:1.4rem">
+      <p>The page is phone-first and should stay that way, but above about 900px it currently just centres a 34rem column and leaves two-thirds of the screen as felt-coloured wallpaper. Three columns costs nothing and makes the laptop player feel like they're at the same table: <b>roster left, felt centre, log right</b>, with your own cup tucked bottom-right where a real player's hand would be.</p>
+      <p>The greedy version of this idea: a <b>table view</b> URL you open on a laptop or a TV in the middle of the room, showing the felt, everyone's claims and the reveal at full size while the phones keep only the buttons. That is a party game, and it's the one thing on this page that would change how Mia gets played rather than how it looks.</p>
+      <p class="cost"><span>Build cost</span> Three columns: client-only, a media query and a grid. The shared table view needs a spectator socket that never gets a seat and a route that renders it &mdash; the watch path already proves the server can do this.</p>
+    </div>
+  </div>
+</article>
+
+<!-- ------------------------------------------------------------ 12 ----- -->
+<article class="plate" id="p12">
+  <div class="phead"><span class="no">12</span><h3>Small delights</h3><span class="tag">cheap, mostly</span></div>
+  <div class="pbody" style="grid-template-columns:1fr">
+    <ul class="notes">
+      <li><b>Dice that land</b>A 400ms tumble with a settle-bounce, and the value doesn't read until they stop. Rolling should take a beat; instantaneous dice feel like a number generator, which is exactly what they are and exactly what you want to hide.</li>
+      <li><b>Haptics on the turn</b>One short tap when the cup reaches you, a double when someone doubts you, and a long buzz when you lose a life. Phones in pockets on a pub table need this more than they need the countdown.</li>
+      <li><b>The last ten seconds</b>The felt itself desaturates toward red as the clock runs down, so you feel the timer in your peripheral vision without watching a number.</li>
+      <li><b>Name your own poison</b>Auto-names like <em>Slightly Wet</em> are one of the best things about the product. Lean in: let a player reroll the name as many times as they like before the game starts, and show the dice-roll animation when they do.</li>
+      <li><b>Sound, optional and tiny</b>Three samples: a cup rattle, a die on wood, a low thud for the reveal. Default off with a speaker toggle in the top bar, because half of these games start in a room where everyone's phone is on.</li>
+      <li><b>&ldquo;They're thinking&rdquo;</b>An ellipsis under the active player's name while their turn runs. It costs one broadcast, it makes remote play feel inhabited, and it makes a stalled phone visibly different from a long think.</li>
+      <li><b>The empty-table screen</b>Sitting alone waiting for friends currently looks like an error state. Give it something to do: a practice cup you can roll for fun while you wait, and the join link big enough to read out loud over a phone call.</li>
+      <li><b>Honest-player badge</b>If you win a game having never once bluffed, say so, loudly, on the result card. It will happen roughly never, which is the point.</li>
+      <li><b>Timer expiry, in character</b>When the server auto-plays for an idle phone, don't say "timed out". Say <em>&ldquo;Mild Peril says nothing, so the cup decides for them.&rdquo;</em> Same event, and it keeps the fiction intact while they're getting a drink.</li>
+      <li><b>Double-Mia thunder</b>The one rule in the game with a doubled penalty deserves one piece of special-case theatre. Two lives should not disappear the same way one does.</li>
+    </ul>
+  </div>
+</article>
+
+</main>
+
+<section class="closer">
+  <h2>If it were three things</h2>
+  <div class="picks">
+    <div class="pick">
+      <span class="eyebrow">First</span>
+      <h4>02 &middot; The ladder</h4>
+      <p>Biggest gain per line of code on the page. It's client-only, it uses ranking data that already exists, and it turns the game's hardest rule into something you learn by looking. Nothing else here is that cheap and that important.</p>
+    </div>
+    <div class="pick">
+      <span class="eyebrow">Then</span>
+      <h4>04 &middot; The showdown</h4>
+      <p>The reveal is the emotional payload of every round and it currently reads like a log line. Staging it properly is a day of CSS and it's what people will remember about playing.</p>
+    </div>
+    <div class="pick">
+      <span class="eyebrow">Then</span>
+      <h4>01 &middot; Table in the round</h4>
+      <p>The one structural change. Riskier on eight seats and worth prototyping against a full table before committing — but it's what makes the thing feel like a game rather than a form.</p>
+    </div>
+  </div>
+  <p style="max-width:62ch;color:var(--ink-2);margin:.4rem 0 0">Everything in Act Two needs server state the room doesn't keep yet. That's not an argument against it — it's an argument for doing Act One first and seeing whether the game still wants it afterwards.</p>
+</section>
+
+<footer>
+  <p>Mockups are live HTML and CSS, drawn at roughly 0.77&times; phone scale. Nothing here is wired to the real client.</p>
+  <p>Player names borrowed from the existing name generator. Ranking, lives and the sixty-second clock are the shipped rules.</p>
+</footer>
+
+</div>
