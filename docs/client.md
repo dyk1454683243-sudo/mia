@@ -24,6 +24,43 @@ to draw. The Durable Object re-derives legality and rejects anything the browser
 should not have offered. The client's copy is a convenience; the trust boundary is
 the server.
 
+## The announce ladder
+
+The announce UI is the ranking drawn as one vertical ladder, not a grid of the
+legal values. The rungs come from `RANKING` in `src/shared/mia.ts`, highest at
+the top, so the order on screen *is* the rules; the browser never sorts or
+compares values to decide what to offer. `legalMoves(state, playerId).announcements`
+is the authoritative legal set, and a rung is tappable exactly when it is a
+member. That separation matters because the ranking is not numeric: `11` outranks
+`65` while `11 > 65` is false, so a check written with `>` would offer the wrong
+claims.
+
+The standing claim is a cut line. Rungs at or below it carry a real `disabled`
+attribute and are dimmed, while the rung the player actually holds stays on
+screen below the cut so they can see how far they have to climb. The ladder
+scrolls inside its own box, and `pinLadder` sizes that box against the viewport —
+the space left below the box's own top — so its bottom edge lands on the phone's
+fold and the cut is pinned there. A flat `vh` box starts part-way down the page
+and puts its edge below the fold, which is the bug that sizing fixes. The height
+is clamped to the space actually available with no floor: a floor larger than
+that space is what pushed the box back past the fold at a full eight-seat table.
+On the ladder turn the ladder card is also rendered *above* the roster rather
+than below it, so the ladder's top is a fixed distance down the page whatever
+the seat count; the roster follows it and is still not covered (the harness
+checks the two rectangles for overlap). With a cut, the first `disabled` rung is
+scrolled to the box's bottom edge, so the cheapest legal claim is the first rung
+above the thumb; with no cut (a round opener) the ladder opens at the top, where
+the ranking's head — Mia and the doubles — sits. Hints on the right are engine
+facts — *double*, *beats every mixed roll* — not advice, and the Mia
+double-penalty hint names the **doubter** as the one who pays, matching
+`resolveDoubt`. `scripts/ui-check.ts` walks rendered and tappable rungs
+separately, asserts the tappable set is exactly the engine's legal set, and
+measures the cut and cheapest claim against the 812px fold at 375x812. It fills
+its table to `MAX_PLAYERS` by default so the geometry is exercised at its worst,
+and takes `MIA_UI_SEATS` to run a smaller table. The share-link step runs before
+the table is filled, because a fresh session cannot take the last seat of a full
+table — a separate, pre-existing bug (see `fix/full-table-join`).
+
 ## The reconnecting socket
 
 `TableSocket` in `client/src/net.ts` wraps the WebSocket and owns reconnection. On

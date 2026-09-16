@@ -599,9 +599,9 @@ ul {
   border-color: rgba(232, 196, 106, 0.25);
 }
 
-/* The 21-button announce grid is taller than a phone viewport. Sticking it to
- * the bottom edge made it cover the table it is played on, so that one flows
- * normally and the page scrolls to it. */
+/* The announce ladder is taller than a phone viewport. Sticking the card to the
+ * bottom edge made it cover the table it is played on, so that one flows
+ * normally and the ladder scrolls inside its own box. */
 .actions-tall {
   position: static;
 }
@@ -619,47 +619,111 @@ ul {
   text-align: center;
 }
 
-.announce-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.4rem;
+/* --------------------------------------------------------- announce ladder */
+
+/* The ranking drawn as a ladder, not a lookup grid. It scrolls inside its own
+ * box so one thumb can reach the cheap claims. `pinLadder` sizes the box against
+ * the space left below its own top so the pinned cut lands on the phone's fold;
+ * the `max-height` here is only the fallback before that runs. */
+.ladder-scroll {
+  max-height: min(58vh, 30rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.ladder {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.4rem;
+}
+
+/* The cut is drawn with words and a dashed rule, so it does not rely on colour. */
+.ladder-cut {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.1rem 0.15rem 0.05rem;
+  color: var(--gold);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.ladder-cut::after {
+  content: "";
+  flex: 1;
+  border-top: 1px dashed rgba(232, 196, 106, 0.6);
 }
 
 .announce {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 0.1rem;
-  padding: 0.5rem 0.2rem;
-  min-height: 52px;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0.45rem 0.6rem;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid var(--line);
   color: var(--ink);
+  text-align: left;
   font-weight: 700;
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   letter-spacing: 0.05em;
   font-variant-numeric: tabular-nums;
 }
 
+.rung-value {
+  flex: 0 0 auto;
+  min-width: 2.8rem;
+}
+
+.rung-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  text-align: right;
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--ink-dim);
+  overflow-wrap: anywhere;
+}
+
+/* A dashed border and the words "in your cup", not just the green colour. */
 .announce.mine {
+  border-style: dashed;
   border-color: var(--good);
   box-shadow: 0 0 0 1px rgba(111, 207, 151, 0.4) inset;
 }
 
 .announce.mia {
-  grid-column: 1 / -1;
   background: linear-gradient(180deg, #f6d98d, #d9a534);
   color: #2a2313;
-  font-size: 1.2rem;
-  letter-spacing: 0.2em;
+  font-size: 1.15rem;
+  letter-spacing: 0.16em;
 }
 
-.announce small {
-  font-size: 0.6rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  opacity: 0.85;
+.announce.mia .rung-value {
+  font-weight: 800;
+}
+
+.announce.mia .rung-hint {
+  color: #4a3a12;
+}
+
+.announce.rung-standing {
+  border-color: rgba(232, 196, 106, 0.7);
+  box-shadow: 0 0 0 1px rgba(232, 196, 106, 0.35) inset;
+}
+
+/* Everything at or below the standing claim is rendered but not offered. */
+.announce[disabled] {
+  opacity: 0.45;
 }
 
 /* -------------------------------------------------------------------- log */
@@ -690,12 +754,4 @@ ul {
 .ev-life,
 .ev-eliminated {
   color: #ffc9c4;
-}
-
-/* -------------------------------------------------------------- wide view */
-
-@media (min-width: 30rem) {
-  .announce-grid {
-    grid-template-columns: repeat(4, 1fr);
-  }
 }
