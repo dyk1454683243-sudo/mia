@@ -8,6 +8,7 @@
       "Bash(gh pr diff:*)",
       "Bash(gh pr checks:*)",
       "Bash(gh pr create:*)",
+      "Bash(gh pr merge:*)",
       "Bash(gh repo view:*)",
       "Bash(gh label:*)",
       "Bash(gh auth status:*)"
