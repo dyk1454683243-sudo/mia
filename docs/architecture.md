@@ -80,10 +80,11 @@ It also does two things people forget it does:
   `tables` row, then overwrites `X-Mia-Player`, `X-Mia-Name`, `X-Mia-Table-Name`,
   `X-Mia-Table-Id` and `X-Mia-Host-Id` on the forwarded request. A client cannot
   forge any of them because the Worker uses `set`, not `append`: a client-supplied
-  value is replaced rather than joined by a second one. Nothing pins that yet (see
-  issue #24). Any future header the Durable Object trusts must be added to this
-  list, because the object itself has no way to tell a forwarded header from a
-  client-supplied one.
+  value is replaced rather than joined by a second one. `test/headers.test.ts`
+  drives the real Worker with all five forged and asserts the Durable Object still
+  sees the cookie's player and the table's D1 record. Any future header the
+  Durable Object trusts must be added to this list, because the object itself has
+  no way to tell a forwarded header from a client-supplied one.
 - **Cross-site writes are rejected before routing.** A non-GET request whose
   `Sec-Fetch-Site` header is neither `same-origin` nor `none` gets a 403. That is
   cheap CSRF cover for the demo; it does not protect against a non-browser

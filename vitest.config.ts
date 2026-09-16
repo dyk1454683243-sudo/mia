@@ -36,7 +36,7 @@ export default defineConfig({
         test: {
           name: "workers",
           root,
-          include: ["test/room.test.ts", "test/session.test.ts", "test/tables.test.ts"],
+          include: ["test/room.test.ts", "test/session.test.ts", "test/tables.test.ts", "test/headers.test.ts"],
         },
       },
     ],
