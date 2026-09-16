@@ -145,8 +145,14 @@ export class TableRoom extends DurableObject<Env> {
     }
     const tableName = decodeHeader(request.headers.get("X-Mia-Table-Name")) || "Table";
     // The Durable Object's own name is not reliably available, so the Worker
-    // passes the canonical table id through with the upgrade.
-    const tableId = request.headers.get("X-Mia-Table-Id") ?? "unknown";
+    // passes the canonical table id through with the upgrade. An upgrade without
+    // it is a Worker bug, not a client error: refuse it rather than invent an id,
+    // which would otherwise reach the lobby state and the D1 result write as a
+    // guessed value. This mirrors the missing-identity refusal above.
+    const tableId = request.headers.get("X-Mia-Table-Id");
+    if (!tableId) {
+      return new Response("Missing table id.", { status: 400 });
+    }
     // ...and the table's creator, from the D1 row, so "who starts" never depends
     // on which socket happened to arrive first.
     const hostId = request.headers.get("X-Mia-Host-Id") || null;
@@ -753,9 +759,10 @@ export class TableRoom extends DurableObject<Env> {
   // -------------------------------------------------------------------------
 
   /**
-   * The canonical table id, or "" when the upgrade carried none. Callers must
-   * treat "" as "do not write": a result row against a guessed id is worse than
-   * a loud failure.
+   * The canonical table id, or "" when there is no state at all. `fetch`
+   * refuses an upgrade that carries no `X-Mia-Table-Id`, so a live state always
+   * has one; the callers' `""` checks are a backstop against a state that can
+   * no longer be built, not the mechanism that rejects a guessed id.
    */
   private tableId(): string {
     return this.state?.tableId ?? "";

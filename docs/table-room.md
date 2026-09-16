@@ -189,15 +189,15 @@ real network it is arbitrary, and using it meant the friend who opened the link
 could start while the creator was refused.
 
 `tableId()` returns the state's table id, or `""` when there is no state at all.
-`writeResults` refuses to write against `""`, but that guard never fires on the
-path it was meant to cover: `fetch` reads the id as
-`request.headers.get("X-Mia-Table-Id") ?? "unknown"`, so an upgrade that carried
-none stores the literal `"unknown"`, and `writeResults` only runs when a state
-with a `gameOver` exists — with no state it returns on `gameOver === null` before
-the guard. The intent is right, because a result row against `"unknown"` is worse
-than a loud failure, but the sentinel is mismatched and a finished game on such a
-room writes its row against `"unknown"` anyway. The code fix is tracked in
-[issue #25](https://github.com/hensleyl/mia/issues/25).
+An id is never guessed: `fetch` reads `X-Mia-Table-Id` and refuses the upgrade
+with a 400 when it is missing, the same way it refuses one that carries no
+`X-Mia-Player`/`X-Mia-Name`. An upgrade without a table id is a Worker bug — the
+Worker always forwards the canonical id, which is also the object's `getByName`
+name — so the object says so loudly instead of minting a placeholder. `writeResults`
+and `handleStart` still refuse `""`, but that check is unreachable by construction:
+`tableId()` returns `""` only when there is no state, and both callers already hold
+a non-null state by the time they run. It is kept only as defence in depth, not as
+the thing that keeps a guessed-id result row out of D1.
 
 ## Test seams
 
