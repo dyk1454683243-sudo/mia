@@ -235,6 +235,7 @@ src/shared/     pure TypeScript, no Cloudflare imports
   mia.ts          ranking, legal moves and the whole game state machine
   protocol.ts     WebSocket message + state types shared by both sides
   clock.ts        turn-countdown arithmetic (clock drift captured per snapshot)
+  seat-positions.ts  round-table seat geometry (pure, no DOM)
   ships.ts        Culture ship-name pool for new players
 src/worker/
   index.ts        routes: assets, /t/:id, JSON API, WebSocket upgrade proxy
@@ -248,6 +249,7 @@ client/
 test/
   mia.test.ts     rules engine (node)
   clock.test.ts   countdown arithmetic (node)
+  seat-positions.test.ts  round-table rotation (node)
   room.test.ts    Durable Object + D1 + WebSockets (workerd)
 scripts/
   lib.ts          shared harness internals (client, strategy, HTTP)

@@ -5,9 +5,9 @@ The suite runs in two different runtimes, and the split is the point.
 `vitest.config.ts` defines two projects:
 
 - **`unit`** runs in plain Node with no Workers runtime. It covers the pure rules
-  engine, the clock arithmetic and the seat-limit constants. These are the tests
-  that can be reasoned about from the code alone, and they run fast because there
-  is no platform underneath them.
+  engine, the clock arithmetic, the seat-limit constants and the round table's
+  seat geometry. These are the tests that can be reasoned about from the code
+  alone, and they run fast because there is no platform underneath them.
 - **`workers`** runs inside `workerd` with a real D1 database and a real Durable
   Object. It covers the Durable Object and the HTTP API. These are the tests that
   need the actual storage and socket behavior, because a mock of a Durable Object
@@ -134,6 +134,17 @@ exactly right and still never run where it would fail. Prefer a default that
 exercises the worst case over an opt-in someone has to remember: `ui-check` fills
 to `MAX_PLAYERS` rather than leaving the full table behind a flag, so the tightest
 layout is on the default path.
+
+The round table's rotation is the case where the fixture cannot reach the regime
+at all. The browser harness creates the table through the UI and the bots join
+after it, so the viewer is always `players[0]`; with `viewerIndex === 0`,
+`(index - viewerIndex)` is identically `index` and the centring term is dead code
+in every run. The harness's seat assertion still earns its place — it tells a ring
+from a list — but the rotation itself is pinned in `test/seat-positions.test.ts`,
+which imports the geometry under Node and walks every seat count and viewer index.
+That is only possible because `seatPositions` lives in its own DOM-free module
+(`src/shared/seat-positions.ts`); `client/src/table.ts` cannot be imported under
+Node, because it queries `#app` at module scope.
 
 Before trusting a new test, break the thing it guards and watch it go red —
 changing one thing at a time, so you learn which assertion is load-bearing rather

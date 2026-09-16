@@ -20,6 +20,7 @@ import {
 } from "../../src/shared/mia";
 import type { ClientMessage, StateView, TableSummary } from "../../src/shared/protocol";
 import { TurnClock } from "../../src/shared/clock";
+import { seatPositions } from "../../src/shared/seat-positions";
 import { api, escapeHtml, TableSocket } from "./net";
 
 const PIPS: Record<number, string[]> = {
@@ -169,33 +170,88 @@ function renderWaiting(view: StateView): string {
     </section>`;
 }
 
+/** Two-letter initials for the seat avatar: first letters of the first two words. */
+function initialsOf(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "··";
+  if (words.length === 1) return words[0]!.slice(0, 2).toUpperCase();
+  return `${words[0]![0]!}${words[1]![0]!}`.toUpperCase();
+}
+
+/**
+ * The table in the round: seats on the felt with the standing claim dead centre.
+ *
+ * The DOM keeps the contract the harness relies on — each seat is a `.player`
+ * with `.name` (and `.name em` for the viewer), `.player-dice` only when the
+ * snapshot actually carries dice, a `.badge.cup`, the `turn`/`out` classes on
+ * the seat, and one `.pip.on` per life. The claim is a text speech bubble on the
+ * seat that made it, never dice, so the secrecy rule is untouched.
+ */
 function renderPlayers(game: MiaState, view: StateView): string {
   const countdown = clock.secondsLeft(game.deadlineAt);
-  return `<ul class="players">${game.players
-    .map((player) => {
+  const players = game.players;
+  const viewerIndex = Math.max(
+    0,
+    players.findIndex((player) => player.id === view.you),
+  );
+  const positions = seatPositions(players.length, viewerIndex);
+  const claim = game.lastAnnouncement;
+
+  const seats = players
+    .map((player, index) => {
       const turn = game.turnPlayerId === player.id;
       const cup = game.diceOwnerId === player.id && game.phase !== "finished";
       const offline = !view.connected.includes(player.id);
-      const ownTurn = turn && player.id === view.you && countdown !== null;
-      const lives = Array.from({ length: STARTING_LIVES }, (_, index) =>
-        index < player.lives ? '<i class="pip on"></i>' : '<i class="pip"></i>',
+      const isYou = player.id === view.you;
+      const ownTurn = turn && isYou && countdown !== null;
+      const lives = Array.from({ length: STARTING_LIVES }, (_, life) =>
+        life < player.lives ? '<i class="pip on"></i>' : '<i class="pip"></i>',
       ).join("");
-      return `<li class="player ${turn ? "turn" : ""} ${player.eliminated ? "out" : ""}">
-        <div class="player-head">
-          <span class="name">${escapeHtml(player.name)}${player.id === view.you ? " <em>(you)</em>" : ""}</span>
-          <span class="tag-row">
-            ${player.eliminated ? '<span class="badge out">out</span>' : ""}
-            ${cup ? '<span class="badge cup">cup</span>' : ""}
-            ${turn ? '<span class="badge turn">turn</span>' : ""}
-            ${ownTurn ? `<span class="badge countdown" data-countdown>${countdown}s</span>` : ""}
-            ${offline && !player.eliminated ? '<span class="badge muted">offline</span>' : ""}
-          </span>
-        </div>
+      const { x, y } = positions[index]!;
+      // A bubble hangs on the claimant's chair, so a claim repeated round after
+      // round is visible at their seat instead of remembered from the log.
+      const showClaim = claim !== null && claim.playerId === player.id;
+      return `<li class="player${turn ? " turn" : ""}${player.eliminated ? " out" : ""}${
+        isYou ? " you" : ""
+      }" data-player-id="${escapeHtml(player.id)}" style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%">
+        <span class="avatar" aria-hidden="true">${escapeHtml(initialsOf(player.name))}</span>
+        <span class="name">${escapeHtml(player.name)}${isYou ? " <em>(you)</em>" : ""}</span>
+        <span class="tag-row">
+          ${player.eliminated ? '<span class="badge out">out</span>' : ""}
+          ${cup ? '<span class="badge cup">cup</span>' : ""}
+          ${turn ? '<span class="badge turn">turn</span>' : ""}
+          ${ownTurn ? `<span class="badge countdown" data-countdown>${countdown}s</span>` : ""}
+          ${offline && !player.eliminated ? '<span class="badge muted">offline</span>' : ""}
+        </span>
         <div class="pips" aria-label="${player.lives} of ${STARTING_LIVES} lives">${lives}</div>
         ${player.dice ? `<div class="player-dice">${diceOf(player, "sm")}</div>` : ""}
+        ${
+          showClaim
+            ? `<span class="claim" data-claim-player="${escapeHtml(player.id)}">${valueLabel(claim.value)}</span>`
+            : ""
+        }
       </li>`;
     })
-    .join("")}</ul>`;
+    .join("");
+
+  // The standing claim is the page-level `.standing` the harness reads; it just
+  // lives in the middle of the felt now. `data-claimer-id` lets the harness tie
+  // the centre chip to the bubble on the claimant's seat without reading the
+  // ladder, keeping the two sources independent.
+  const centre = `<div class="table-centre">
+      <p class="label">Standing</p>
+      <div class="standing"${
+        claim ? ` data-claimer-id="${escapeHtml(claim.playerId)}"` : ""
+      }>${claim ? valueChip(claim.value) : '<span class="muted">nothing yet</span>'}</div>
+      <p class="muted small">${claim ? `claimed by ${escapeHtml(claim.playerName)}` : "no claim yet"}</p>
+    </div>`;
+
+  return `<section class="card table-card">
+    <div class="table-stage">
+      <ul class="players" data-seat-count="${players.length}">${seats}</ul>
+      ${centre}
+    </div>
+  </section>`;
 }
 
 interface Rung {
@@ -305,12 +361,6 @@ function renderPlay(view: StateView): string {
   const countdown = clock.secondsLeft(view.deadlineAt);
   const reveal = game.pendingDoubt ?? game.lastReveal;
   const turnIsMine = game.turnPlayerId !== null && game.turnPlayerId === view.you;
-  // The turn that draws the ladder. On it the ladder goes *above* the roster:
-  // the roster grows with the seat count, and at a full eight-seat table it is
-  // tall enough to push the ladder's top below the fold on its own. Ordering is
-  // fixed for every other phase, so the table only moves for the one turn whose
-  // whole point is picking a claim.
-  const ladderTurn = game.phase === "announcing" && turnIsMine;
 
   let actions = "";
   if (game.phase === "finished") {
@@ -365,34 +415,27 @@ function renderPlay(view: StateView): string {
     </div>`;
   }
 
-  const rosterCard = `<section class="card">${renderPlayers(game, view)}</section>`;
+  // The standing claim now lives in the middle of the felt inside `renderPlayers`.
+  // The reveal keeps its own card below the table: claimed versus actual dice,
+  // then the verdict. The roster is a roughly fixed height whatever the seat
+  // count, so the ladder no longer has to be lifted above it (see docs/client.md).
+  const rosterCard = renderPlayers(game, view);
+  const revealCard = reveal
+    ? `<section class="card standing-card">
+        <p class="label">${game.pendingDoubt ? "Showdown" : "Last claim"}</p>
+        <div class="reveal">
+          <div class="reveal-dice">
+            <div><p class="label">claimed</p>${valueChip(reveal.announced)}</div>
+            <div><p class="label">actual</p>${valueChip(reveal.actual, "actual")}</div>
+          </div>
+          ${verdictLine(reveal)}
+        </div>
+      </section>`
+    : "";
   return `
-    <section class="card standing-card">
-      <p class="label">Standing announcement</p>
-      <div class="standing">${standing ? valueChip(standing.value) : '<span class="muted">nothing yet</span>'}</div>
-      ${
-        standing
-          ? `<p class="muted">claimed by ${escapeHtml(standing.playerName)}</p>`
-          : ""
-      }
-      ${
-        reveal
-          ? `<div class="reveal">
-              <div class="reveal-dice">
-                <div><p class="label">claimed</p>${valueChip(reveal.announced)}</div>
-                <div><p class="label">actual</p>${valueChip(reveal.actual, "actual")}</div>
-              </div>
-              ${verdictLine(reveal)}
-            </div>`
-          : ""
-      }
-    </section>
-    ${
-      // Ladder first on the ladder turn, so its top is a fixed distance down the
-      // page whatever the roster height; the table sits below it and is not
-      // covered (the harness's overlap check still measures them separately).
-      ladderTurn ? `${actions}\n${rosterCard}` : `${rosterCard}\n${actions}`
-    }
+    ${rosterCard}
+    ${revealCard}
+    ${actions}
     <section class="card log-card">
       <h3>Table talk</h3>
       <ol class="log">
@@ -424,8 +467,9 @@ const LADDER_CAP = 480;
  *
  * The height is clamped to what is actually available, with no floor: a floor
  * larger than the free space is exactly what pushed the box back past the fold
- * at a full eight-seat table. On the ladder turn the roster is rendered *below*
- * the ladder, so the free space no longer shrinks with the seat count.
+ * at a full eight-seat table. The round table is a roughly fixed height whatever
+ * the seat count, so the free space no longer grows with a shorter roster and
+ * the ladder can stay below the table in every phase.
  *
  * The measurement is anchored to the document, so a reader who page-scrolls
  * down does not make the box grow on the next snapshot and drag the page with

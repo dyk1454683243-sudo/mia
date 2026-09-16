@@ -358,45 +358,179 @@ ul {
 }
 
 .players {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  position: absolute;
+  inset: 0;
+}
+
+/* The felt itself: one circle behind the absolutely positioned seats. Keeping
+ * the ring a fixed-ish height (not one row per player) is what lets the ladder
+ * stay below the table in every phase. The extra bottom padding clears the
+ * viewer's chair, which `translate(-50%, -50%)` hangs past the felt: at three to
+ * six seats `seatPositions` uses the wider ring, so the chair sits at 90% of the
+ * height and dips furthest past the card. Without it the chair reaches into the
+ * actions card, and the strict border-box overlap check reads a few px. */
+.table-card {
+  padding: 0.5rem 0.4rem calc(0.7rem + 16px);
+}
+
+.table-stage {
+  position: relative;
+  width: 100%;
+  max-width: 22rem;
+  margin: 0 auto;
+  aspect-ratio: 1 / 1.02;
+  border-radius: 50%;
+  border: 2px solid rgba(232, 196, 106, 0.22);
+  background: radial-gradient(ellipse at 50% 38%, #14624a 0%, #0c4534 58%, #07301f 100%);
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.45), 0 10px 30px -12px rgba(0, 0, 0, 0.6);
 }
 
 .player {
-  padding: 0.6rem 0.7rem;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.08rem;
+  padding: 0.12rem;
   border-radius: 12px;
-  border: 1px solid var(--line);
-  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid transparent;
+  text-align: center;
+}
+
+/* The viewer sits at the foot of the ring with more room for their own name. */
+.player.you {
+  width: 84px;
 }
 
 .player.turn {
   border-color: var(--gold);
+  background: rgba(232, 196, 106, 0.07);
   box-shadow: 0 0 0 1px rgba(232, 196, 106, 0.4), 0 0 18px rgba(232, 196, 106, 0.12);
 }
 
 .player.out {
-  opacity: 0.45;
+  opacity: 0.42;
 }
 
-.player-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.4rem;
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1.5px solid var(--line);
+  font-weight: 800;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  color: var(--ink);
 }
 
-.player-head .name {
+.player.turn .avatar {
+  border-color: var(--gold);
+  background: rgba(232, 196, 106, 0.2);
+  box-shadow: 0 0 0 4px rgba(232, 196, 106, 0.14);
+}
+
+/* Names are the full string in the DOM so assistive tech and the harness keep
+ * reading who someone is; at seat size they ellipsize for everyone but the
+ * viewer, whose own name wraps instead of clipping. */
+.player .name {
+  display: block;
+  max-width: 100%;
+  font-size: 0.62rem;
   font-weight: 600;
+  line-height: 1.12;
+  color: var(--ink-dim);
+  overflow-wrap: anywhere;
+}
+
+.player.you .name {
+  color: var(--ink);
+  font-size: 0.7rem;
+}
+
+.player:not(.you) .name {
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.tag-row {
+.player .tag-row {
   display: flex;
-  gap: 0.25rem;
-  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.12rem;
+  max-width: 100%;
+}
+
+.player .badge {
+  font-size: 0.54rem;
+  padding: 0.06rem 0.26rem;
+  letter-spacing: 0.04em;
+}
+
+.player .pips {
+  margin-top: 0.1rem;
+}
+
+.player .pip {
+  width: 6px;
+  height: 6px;
+}
+
+.player .player-dice {
+  margin-top: 0.15rem;
+}
+
+.player .die.sm {
+  width: 20px;
+  height: 20px;
+  padding: 2px;
+}
+
+/* A claimed value is a speech bubble on the claimant's chair, never a die. */
+.player .claim {
+  position: absolute;
+  left: 50%;
+  bottom: -0.72rem;
+  transform: translateX(-50%);
+  padding: 0.02rem 0.35rem;
+  border-radius: 8px;
+  background: var(--chip);
+  color: var(--chip-ink);
+  font-size: 0.62rem;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.table-centre {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 7.4rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  text-align: center;
+}
+
+.table-centre p {
+  margin: 0;
+}
+
+.table-centre .standing {
+  padding: 0.05rem 0;
+}
+
+.table-centre .standing .chip {
+  min-width: 3.2rem;
+  font-size: 1.3rem;
 }
 
 .badge {

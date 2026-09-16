@@ -14,7 +14,12 @@ export default defineConfig({
           name: "unit",
           root,
           environment: "node",
-          include: ["test/mia.test.ts", "test/clock.test.ts", "test/seat-limits.test.ts"],
+          include: [
+            "test/mia.test.ts",
+            "test/clock.test.ts",
+            "test/seat-limits.test.ts",
+            "test/seat-positions.test.ts",
+          ],
         },
       },
       {

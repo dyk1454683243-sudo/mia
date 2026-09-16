@@ -24,6 +24,40 @@ to draw. The Durable Object re-derives legality and rejects anything the browser
 should not have offered. The client's copy is a convenience; the trust boundary is
 the server.
 
+## The table in the round
+
+`renderPlayers` seats everyone on an ellipse with the standing claim dead centre.
+The ring is rotated so the viewer is always at the bottom, the way it works at a
+real table: seat *i*'s angle is measured from the viewer's index, not from seat 0,
+so the same snapshot draws every player's own view differently. The geometry
+tightens from seven seats up, because eight evenly spaced avatars need a smaller
+ring than five do. `seatPositions` is pure geometry with no DOM, so it lives in
+its own module (`src/shared/seat-positions.ts`) and is pinned by
+`test/seat-positions.test.ts` in the `unit` project across every seat count and
+viewer index. The browser harness cannot reach that property — it always seats
+the viewer at index 0, so the centring term is dead code in every run.
+
+The rearrangement is visual only. The seats are still one semantic `<ul>` of
+`.player` items, each keeping the contract the harness reads — `.name` (with
+`.name em` marking the viewer), `.player-dice` only when the snapshot actually
+carries dice, a `.badge.cup`, the `turn`/`out` classes on the seat, and one
+`.pip.on` per life plus the lives `aria-label`. What changed is that the standing
+claim now lives in the centre inside the same `.standing` the page-level reads
+use, and a claim is a text speech bubble pinned to the claimant's chair rather
+than a row in a list. The bubble is never a die, so the secrecy invariant is
+untouched.
+
+Names are the full string in the DOM, so assistive tech and the harness keep
+reading who someone is. At seat size they ellipsize for other players, while the
+viewer's own name wraps inside a slightly wider chair instead of clipping — the
+`ui-check` scrollWidth probe is what the wrap exists to satisfy. The avatar circle
+is initials, `aria-hidden`, and deliberately duplicates the name rather than
+replacing it.
+
+Eliminated players keep their chair and are greyed; the roster is every seat, not
+the survivors. Turn, cup and elimination are carried by words on badges as well as
+colour and opacity, never by colour alone.
+
 ## The announce ladder
 
 The announce UI is the ranking drawn as one vertical ladder, not a grid of the
@@ -44,13 +78,15 @@ fold and the cut is pinned there. A flat `vh` box starts part-way down the page
 and puts its edge below the fold, which is the bug that sizing fixes. The height
 is clamped to the space actually available with no floor: a floor larger than
 that space is what pushed the box back past the fold at a full eight-seat table.
-On the ladder turn the ladder card is also rendered *above* the roster rather
-than below it, so the ladder's top is a fixed distance down the page whatever
-the seat count; the roster follows it and is still not covered (the harness
-checks the two rectangles for overlap). With a cut, the first `disabled` rung is
-scrolled to the box's bottom edge, so the cheapest legal claim is the first rung
-above the thumb; with no cut (a round opener) the ladder opens at the top, where
-the ranking's head — Mia and the doubles — sits. Hints on the right are engine
+The ladder card now sits below the table in every phase. The earlier
+implementation lifted it *above* the roster on the announcing turn because the
+vertical roster grew with the seat count and pushed the ladder's top down; the
+round table is a roughly fixed height whatever the seat count, so that reorder is
+gone and the two cards stack normally (the harness checks the union of the seat
+rectangles against the actions card for overlap). With a cut, the first
+`disabled` rung is scrolled to the box's bottom edge, so the cheapest legal claim
+is the first rung above the thumb; with no cut (a round opener) the ladder opens
+at the top, where the ranking's head — Mia and the doubles — sits. Hints on the right are engine
 facts — *double*, *beats every mixed roll* — not advice, and the Mia
 double-penalty hint names the **doubter** as the one who pays, matching
 `resolveDoubt`. `scripts/ui-check.ts` walks rendered and tappable rungs
