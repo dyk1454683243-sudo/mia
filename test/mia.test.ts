@@ -676,5 +676,10 @@ describe("redaction", () => {
     state = must(applyAction(state, { type: "doubt", playerId: "anna" }, TIMINGS, T0));
     expect(state.gameOver).not.toBeNull();
     expect(buildView(state, "anna").gameOver?.winnerId).toBe("anna");
+    // The game-ending doubt does not get a revealing phase to stage over:
+    // `resolveEliminations` runs inside the same `applyDoubt` and flips it to
+    // `finished`, clearing the deadline. The client renders the static recap.
+    expect(state.phase).toBe("finished");
+    expect(state.deadlineAt).toBeNull();
   });
 });

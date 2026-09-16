@@ -130,14 +130,10 @@ export class TableSocket {
   }
 }
 
-export function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+// Escaping lives in `src/shared` because the showdown's verdict sentence is
+// built there and unit-tested under plain Node; re-exported here so the pages
+// keep importing it from `./net`.
+export { escapeHtml } from "../../src/shared/html";
 
 /** Coarse relative timestamp, e.g. "4m ago". */
 export function relativeTime(at: number): string {

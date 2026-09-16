@@ -19,6 +19,7 @@ export default defineConfig({
             "test/clock.test.ts",
             "test/seat-limits.test.ts",
             "test/seat-positions.test.ts",
+            "test/showdown.test.ts",
           ],
         },
       },

@@ -721,6 +721,436 @@ ul {
   color: #c9f0d8;
 }
 
+/* -------------------------------------------------------------- showdown */
+/* The reveal takes over the screen so the comparison is the picture: the cup
+ * lifts (beat 1), the dice tumble and settle (beat 2), the stamp lands
+ * (beat 3). Every animation is a fraction of `--showdown-span`, the server's
+ * own reveal window, and starts at `--showdown-elapsed` via a *negative*
+ * animation-delay. That last part is what makes a mid-beat repaint resume
+ * instead of replaying beat one: `paint()` rebuilds the whole subtree on every
+ * snapshot, but the rebuilt nodes pick the animation up where the clock says
+ * it should be. The tone-dependent verdict decoration is animated too, and for
+ * the same reason: the answer must not be on screen before the stamp lands, or
+ * the gap the three beats exist to build disappears. Under reduced motion the
+ * animations are not declared at all, so the settled base styles — claimed,
+ * actual and the verdict — simply show. */
+
+.showdown.reveal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: radial-gradient(circle at 50% 0%, #12513d 0%, var(--felt) 45%, var(--felt-deep) 100%);
+}
+
+.showdown-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 34rem;
+  min-height: 100%;
+  padding: calc(0.6rem + env(safe-area-inset-top)) 1rem calc(1rem + env(safe-area-inset-bottom));
+}
+
+.showdown-top {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 1rem;
+}
+
+.showdown-table {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.showdown-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  text-align: center;
+}
+
+.showdown-who {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.showdown-who .avatar {
+  width: 34px;
+  height: 34px;
+  font-size: 0.74rem;
+}
+
+.showdown-compare {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.1rem;
+  margin: 0.2rem 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.showdown-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 6.4rem;
+}
+
+.showdown-side .label {
+  margin: 0;
+}
+
+.showdown-dice-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.showdown-value.chip {
+  min-width: 4.6rem;
+  padding: 0.45rem 0.9rem;
+  font-size: 1.7rem;
+}
+
+.showdown-vs {
+  color: var(--ink-dim);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* A cup that sits over the dice until the first beat lifts it away. */
+.showdown-cup {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3.6rem;
+  height: 3.4rem;
+  border-radius: 0 0 46% 46% / 0 0 58% 58%;
+  background: linear-gradient(180deg, #f0d68c, #c99a2e);
+  box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.16), 0 8px 18px -8px rgba(0, 0, 0, 0.7);
+  opacity: 0;
+}
+
+.showdown-cup::after {
+  content: "";
+  position: absolute;
+  right: -0.72rem;
+  top: 0.55rem;
+  width: 0.9rem;
+  height: 1.15rem;
+  border: 4px solid #c99a2e;
+  border-left: 0;
+  border-radius: 0 999px 999px 0;
+}
+
+.showdown-stamp-wrap {
+  display: flex;
+  justify-content: center;
+  min-height: 3.5rem;
+  margin-top: 0.2rem;
+}
+
+.showdown-stamp {
+  display: inline-block;
+  padding: 0.22rem 0.9rem 0.3rem;
+  border: 4px solid currentColor;
+  border-radius: 10px;
+  font-size: 2.25rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  transform: rotate(-7deg);
+}
+
+/* A caught bluff and an honest claim are opposite emotions: they get different
+ * colours, different stamp angles and the emphasis lands on the other side.
+ * These are the *settled* styles. Under `no-preference` the beat-3 animations
+ * below hold the claimed-chip decoration and the believed glow off until the
+ * stamp lands; under reduced motion these apply from the first frame. */
+.showdown.caught .showdown-stamp {
+  color: var(--danger);
+  text-shadow: 0 0 18px rgba(226, 104, 95, 0.35);
+}
+
+.showdown.caught .showdown-claimed .showdown-value {
+  box-shadow: 0 0 0 2px var(--danger) inset;
+  text-decoration: line-through;
+  text-decoration-color: var(--danger);
+  text-decoration-thickness: 3px;
+}
+
+.showdown.believed .showdown-stamp {
+  color: var(--good);
+  text-shadow: 0 0 18px rgba(111, 207, 151, 0.35);
+}
+
+.showdown.believed .showdown-actual .dice {
+  filter: drop-shadow(0 0 12px rgba(111, 207, 151, 0.55));
+}
+
+.showdown.mia .showdown-stamp {
+  color: var(--gold);
+  border-width: 6px;
+  font-size: 2.7rem;
+  letter-spacing: 0.18em;
+  transform: rotate(4deg);
+  text-shadow: 0 0 22px rgba(232, 196, 106, 0.45);
+}
+
+.showdown.mia .showdown-claimed .showdown-value {
+  box-shadow: 0 0 0 3px rgba(232, 196, 106, 0.75) inset, 0 0 24px rgba(232, 196, 106, 0.3);
+}
+
+.showdown-loss {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 1rem;
+}
+
+.showdown-loss b {
+  color: var(--danger);
+  font-size: 1.3rem;
+}
+
+.showdown-loss .pips {
+  margin: 0;
+}
+
+.showdown-next {
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 0.86rem;
+}
+
+.showdown-still {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: 100%;
+  margin-top: 0.5rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--line);
+}
+
+.showdown-still .label {
+  width: 100%;
+  margin: 0 0 0.15rem;
+  text-align: center;
+}
+
+.showdown-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.12rem 0.55rem 0.12rem 0.12rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-dim);
+  font-size: 0.7rem;
+}
+
+.showdown-chip.you {
+  color: var(--ink);
+  border-color: var(--gold);
+}
+
+.showdown-chip .avatar {
+  width: 22px;
+  height: 22px;
+  font-size: 0.58rem;
+}
+
+.showdown-timer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  margin: 0.8rem 0 0;
+  border: 1px solid rgba(232, 196, 106, 0.4);
+  border-radius: 12px;
+  background: rgba(232, 196, 106, 0.12);
+  color: var(--ink);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.showdown-timer [data-countdown] {
+  margin-left: 0.35rem;
+}
+
+/* Every showdown animation is declared only when motion is welcome. Under
+ * `no-preference` the negative delay resumes a rebuilt subtree; under reduce
+ * none of these declarations exist, so the settled tone styling in the base
+ * rules above is simply present — there is no staging to protect. */
+@media (prefers-reduced-motion: no-preference) {
+  /* The one continuous animation per element, resumed by the negative delay. */
+  .showdown .showdown-cup {
+    animation: showdown-cup-lift var(--showdown-span) ease-in both;
+    animation-delay: calc(-1 * var(--showdown-elapsed));
+  }
+
+  .showdown .showdown-actual .dice {
+    animation: showdown-dice-in var(--showdown-span) cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+    animation-delay: calc(-1 * var(--showdown-elapsed));
+  }
+
+  .showdown .showdown-stamp {
+    animation: showdown-stamp-in var(--showdown-span) cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+    animation-delay: calc(-1 * var(--showdown-elapsed));
+  }
+
+  .showdown.mia .showdown-stamp {
+    animation-name: showdown-stamp-mia;
+  }
+
+  .showdown.mia .showdown-compare {
+    animation: showdown-thud var(--showdown-span) ease-out both;
+    animation-delay: calc(-1 * var(--showdown-elapsed));
+  }
+
+  .showdown .verdict,
+  .showdown .showdown-loss,
+  .showdown .showdown-next {
+    animation: showdown-fade-in var(--showdown-span) ease-out both;
+    animation-delay: calc(-1 * var(--showdown-elapsed));
+  }
+
+  /* The verdict decoration is the answer, so it must not arrive before the
+   * stamp does. Each rule below holds the settled tone styling — the caught
+   * strike and red ring, the Mia brass ring, the believed green glow — off
+   * until the third beat, so claimed and actual stay neutral while the doubt
+   * is still live. */
+  .showdown.caught .showdown-claimed .showdown-value {
+    animation: showdown-caught-claim var(--showdown-span) ease-out both;
+    animation-delay: calc(-1 * var(--showdown-elapsed));
+  }
+
+  .showdown.mia .showdown-claimed .showdown-value {
+    animation: showdown-mia-claim var(--showdown-span) ease-out both;
+    animation-delay: calc(-1 * var(--showdown-elapsed));
+  }
+
+  /* The dice already run `showdown-dice-in`; the believed glow rides beside it
+   * so the tumble is unchanged and only the green arrives with the stamp. */
+  .showdown.believed .showdown-actual .dice {
+    animation:
+      showdown-dice-in var(--showdown-span) cubic-bezier(0.2, 0.9, 0.3, 1.2) both,
+      showdown-believed-glow var(--showdown-span) ease-out both;
+    animation-delay:
+      calc(-1 * var(--showdown-elapsed)),
+      calc(-1 * var(--showdown-elapsed));
+  }
+}
+
+@keyframes showdown-cup-lift {
+  0%, 12% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  22%, 100% { opacity: 0; transform: translate(-50%, -210%) rotate(-14deg) scale(0.85); }
+}
+
+@keyframes showdown-dice-in {
+  0%, 15% { opacity: 0; transform: scale(0.3) rotate(-28deg); }
+  26% { opacity: 1; transform: scale(1.12) rotate(10deg); }
+  38% { transform: scale(0.95) rotate(-5deg); }
+  52%, 100% { opacity: 1; transform: scale(1) rotate(0deg); }
+}
+
+@keyframes showdown-stamp-in {
+  0%, 50% { opacity: 0; transform: scale(2.4) rotate(-12deg); }
+  60% { opacity: 1; transform: scale(1) rotate(-7deg); }
+  65% { transform: scale(1.07) rotate(-7deg); }
+  72%, 100% { opacity: 1; transform: scale(1) rotate(-7deg); }
+}
+
+@keyframes showdown-stamp-mia {
+  0%, 46% { opacity: 0; transform: scale(3.4) rotate(4deg); }
+  57% { opacity: 1; transform: scale(0.94) rotate(4deg); }
+  61% { transform: scale(1.14) rotate(4deg); }
+  65% { transform: scale(1) rotate(4deg); }
+  69%, 100% { opacity: 1; transform: scale(1) rotate(4deg); }
+}
+
+@keyframes showdown-thud {
+  0%, 55% { transform: translateY(0); }
+  59% { transform: translateY(5px); }
+  63% { transform: translateY(-3px); }
+  67%, 100% { transform: translateY(0); }
+}
+
+@keyframes showdown-fade-in {
+  0%, 55% { opacity: 0; transform: translateY(8px); }
+  70%, 100% { opacity: 1; transform: translateY(0); }
+}
+
+/* The verdict decoration, held neutral until the stamp lands. `line-through` is
+ * on the base rule; the strike only becomes visible when its colour does. */
+@keyframes showdown-caught-claim {
+  0%, 54% { box-shadow: 0 0 0 0 transparent; text-decoration-color: transparent; }
+  62%, 100% { box-shadow: 0 0 0 2px var(--danger) inset; text-decoration-color: var(--danger); }
+}
+
+@keyframes showdown-mia-claim {
+  0%, 54% { box-shadow: 0 0 0 0 transparent; }
+  62%, 100% { box-shadow: 0 0 0 3px rgba(232, 196, 106, 0.75) inset, 0 0 24px rgba(232, 196, 106, 0.3); }
+}
+
+@keyframes showdown-believed-glow {
+  0%, 54% { filter: drop-shadow(0 0 0 transparent); }
+  66%, 100% { filter: drop-shadow(0 0 12px rgba(111, 207, 151, 0.55)); }
+}
+
+/* Under reduced motion the showdown still shows claimed, actual and the
+ * verdict; it simply does not animate, because every showdown animation is
+ * declared only under `no-preference`. Only the cup is hidden, since it exists
+ * solely to lift. */
+@media (prefers-reduced-motion: reduce) {
+  .showdown-cup { display: none; }
+}
+
+/* The compact fallback on the finished screen reuses the stamp, static. */
+.showdown-stamp.compact {
+  display: block;
+  width: fit-content;
+  margin: 0.5rem auto 0;
+  padding: 0.12rem 0.6rem 0.18rem;
+  border-width: 3px;
+  font-size: 1.3rem;
+}
+
 /* ---------------------------------------------------------------- actions */
 
 .actions {

@@ -97,6 +97,54 @@ and takes `MIA_UI_SEATS` to run a smaller table. The share-link step runs before
 the table is filled, because a fresh session cannot take the last seat of a full
 table — a separate, pre-existing bug (see `fix/full-table-join`).
 
+## The reveal as a showdown
+
+The reveal is staged as a full-screen showdown, not a sentence in a card. It
+plays in three beats — the cup lifts, the dice tumble and settle, the stamp
+lands — and every beat is a fraction of the server's reveal window rather than a
+duration of its own. The window is `deadlineAt - turnStartedAt` on the snapshot
+(the server's `revealMs`), so a shortened test clock compresses the staging
+instead of letting it outlive the round; the visible timer is the same
+`deadlineAt`, counted by the ordinary `[data-countdown]` interval. The beat and
+the elapsed offset come from `src/shared/showdown.ts` (pure, unit-tested under
+Node) and the CSS turns them into `--showdown-span` and `--showdown-elapsed`.
+
+Claimed and actual stand side by side and the verdict line underneath only names
+it. A caught bluff and an honest claim are opposite emotions and do not share a
+layout: `BLUFF` is red and strikes through the claimed chip, `TRUE` is green,
+and a real `21` gets the brass `MIA` — heavier, with the double charge named
+against the **doubter**, matching `resolveDoubt`. The stamp, the tone and who
+pays all come from the engine's `DoubtReveal` rather than re-deriving the rules
+in the view.
+
+The verdict decoration is itself a beat-3 arrival, not a base state. The caught
+strike and red ring on the claimed chip, the brass `MIA` ring and the believed
+green glow on the actual dice are animated in with the stamp, so the answer is
+not on screen while the doubt is still live — the claimed and actual values stay
+neutral through beats 1 and 2. This is the point of the staging: the lean
+between the claim and the answer. `scripts/ui-check.ts` pins it by sampling the
+first and last beat for all three tones.
+
+`paint()` still replaces the whole DOM on every snapshot, and a snapshot can
+land mid-showdown (a connect or disconnect broadcast, or a toast). A plain CSS
+animation would restart from beat one in that rebuilt subtree. Instead the
+element styles carry a *negative* `animation-delay` derived from
+`--showdown-elapsed`, so the rebuilt subtree resumes at the frame the animation
+had already reached; the reveal's identity also rides along as
+`data-reveal-key`. Under `prefers-reduced-motion: reduce` the animations are off
+and the base styles are the settled state, so claimed, actual and the verdict
+are all still shown.
+
+The game-ending doubt has no window to stage over — but the reason is the order
+of operations inside one call, not a missing window. `resolveDoubt` sets
+`phase = "revealing"` and `deadlineAt = now + revealMs`, then its trailing
+`resolveEliminations` runs and, when the life loss leaves one player alive, flips
+`phase` to `finished` and clears `deadlineAt` before any snapshot can carry a
+revealing phase. That last reveal therefore falls back to a compact static recap
+card below the winner, keeping the same `.reveal` / `.reveal-dice` / `.verdict`
+contract. A doubt that eliminates a player while others remain alive stays in
+`revealing` and plays the full showdown.
+
 ## The reconnecting socket
 
 `TableSocket` in `client/src/net.ts` wraps the WebSocket and owns reconnection. On

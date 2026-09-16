@@ -80,4 +80,15 @@ describe("TurnClock", () => {
     clock.sync(SERVER);
     expect(clock.secondsLeft(null)).toBeNull();
   });
+
+  it("exposes the same live clock in server time", () => {
+    vi.useFakeTimers();
+    // Client half a minute ahead of the server when the snapshot lands.
+    vi.setSystemTime(SERVER + 30_000);
+    const clock = new TurnClock();
+    clock.sync(SERVER);
+    expect(clock.now()).toBe(SERVER);
+    vi.setSystemTime(SERVER + 30_000 + 2_500);
+    expect(clock.now()).toBe(SERVER + 2_500);
+  });
 });

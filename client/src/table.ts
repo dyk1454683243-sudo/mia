@@ -15,12 +15,21 @@ import {
   STARTING_LIVES,
   type Announcement,
   type Die,
+  type DoubtReveal,
   type MiaPlayer,
   type MiaState,
 } from "../../src/shared/mia";
 import type { ClientMessage, StateView, TableSummary } from "../../src/shared/protocol";
 import { TurnClock } from "../../src/shared/clock";
 import { seatPositions } from "../../src/shared/seat-positions";
+import {
+  showdownLoser,
+  showdownSentence,
+  showdownStamp,
+  showdownTiming,
+  showdownTone,
+  showdownValue,
+} from "../../src/shared/showdown";
 import { api, escapeHtml, TableSocket } from "./net";
 
 const PIPS: Record<number, string[]> = {
@@ -55,20 +64,132 @@ function valueChip(value: number, extra = ""): string {
 
 /** A roll value as it should read in prose: 21 is "MIA", never "2·1". */
 function valueLabel(value: number): string {
-  return value === MIA ? "MIA" : formatValue(value);
+  return showdownValue(value);
 }
 
-function verdictLine(reveal: { verdict: string; announcerName: string; doubterName: string; actual: number; announced: number; livesLost: number; penaltyApplied: string }): string {
-  const penalty = reveal.penaltyApplied === "double-mia" ? " Doubled — the Mia was real." : "";
-  const lives = `${reveal.livesLost} ${reveal.livesLost === 1 ? "life" : "lives"}`;
-  if (reveal.verdict === "announcer") {
-    return `<p class="verdict caught">${escapeHtml(reveal.announcerName)} had <b>${valueLabel(
-      reveal.actual,
-    )}</b> but claimed <b>${valueLabel(reveal.announced)}</b>. Bluff caught — loses ${lives}.${penalty}</p>`;
-  }
-  return `<p class="verdict believed">${escapeHtml(reveal.announcerName)} really had <b>${valueLabel(
-    reveal.actual,
-  )}</b>, claimed <b>${valueLabel(reveal.announced)}</b>. ${escapeHtml(reveal.doubterName)} doubted — loses ${lives}.${penalty}</p>`;
+/**
+ * The verdict sentence is built in `src/shared/showdown.ts` so its facts — the
+ * MIA label, the player charged, the double penalty — are unit-tested rather
+ * than only seen in a random browser game. The class is what the CSS and the
+ * harness read to tell a caught bluff from a believed claim.
+ */
+function verdictLine(reveal: DoubtReveal): string {
+  const verdict = reveal.verdict === "announcer" ? "caught" : "believed";
+  return `<p class="verdict ${verdict}">${showdownSentence(reveal)}</p>`;
+}
+
+/** The two physical dice behind a roll value, largest face first. */
+function rolledDice(value: number): string {
+  const hi = Math.floor(value / 10);
+  const lo = value % 10;
+  return `<span class="dice">${dieFace(hi, "lg")}${dieFace(lo, "lg")}</span>`;
+}
+
+/**
+ * The reveal staged as a full-screen showdown, in three beats driven by the
+ * server's reveal window: the cup lifts, the dice tumble and settle, the stamp
+ * lands. Claimed and actual sit side by side so the comparison is the picture,
+ * and `.verdict` underneath only names it.
+ *
+ * The beats are fractions of `deadlineAt - turnStartedAt` (the server's
+ * `revealMs`), never a fixed animation length, so a shortened test clock
+ * compresses the staging with it. `--showdown-elapsed` is handed to CSS as a
+ * *negative animation-delay* so a snapshot that rebuilds this subtree mid-beat
+ * resumes at the frame already on screen instead of restarting at beat one.
+ *
+ * `.reveal`, `.reveal-dice` and `.verdict` keep the exact meaning
+ * `scripts/ui-check.ts` reads: their presence is the `revealing` phase, the
+ * claim and the actual dice, and the factual one-liner.
+ */
+function renderShowdown(game: MiaState, view: StateView, reveal: DoubtReveal): string {
+  const stamp = showdownStamp(reveal);
+  const tone = showdownTone(reveal);
+  const loser = showdownLoser(reveal);
+  const timing = showdownTiming(game.turnStartedAt, game.deadlineAt, clock.now());
+  const remaining = clock.secondsLeft(game.deadlineAt) ?? 0;
+  const loserPlayer = playerById(game, loser.id);
+  const lives = Array.from(
+    { length: STARTING_LIVES },
+    (_, life) => (life < (loserPlayer?.lives ?? 0) ? '<i class="pip on"></i>' : '<i class="pip"></i>'),
+  ).join("");
+  const living = game.players
+    .filter((player) => !player.eliminated)
+    .map(
+      (player) =>
+        `<span class="showdown-chip${player.id === view.you ? " you" : ""}"><span class="avatar" aria-hidden="true">${escapeHtml(
+          initialsOf(player.name),
+        )}</span>${escapeHtml(player.name)}</span>`,
+    )
+    .join("");
+  const next =
+    loserPlayer && !loserPlayer.eliminated
+      ? `${loser.name} starts the next round.`
+      : "The next player starts the next round.";
+  // The identity of this particular reveal, so a rebuilt subtree can be told
+  // apart from a genuinely new one. `--showdown-elapsed` is what CSS actually
+  // resumes from; the key is the stable handle on the same showdown.
+  const key = `${reveal.announcerId}:${reveal.doubterId}:${reveal.announced}:${reveal.actual}:${game.round}`;
+  return `<section class="showdown reveal ${tone} beat-${timing.beat}${
+    timing.done ? " done" : ""
+  }" data-reveal-key="${escapeHtml(key)}" style="--showdown-span:${timing.span}ms;--showdown-elapsed:${timing.elapsed}ms">
+    <div class="showdown-panel">
+      <header class="showdown-top">
+        <span class="brand">Mia</span>
+        <span class="showdown-table">${escapeHtml(view.state.tableName)}</span>
+        <span class="round">Round ${game.round}</span>
+      </header>
+      <div class="showdown-body">
+        <p class="showdown-who">
+          <span class="avatar" aria-hidden="true">${escapeHtml(initialsOf(reveal.doubterName))}</span>
+          <span class="showdown-verb">doubted</span>
+          <span class="avatar" aria-hidden="true">${escapeHtml(initialsOf(reveal.announcerName))}</span>
+        </p>
+        <div class="reveal-dice showdown-compare">
+          <div class="showdown-side showdown-claimed">
+            <p class="label">claimed</p>
+            ${valueChip(reveal.announced, "showdown-value")}
+          </div>
+          <span class="showdown-vs" aria-hidden="true">vs</span>
+          <div class="showdown-side showdown-actual">
+            <p class="label">actually</p>
+            <div class="showdown-dice-wrap">
+              ${rolledDice(reveal.actual)}
+              <div class="showdown-cup" aria-hidden="true"></div>
+            </div>
+          </div>
+        </div>
+        <div class="showdown-stamp-wrap"><span class="showdown-stamp">${stamp}</span></div>
+        ${verdictLine(reveal)}
+        <p class="showdown-loss"><b>−${loser.livesLost}</b> ${escapeHtml(loser.name)}<span class="pips">${lives}</span></p>
+        <p class="showdown-next">${escapeHtml(next)}</p>
+        <div class="showdown-still"><span class="label">Still in</span>${living}</div>
+      </div>
+      <p class="showdown-timer" role="status">Deal the next round · <span data-countdown>${remaining}s</span></p>
+    </div>
+  </section>`;
+}
+
+/**
+ * A compact, static version of the same comparison for the reveal that has no
+ * window to stage over. `resolveDoubt` sets `phase = "revealing"` with a
+ * deadline, but its trailing `resolveEliminations` call flips a doubt that ends
+ * the game to `finished` and clears `deadlineAt` in that same invocation, before
+ * any snapshot can carry a revealing phase. The finished screen therefore
+ * renders this recap, keeping the `.reveal`/`.reveal-dice`/`.verdict` contract.
+ */
+function renderRevealCard(reveal: DoubtReveal): string {
+  const tone = showdownTone(reveal);
+  return `<section class="card standing-card reveal-card ${tone}">
+    <p class="label">Last claim</p>
+    <div class="reveal">
+      <div class="reveal-dice">
+        <div><p class="label">claimed</p>${valueChip(reveal.announced)}</div>
+        <div><p class="label">actual</p>${valueChip(reveal.actual, "actual")}</div>
+      </div>
+      <span class="showdown-stamp compact">${showdownStamp(reveal)}</span>
+      ${verdictLine(reveal)}
+    </div>
+  </section>`;
 }
 
 interface PageState {
@@ -415,27 +536,21 @@ function renderPlay(view: StateView): string {
     </div>`;
   }
 
-  // The standing claim now lives in the middle of the felt inside `renderPlayers`.
-  // The reveal keeps its own card below the table: claimed versus actual dice,
-  // then the verdict. The roster is a roughly fixed height whatever the seat
-  // count, so the ladder no longer has to be lifted above it (see docs/client.md).
+  // The standing claim lives in the middle of the felt inside `renderPlayers`.
+  // On the reveal beat the showdown takes over the screen as a fixed overlay, so
+  // it never enters the page flow and cannot push the seats into the controls.
+  // The game-ending doubt resolves to `finished` inside `resolveDoubt` (its
+  // `resolveEliminations` runs before the reveal window can be used), so it has
+  // no `revealing` phase to stage over; that one reveal falls back to a compact
+  // card below the winner. A doubt that eliminates a player while others remain
+  // alive stays in `revealing` and plays the full showdown.
   const rosterCard = renderPlayers(game, view);
-  const revealCard = reveal
-    ? `<section class="card standing-card">
-        <p class="label">${game.pendingDoubt ? "Showdown" : "Last claim"}</p>
-        <div class="reveal">
-          <div class="reveal-dice">
-            <div><p class="label">claimed</p>${valueChip(reveal.announced)}</div>
-            <div><p class="label">actual</p>${valueChip(reveal.actual, "actual")}</div>
-          </div>
-          ${verdictLine(reveal)}
-        </div>
-      </section>`
-    : "";
+  const showdown = reveal && game.phase === "revealing" ? renderShowdown(game, view, reveal) : "";
+  const revealCard = reveal && game.phase !== "revealing" ? renderRevealCard(reveal) : "";
   return `
     ${rosterCard}
     ${revealCard}
-    ${actions}
+    ${actions}${showdown}
     <section class="card log-card">
       <h3>Table talk</h3>
       <ol class="log">

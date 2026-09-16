@@ -296,6 +296,15 @@ interface Snapshot {
   reveal: string;
   revealClaimed: string;
   verdict: string;
+  /** The staged showdown: its presence, its stamp and the verdict's register. */
+  showdown: boolean;
+  stamp: string;
+  verdictTone: "caught" | "believed" | "";
+  /** The beat the showdown painted at, and the window it is staging over. */
+  beat: number | null;
+  showdownTone: "caught" | "believed" | "mia" | "";
+  showdownElapsed: number | null;
+  showdownSpan: number | null;
   winner: string;
   announce: {
     values: number[];
@@ -351,6 +360,11 @@ async function snapshot(page: Page): Promise<Snapshot> {
       value: claimNodes[0]?.textContent?.trim() ?? "",
     };
     const actions = text(".actions");
+    const verdictNode = document.querySelector<HTMLElement>(".verdict");
+    const showdownNode = document.querySelector<HTMLElement>(".showdown");
+    const showdownToneClass = showdownNode
+      ? (["caught", "believed", "mia"] as const).find((tone) => showdownNode.classList.contains(tone)) ?? ""
+      : "";
     let phase: Snapshot["phase"] = "unknown";
     if (text(".winner")) phase = "finished";
     else if (document.querySelector(".reveal")) phase = "revealing";
@@ -367,6 +381,21 @@ async function snapshot(page: Page): Promise<Snapshot> {
       reveal: text(".reveal"),
       revealClaimed: text(".reveal-dice"),
       verdict: text(".verdict"),
+      showdown: showdownNode !== null,
+      stamp: text(".showdown-stamp"),
+      verdictTone: verdictNode?.classList.contains("caught")
+        ? "caught"
+        : verdictNode?.classList.contains("believed")
+          ? "believed"
+          : "",
+      beat: showdownNode ? Number(showdownNode.className.match(/beat-(\d)/)?.[1] ?? "") || null : null,
+      showdownTone: showdownToneClass,
+      showdownElapsed: showdownNode
+        ? Number.parseFloat(showdownNode.style.getPropertyValue("--showdown-elapsed")) || 0
+        : null,
+      showdownSpan: showdownNode
+        ? Number.parseFloat(showdownNode.style.getPropertyValue("--showdown-span")) || 0
+        : null,
       winner: text(".winner"),
       announce: {
         // Every rendered rung, then the subset carrying a real `disabled`.
@@ -473,6 +502,84 @@ async function ladderPin(page: Page): Promise<LadderPin> {
   });
 }
 
+/**
+ * The showdown's promise: claimed and actual stand side by side, with the stamp
+ * between the comparison and the verdict. Geometry only, so a mid-beat
+ * animation frame cannot make it flaky — and the sides carry no text of their
+ * own, which keeps the comparison from collapsing into a sentence.
+ */
+async function showdownLayout(page: Page): Promise<{ sideBySide: boolean; detail: string }> {
+  return await page.evaluate(() => {
+    const claimed = document.querySelector<HTMLElement>(".showdown-claimed");
+    const actual = document.querySelector<HTMLElement>(".showdown-actual");
+    const stamp = document.querySelector<HTMLElement>(".showdown-stamp");
+    if (!claimed || !actual || !stamp) {
+      return { sideBySide: false, detail: "missing claimed/actual/stamp" };
+    }
+    const c = claimed.getBoundingClientRect();
+    const a = actual.getBoundingClientRect();
+    const visible = Math.min(c.bottom, a.bottom) - Math.max(c.top, a.top);
+    return {
+      sideBySide: a.left >= c.right - 1 && visible > 0,
+      detail: `claimed ${Math.round(c.left)}-${Math.round(c.right)} · actual ${Math.round(a.left)}-${Math.round(a.right)}`,
+    };
+  });
+}
+
+/**
+ * The showdown frame CSS paints at `fraction` of its window, for one tone.
+ *
+ * The staging is a negative `animation-delay` derived from `--showdown-elapsed`,
+ * so an off-screen clone of the live showdown mounted with that variable set is
+ * the frame CSS would paint at that instant — no racing the live clock, and no
+ * dependence on which tones the random dice happen to produce. Each tone's
+ * verdict signal is read from the rule that owns it: a caught bluff strikes the
+ * claimed chip red and rings it, a real Mia rings the claim brass, and a
+ * believed claim glows the actual dice green.
+ */
+async function showdownFrame(
+  page: Page,
+  tone: "caught" | "believed" | "mia",
+  fraction: number,
+): Promise<{ stampOpacity: number; claimedStruck: boolean; claimedShadow: string; actualFilter: string }> {
+  return await page.evaluate(
+    ({ tone, fraction }) => {
+      const live = document.querySelector<HTMLElement>(".showdown");
+      if (!live) throw new Error("no live showdown to sample");
+      const span = Number.parseFloat(live.style.getPropertyValue("--showdown-span")) || 0;
+      const clone = live.cloneNode(true) as HTMLElement;
+      clone.classList.remove("caught", "believed", "mia");
+      clone.classList.add(tone);
+      // Still rendered (visibility, not display) so the animation computes.
+      clone.style.visibility = "hidden";
+      clone.style.pointerEvents = "none";
+      clone.style.setProperty("--showdown-elapsed", `${Math.round(span * fraction)}ms`);
+      document.body.appendChild(clone);
+      void clone.offsetWidth; // position the animation before reading it
+      const read = (selector: string) => {
+        const node = clone.querySelector<HTMLElement>(selector);
+        return node ? getComputedStyle(node) : null;
+      };
+      const claimed = read(".showdown-claimed .showdown-value");
+      const stamp = read(".showdown-stamp");
+      const dice = read(".showdown-actual .dice");
+      const frame = {
+        stampOpacity: stamp ? Number(stamp.opacity) : -1,
+        // `line-through` is on the base rule; its colour is what the beat-3
+        // animation brings in, so a visible strike is a coloured one.
+        claimedStruck:
+          (claimed?.textDecorationLine.includes("line-through") ?? false) &&
+          (claimed?.textDecorationColor ?? "").includes("226, 104, 95"),
+        claimedShadow: claimed?.boxShadow ?? "",
+        actualFilter: dice?.filter ?? "",
+      };
+      clone.remove();
+      return frame;
+    },
+    { tone, fraction },
+  );
+}
+
 /** One browser move, chosen from what is actually on screen. */
 async function act(page: Page): Promise<string> {
   return await page.evaluate(() => {
@@ -518,6 +625,7 @@ async function playGame(page: Page, bots: ChildProcess): Promise<{ saw: Set<stri
   let reconnected = false;
   let sawAnnounceCut = false;
   let sawSeatLayout = false;
+  let miaVerdictChecked = false;
   const deadline = Date.now() + 12 * 60_000;
 
   await page.click('[data-action="start"]');
@@ -534,6 +642,11 @@ async function playGame(page: Page, bots: ChildProcess): Promise<{ saw: Set<stri
         finished: "08-finished",
       };
       if (names[snap.phase]) await shot(page, names[snap.phase]);
+      if (snap.phase === "revealing") {
+        note(
+          `07-revealing captured at beat ${snap.beat} (${snap.showdownTone}, elapsed ${snap.showdownElapsed}ms of ${snap.showdownSpan}ms)`,
+        );
+      }
     }
     // The ring is a visual arrangement, not a reading order: the harness still
     // reads one `.player` per seat. Pin the two properties the redesign owns —
@@ -632,13 +745,65 @@ async function playGame(page: Page, bots: ChildProcess): Promise<{ saw: Set<stri
     }
     if (firstTime && snap.phase === "revealing") {
       check("the reveal shows the claim, the actual dice and a verdict", snap.reveal.length > 0 && snap.verdict.length > 0, snap.verdict.slice(0, 80));
-      if (snap.revealClaimed.includes("MIA")) {
-        check(
-          "a Mia claim reads as MIA in the verdict, not 2·1",
-          snap.verdict.includes("MIA") && !snap.verdict.includes("2·1"),
-          snap.verdict.slice(0, 90),
-        );
+      // The staging this PR owns. The stamp is the engine's verdict: BLUFF when
+      // the announcer's bluff was caught, TRUE/MIA when the doubter was wrong.
+      check("the reveal is staged as a showdown", snap.showdown, `showdown=${snap.showdown}`);
+      check(
+        "the stamp names the engine's verdict",
+        snap.verdictTone === "caught" ? snap.stamp === "BLUFF" : snap.stamp === "TRUE" || snap.stamp === "MIA",
+        `${snap.stamp} / ${snap.verdictTone}`,
+      );
+      check(
+        "a brass MIA stamp is the doubter's double loss",
+        snap.stamp !== "MIA" || (snap.verdictTone === "believed" && snap.verdict.includes("Doubled")),
+        snap.verdict.slice(0, 90),
+      );
+      const layout = await showdownLayout(page);
+      check("claimed and actual stand side by side in the showdown", layout.sideBySide, layout.detail);
+      // The staging's whole value is *when* the verdict appears, and every
+      // other check here only tests *that* it appears. Read the first and last
+      // beat for each tone from an off-screen clone, so a tone rule that leaks
+      // the answer before the stamp lands cannot hide behind a benign reveal.
+      const leaked: string[] = [];
+      const missing: string[] = [];
+      for (const tone of ["caught", "believed", "mia"] as const) {
+        const start = await showdownFrame(page, tone, 0);
+        const land = await showdownFrame(page, tone, 0.95);
+        const startRing = start.claimedShadow.includes("226, 104, 95") || start.claimedShadow.includes("232, 196, 106");
+        const startGlow = start.actualFilter.includes("111, 207, 151");
+        const landDangerRing = land.claimedShadow.includes("226, 104, 95");
+        const landGoldRing = land.claimedShadow.includes("232, 196, 106");
+        const landGlow = land.actualFilter.includes("111, 207, 151");
+        const verdictAtStart =
+          tone === "caught" ? start.claimedStruck || startRing : tone === "mia" ? startRing : startGlow;
+        const verdictAtLand =
+          tone === "caught" ? land.claimedStruck && landDangerRing : tone === "mia" ? landGoldRing : landGlow;
+        if (start.stampOpacity > 0.01) leaked.push(`${tone}: stamp up (${start.stampOpacity})`);
+        if (verdictAtStart) leaked.push(`${tone}: verdict decoration on`);
+        if (land.stampOpacity < 0.99) missing.push(`${tone}: stamp down (${land.stampOpacity})`);
+        if (!verdictAtLand) missing.push(`${tone}: verdict decoration off`);
       }
+      check(
+        "the showdown withholds the verdict until the stamp lands",
+        leaked.length === 0,
+        leaked.join("; ") || "beat 1: stamp down and claimed neutral in all three tones",
+      );
+      check(
+        "the showdown shows the verdict by beat 3",
+        missing.length === 0,
+        missing.join("; ") || "beat 3: stamp up and verdict decorated in all three tones",
+      );
+    }
+    // A Mia claim is the one roll where the verdict must read "MIA" and never
+    // "2·1". The dice are random, so this runs on whichever reveal shows one
+    // rather than being gated on the first reveal, which is usually not Mia.
+    if (!miaVerdictChecked && snap.phase === "revealing" && snap.revealClaimed.includes("MIA")) {
+      miaVerdictChecked = true;
+      check(
+        "a Mia claim reads as MIA in the verdict, not 2·1",
+        snap.verdict.includes("MIA") && !snap.verdict.includes("2·1"),
+        snap.verdict.slice(0, 90),
+      );
     }
 
     // Secrecy: before a reveal, only "(you)" may have dice on screen.

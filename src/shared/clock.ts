@@ -22,4 +22,14 @@ export class TurnClock {
     if (deadlineAt === null) return null;
     return Math.max(0, Math.ceil((deadlineAt - (now - this.drift)) / 1000));
   }
+
+  /**
+   * The same live clock expressed in server time, for callers that need an
+   * instant rather than a whole-second countdown. The showdown uses it to place
+   * a rebuilt subtree at the frame the animation had already reached, using the
+   * one drift measurement `sync` captured.
+   */
+  now(now = Date.now()): number {
+    return now - this.drift;
+  }
 }
