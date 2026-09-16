@@ -97,7 +97,9 @@ cover the assembled system, and they need a running `wrangler dev` (or a deploye
   action in such a pair is stale by construction.
 - **`scripts/ui-check.ts`** drives the real client in headless Chromium at a phone
   viewport, plays a full game against bots, captures screenshots and fails on any
-  console error.
+  console error. It fills the table to `MAX_PLAYERS` by default, because the
+  announce ladder's geometry is tightest at a full table and a three-seat run
+  passes while an eight-seat one fails; `MIA_UI_SEATS` runs a smaller table.
 - **`scripts/bots.ts`** fills the non-human seats so a person can play in a
   browser. It shares `scripts/lib.ts` with `e2e.ts`.
 
@@ -114,3 +116,26 @@ Two properties of `e2e.ts` are deliberate and should not be "cleaned up":
   that race now.
 - A refusal is always recorded *and* fails anything waiting on the action it
   refused, so a rejected move can never masquerade as a timeout.
+
+## An assertion that cannot fail is not coverage
+
+A test earns its place by failing when the thing it protects breaks. There are two
+ways it can quietly not do that, and both have shipped here.
+
+**The assertion is unreachable given the fixture.** A `COUNT(*)` against a sentinel
+row is trivially zero in a file that never finishes a game, so it holds whether or
+not the code is correct. When a fix makes the bad state unreachable by
+construction, that unreachability *is* the result — there is nothing left for an
+assertion to catch, and the honest move is to delete it and narrow the test's name
+to what it does pin.
+
+**The fixture never reaches the regime where the property breaks.** A check can be
+exactly right and still never run where it would fail. Prefer a default that
+exercises the worst case over an opt-in someone has to remember: `ui-check` fills
+to `MAX_PLAYERS` rather than leaving the full table behind a flag, so the tightest
+layout is on the default path.
+
+Before trusting a new test, break the thing it guards and watch it go red —
+changing one thing at a time, so you learn which assertion is load-bearing rather
+than only which one is listed first. [AGENTS.md](../AGENTS.md) requires that observed
+failure to be recorded in the PR body.

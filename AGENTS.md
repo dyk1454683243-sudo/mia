@@ -95,6 +95,30 @@ should decide it belongs in `main`.
   authorship doesn't map to a GitHub account need an extra approval. Report it
   rather than rewriting history to work around it.
 
+### Show the test failing
+
+A PR whose point is a test or a bugfix carries, in its body, the **observed
+failure** — the real assertion output — from reverting the fix and watching the
+new test go red. Not a sentence claiming it was checked; the output.
+
+Revert **one thing at a time**. A mutation that breaks five things at once only
+proves the first assertion fires and says nothing about the other four.
+
+This rule exists because it kept going wrong. Three PRs in a row shipped a check
+that passed with the bug fully present:
+
+- a forged-header test whose sabotage flipped all five headers together, so only
+  the first assertion was ever exercised;
+- `COUNT(*)` assertions against a sentinel in a file that never finishes a game,
+  so the counts were zero either way;
+- a viewport assertion that was correct but only ran at a three-seat table, when
+  the property fails from six seats up.
+
+Every one of those ran with a green suite, and every one was reported honestly.
+An assertion that cannot fail is not coverage, and the only way to tell the
+difference is to watch it fail once. The craft side of this is in
+[docs/testing.md](docs/testing.md).
+
 ### When you may merge
 
 Two cases, and no others.
@@ -120,7 +144,11 @@ what disqualifies you is having written the code. Every one of these must hold:
   full diff. A delegate reporting "typecheck clean, all tests pass" is a claim to
   check, not a result to relay.
 - **Checks are green and you confirmed it independently** — `npm run typecheck &&
-  npm test` on the branch, not just the delegate's word that it passed.
+  npm test` on the branch, not just the delegate's word that it passed. Green is
+  necessary and not sufficient: the suite passes just as cheerfully when the new
+  test asserts nothing. Re-run the failure the PR body records (see [Show the
+  test failing](#show-the-test-failing)) instead of relaying it, reverting one
+  thing at a time so you find out which assertion is load-bearing.
 - **Your verdict is recorded on the PR** before you merge it, so the reasoning
   survives in a place a human can read later.
 - **Anything you would not merge goes back to the delegate.** Write the concerns
