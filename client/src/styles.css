@@ -1319,3 +1319,72 @@ ul {
 .ev-eliminated {
   color: #ffc9c4;
 }
+
+/* --------------------------------------------------------- desktop columns */
+/* Phone-first, and there is no width breakpoint anywhere above: the app column
+ * is capped by `#app { max-width: 34rem }`. Above about 900px that leaves
+ * two-thirds of the screen as felt-coloured wallpaper. So the table page
+ * becomes three columns — controls left, felt centre, table talk right — and a
+ * laptop player is at the same table as everyone else.
+ *
+ * The felt is the round table from #26 (`.table-card` / `.table-stage` /
+ * `.players` with absolutely positioned seats), so the roster *is* the ring:
+ * there is no vertical roster here to reintroduce, and the left column is
+ * where the mockup drew one — the interactive controls. The reveal from #29 is
+ * a `position: fixed` overlay, so it is out of this grid's flow and still takes
+ * the whole screen. Everything in this block is additive; nothing below the
+ * breakpoint changes. It is scoped with `:has(.table-card)` so the lobby and the
+ * waiting room keep their single column. */
+@media (min-width: 900px) {
+  #app:has(.table-card) {
+    max-width: 90rem;
+  }
+
+  .page:has(> .table-card) {
+    display: grid;
+    grid-template-columns:
+      minmax(15rem, 1fr)
+      minmax(0, 1.9fr)
+      minmax(15rem, 1fr);
+    grid-template-areas:
+      "actions felt log"
+      "actions reveal log"
+      "actions footer log";
+    align-items: start;
+    gap: 1.25rem;
+  }
+
+  .page > .table-card {
+    grid-area: felt;
+  }
+
+  /* `position: static` undoes the phone's sticky bottom edge; in a column the
+   * card anchors to the top so `pinLadder` still measures it from a fixed top. */
+  .page > .actions {
+    grid-area: actions;
+    position: static;
+  }
+
+  .page > .log-card {
+    grid-area: log;
+  }
+
+  .page > .reveal-card {
+    grid-area: reveal;
+  }
+
+  .page > .row.gap {
+    grid-area: footer;
+  }
+
+  /* A transient toast must not be auto-placed into a column cell: with every
+   * explicit cell taken it spans all three on its own implicit row. */
+  .page > .toast {
+    grid-column: 1 / -1;
+  }
+
+  /* The centre column fits a larger felt than the phone's 22rem. */
+  .page > .table-card .table-stage {
+    max-width: 28rem;
+  }
+}

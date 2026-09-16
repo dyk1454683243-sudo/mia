@@ -17,6 +17,12 @@ import { api, BASE, createPlayer } from "./lib.ts";
 const OUT = process.env.MIA_UI_OUT ?? ".r1-screenshots";
 const PHONE = { width: 375, height: 812 };
 const WIDE = { width: 768, height: 1024 };
+/**
+ * A viewport above the desktop breakpoint. `WIDE` (768) is deliberately below
+ * it, so it never exercised the three-column layout — the "fixture never
+ * reaches the regime" trap from docs/testing.md. This one does.
+ */
+const DESKTOP = { width: 1280, height: 800 };
 mkdirSync(OUT, { recursive: true });
 
 /**
@@ -93,6 +99,50 @@ async function shot(page: Page, name: string): Promise<void> {
 
 async function overflow(page: Page): Promise<number> {
   return await page.evaluate(() => Math.max(0, document.documentElement.scrollWidth - window.innerWidth));
+}
+
+interface DesktopColumns {
+  /** Controls, felt and log sit left-to-right with no horizontal overlap. */
+  sideBySide: boolean;
+  /** Sum of pairwise horizontal overlap, so two bands sharing width fails. */
+  overlap: number;
+  widths: number[];
+  detail: string;
+}
+
+/**
+ * The desktop layout's promise: above the breakpoint the controls (`.actions`),
+ * the felt (`.table-card`) and the log (`.log-card`) occupy three distinct,
+ * non-overlapping horizontal bands, left to right. Below the breakpoint they
+ * stack in one column and their x-ranges coincide, which is exactly what makes
+ * this fail if the media query is removed.
+ */
+async function desktopColumns(page: Page): Promise<DesktopColumns> {
+  return await page.evaluate(() => {
+    const box = (selector: string) => document.querySelector<HTMLElement>(selector)?.getBoundingClientRect() ?? null;
+    const actions = box(".actions");
+    const felt = box(".table-card");
+    const log = box(".log-card");
+    if (!actions || !felt || !log) {
+      return { sideBySide: false, overlap: -1, widths: [], detail: "missing actions/felt/log" };
+    }
+    const rects = [actions, felt, log];
+    let overlap = 0;
+    for (let i = 0; i < rects.length; i += 1) {
+      for (let j = i + 1; j < rects.length; j += 1) {
+        const shared = Math.min(rects[i]!.right, rects[j]!.right) - Math.max(rects[i]!.left, rects[j]!.left);
+        overlap += Math.max(0, Math.round(shared));
+      }
+    }
+    return {
+      sideBySide: actions.right <= felt.left + 1 && felt.right <= log.left + 1,
+      overlap,
+      widths: rects.map((rect) => Math.round(rect.width)),
+      detail: `actions ${Math.round(actions.left)}-${Math.round(actions.right)} · felt ${Math.round(
+        felt.left,
+      )}-${Math.round(felt.right)} · log ${Math.round(log.left)}-${Math.round(log.right)}`,
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -503,6 +553,32 @@ async function ladderPin(page: Page): Promise<LadderPin> {
 }
 
 /**
+ * The desktop layout sampled mid-game, on an announcing snapshot with the
+ * ladder up.
+ */
+interface MidGameDesktop {
+  columns: DesktopColumns;
+  pin: LadderPin;
+}
+
+/**
+ * Measure the desktop columns and the ladder pin during play.
+ *
+ * There is no resize listener and `pinLadder` runs only from `paint()`, so a
+ * bare `setViewportSize(DESKTOP)` leaves the ladder's inline `max-height` sized
+ * against the phone fold: the cut reads a phone-shaped box and proves nothing
+ * about desktop. A reload delivers a fresh snapshot, which repaints (and
+ * re-pins) the ladder at the new width before the measurement. It is the same
+ * turn and the same standing claim, so the game state is unchanged.
+ */
+async function midGameDesktop(page: Page): Promise<MidGameDesktop> {
+  await page.setViewportSize(DESKTOP);
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForSelector(".announce", { timeout: 15_000 });
+  return { columns: await desktopColumns(page), pin: await ladderPin(page) };
+}
+
+/**
  * The showdown's promise: claimed and actual stand side by side, with the stamp
  * between the comparison and the verdict. Geometry only, so a mid-beat
  * animation frame cannot make it flaky — and the sides carry no text of their
@@ -624,6 +700,7 @@ async function playGame(page: Page, bots: ChildProcess): Promise<{ saw: Set<stri
   let rerenderSurvived: boolean | null = null;
   let reconnected = false;
   let sawAnnounceCut = false;
+  let midGameDesktopChecked = false;
   let sawSeatLayout = false;
   let miaVerdictChecked = false;
   const deadline = Date.now() + 12 * 60_000;
@@ -741,6 +818,34 @@ async function playGame(page: Page, bots: ChildProcess): Promise<{ saw: Set<stri
             pin.cut ? `${pin.cut.top}-${pin.cut.bottom}` : "none"
           } · cheapest ${pin.cheapest ? `${labelValue(pin.cheapest.value)} ${pin.cheapest.top}-${pin.cheapest.bottom}` : "none"}`,
         );
+      }
+      // Once, on the first announcing snapshot with a standing claim. The
+      // end-of-run desktop check only ever sees the finished screen — no
+      // ladder, no claim bubbles and the shortest `.actions` card — so it
+      // would stay green if the columns broke during play. The probe resizes
+      // to desktop, so restore the phone viewport before the game continues;
+      // the next snapshot repaints at 375px.
+      if (!midGameDesktopChecked && snap.standingValue !== null) {
+        midGameDesktopChecked = true;
+        const { columns, pin } = await midGameDesktop(page);
+        check(
+          "MIDGAME: desktop three columns while the ladder is up",
+          columns.sideBySide && columns.overlap === 0,
+          columns.detail,
+        );
+        const midOverflow = await overflow(page);
+        check("MIDGAME: no horizontal scroll on desktop", midOverflow === 0, `${midOverflow}px overflow`);
+        // The gate above admits only a standing claim, so a null cut here is a
+        // real failure: `pinLadder` cuts against the standing claim, and a
+        // round opener would not reach this probe at all.
+        const cutOnScreen = pin.cut !== null && pin.cut.top >= 0 && pin.cut.bottom <= pin.fold;
+        const cheapestOnScreen = pin.cheapest !== null && pin.cheapest.top >= 0 && pin.cheapest.bottom <= pin.fold;
+        check(
+          "MIDGAME: ladder cut on screen at desktop",
+          pin.scrollY === 0 && cutOnScreen && cheapestOnScreen,
+          JSON.stringify({ fold: pin.fold, cut: pin.cut, cheapest: pin.cheapest }),
+        );
+        await page.setViewportSize(PHONE);
       }
     }
     if (firstTime && snap.phase === "revealing") {
@@ -934,6 +1039,25 @@ async function main(): Promise<void> {
   await sleep(300);
   await shot(page, "11-wide-768");
   check("nothing collapses at 768px", (await overflow(page)) === 0, `${await overflow(page)}px overflow`);
+
+  // The 768px check above is below the 900px breakpoint, so it never reaches
+  // the three-column regime. This one is genuinely wide and pins the layout the
+  // breakpoint owns: controls, felt and log in three non-overlapping bands.
+  await page.setViewportSize(DESKTOP);
+  await sleep(300);
+  await shot(page, "13-wide-desktop");
+  const columns = await desktopColumns(page);
+  check(
+    "the desktop viewport lays the table out in three side-by-side columns",
+    columns.sideBySide && columns.overlap === 0,
+    columns.detail,
+  );
+  check(
+    "the desktop columns keep a real width",
+    columns.widths.length === 3 && columns.widths.every((width) => width > 100),
+    `${columns.widths.join(" / ")}px`,
+  );
+  check("no horizontal scroll at the desktop width", (await overflow(page)) === 0, `${await overflow(page)}px overflow`);
 
   section("Console");
   check("no console errors", consoleErrors.length === 0, consoleErrors.slice(0, 4).join(" | "));

@@ -97,6 +97,34 @@ and takes `MIA_UI_SEATS` to run a smaller table. The share-link step runs before
 the table is filled, because a fresh session cannot take the last seat of a full
 table — a separate, pre-existing bug (see `fix/full-table-join`).
 
+## Using the width on desktop
+
+Phone-first is the product decision, and the base stylesheet carries no width
+breakpoint: `#app` caps the page at `34rem`. Above about 900px that leaves
+two-thirds of the screen as felt-coloured wallpaper, so a
+`@media (min-width: 900px)` block turns the table page's `.page` into three
+columns — controls left, felt centre, table talk right.
+
+The mockup drew a persistent roster in the left column, but that predates the
+round table from #26: the roster *is* the ring inside `.table-card`, and there is
+no vertical roster here to bring back. The left column is the interactive
+`.actions` card instead — the ladder on an announcing turn, the roll/believe/
+doubt buttons otherwise — so the felt and the controls stay in one view on a
+laptop. The reveal from #29 is a `position: fixed` overlay, so it is out of the
+grid's flow and still takes the whole screen.
+
+The block is scoped with `:has(.table-card)` so the lobby and the waiting room
+keep their single centred column, and every rule in it is additive: without a
+`.table-card` the phone layout is unchanged. `pinLadder` measures the ladder
+box's own top against the fold, and placing the card at the top of a column
+(`position: static`, undoing the phone's sticky bottom edge) leaves that
+measurement anchored.
+
+The harness's 768px viewport is below the breakpoint, so it never reached this
+regime — the trap [testing.md](testing.md) names. `ui-check` now also measures
+at 1280px and asserts the controls, felt and log occupy three non-overlapping
+horizontal bands.
+
 ## The reveal as a showdown
 
 The reveal is staged as a full-screen showdown, not a sentence in a card. It
