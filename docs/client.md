@@ -120,6 +120,13 @@ box's own top against the fold, and placing the card at the top of a column
 (`position: static`, undoing the phone's sticky bottom edge) leaves that
 measurement anchored.
 
+`pinLadder` runs only from `paint()`, and there is no resize listener. A reader
+who loads at a given width gets a correct box on the first snapshot, but a
+viewport that changes without a repaint keeps the box it was last given. That
+matters mostly to anything driving the page: measuring straight after a
+`setViewportSize` reads the previous width's box and proves nothing about the new
+one. Reload, or wait for a snapshot, before believing the number.
+
 The harness's 768px viewport is below the breakpoint, so it never reached this
 regime — the trap [testing.md](testing.md) names. `ui-check` now also measures
 at 1280px and asserts the controls, felt and log occupy three non-overlapping

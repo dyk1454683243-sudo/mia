@@ -119,6 +119,27 @@ An assertion that cannot fail is not coverage, and the only way to tell the
 difference is to watch it fail once. The craft side of this is in
 [docs/testing.md](docs/testing.md).
 
+### Say what the screenshot shows
+
+A PR that changes what the screen looks like carries, in its body, **what the
+rendered screenshot shows at the moment that matters** — not that one was
+captured, and not that the harness was green.
+
+Pick the moment the change is about. For anything staged over time, that is
+mid-flight, not the settled end state: a showdown is worth describing at its
+first beat, a scroll pin at the position it starts from, a layout while the
+tall thing is on screen rather than after the game has finished.
+
+This rule has the same cause as the one above. The #29 showdown passed every
+assertion while striking the claimed value through in red from its first frame,
+giving away the verdict 2750ms before the stamp landed. Nothing was wrong with
+the tests: they pinned *that* claimed, actual and stamp appear, and the whole
+feature was about *when*. The bug was plain in the PR's own screenshot the
+moment anyone looked at it.
+
+Tests are bad at timing and appearance, and a screenshot is bad at nothing else.
+Reading it is the only step that catches this class.
+
 ### When you may merge
 
 Two cases, and no others.
