@@ -66,11 +66,28 @@ export const SHIP_NAMES: readonly string[] = [
   "Refreshingly Unconcerned",
 ];
 
-/** Pick a random ship name, avoiding names already taken. */
-export function pickShipName(taken: Iterable<string> = []): string {
-  const used = new Set(taken);
+export interface PickShipNameOptions {
+  /**
+   * Names that must not be returned while any other ship exists. Soft `taken`
+   * names may be reused once the free pool is empty; reserved names survive
+   * that fallback. A table's other seats go here so a reroll cannot seat two
+   * identical names.
+   */
+  reserved?: Iterable<string>;
+}
+
+/**
+ * Pick a random ship name, avoiding names already taken. `taken` is the recent
+ * pool — once it covers every ship we may reuse one. `reserved` is the hard
+ * set: another seat at this table, or the name you already have.
+ */
+export function pickShipName(taken: Iterable<string> = [], options: PickShipNameOptions = {}): string {
+  const reserved = new Set(options.reserved ?? []);
+  const used = new Set<string>([...taken, ...reserved]);
   const free = SHIP_NAMES.filter((name) => !used.has(name));
-  const pool = free.length > 0 ? free : SHIP_NAMES;
+  if (free.length > 0) return free[randomIndex(free.length)] ?? "Nameless Drone";
+  const notReserved = SHIP_NAMES.filter((name) => !reserved.has(name));
+  const pool = notReserved.length > 0 ? notReserved : SHIP_NAMES;
   return pool[randomIndex(pool.length)] ?? "Nameless Drone";
 }
 

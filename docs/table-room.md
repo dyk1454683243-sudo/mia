@@ -199,6 +199,30 @@ and `handleStart` still refuse `""`, but that check is unreachable by constructi
 a non-null state by the time they run. It is kept only as defence in depth, not as
 the thing that keeps a guessed-id result row out of D1.
 
+## Pre-game name reroll
+
+The display name lives on the session, not the seat. `handleConnect` copies
+`X-Mia-Name` onto a new seat and updates `existing.name` when a reconnecting
+player's session name has changed. A reroll that only wrote D1 would leave
+every other seat looking at the old name until that socket dropped.
+
+`reroll-name` is the message that reaches the room. It is legal only before
+the first deal (`round === 0`) and only for a seated player. The room draws
+with `pickShipName`, passing the other seats (and the name you already have)
+as **reserved** — the hard set that survives the "recent pool is full, reuse
+a name" fallback — then writes D1 first and `commit`s the new roster. D1
+first is what keeps a reconnect from restoring the old name; `commit` is what
+puts the new one on every other felt without a reload.
+
+The stamp is ignored, the way rematch ignores it. A reroll is not a move, and
+bumping `logSeq` here would start refusing a `start` decided against the
+previous snapshot. Socket attachments are updated in the same turn so a
+later reader of `deserializeAttachment` does not see the previous ship.
+
+A collision is a redraw, not two seats called the same thing. The unit tests
+on `pickShipName`'s reserved set are what pin that; the room's job is to
+pass the other seats in.
+
 ## The rematch
 
 A finished table is still single-use: `handleStart` refuses once a round has

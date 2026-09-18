@@ -262,6 +262,68 @@ a:focus-visible {
   color: var(--gold);
 }
 
+.me-card .reroll-btn {
+  width: 100%;
+  margin-top: 0.65rem;
+  min-height: 0;
+  padding: 0.45rem 0.7rem;
+}
+
+.you-are {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.7rem 0 0.35rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.reroll-line {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.reroll-line .you-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.reroll-line .you-name.rolling {
+  display: flex;
+  align-items: center;
+  min-height: 2rem;
+}
+
+.reroll-line .ghost {
+  flex-shrink: 0;
+  min-height: 0;
+  padding: 0.45rem 0.7rem;
+}
+
+.reroll-dice .die {
+  animation: reroll-tumble 400ms cubic-bezier(0.2, 0.8, 0.3, 1.15) both;
+}
+
+.reroll-dice .die:nth-child(2) {
+  animation-delay: 40ms;
+}
+
+@keyframes reroll-tumble {
+  0% { transform: rotate(-18deg) translateY(-8px) scale(0.92); opacity: 0.45; }
+  35% { transform: rotate(22deg) translateY(4px) scale(1.05); }
+  65% { transform: rotate(-10deg) translateY(-2px); }
+  100% { transform: rotate(0) translateY(0) scale(1); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reroll-dice .die {
+    animation: none;
+  }
+}
+
 ul {
   list-style: none;
   margin: 0;

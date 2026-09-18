@@ -29,7 +29,17 @@ const state: LobbyState = {
 };
 
 let editingName = false;
+let rerolling = false;
 let pollTimer: number | null = null;
+const REROLL_MS = 400;
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function rerollDiceHtml(): string {
+  return `<span class="dice reroll-dice" aria-hidden="true"><span class="die sm hidden">?</span><span class="die sm hidden">?</span></span>`;
+}
 
 function toast(message: string): void {
   state.error = message;
@@ -61,9 +71,10 @@ function renderMe(): string {
   return `<section class="card me-card">
     <p class="label">You are</p>
     <button class="name-button" data-action="edit-name" title="Tap to rename">
-      <span class="name">${escapeHtml(state.meName || "…")}</span>
+      <span class="name">${rerolling ? rerollDiceHtml() : escapeHtml(state.meName || "…")}</span>
       <span class="edit-hint">rename</span>
     </button>
+    <button class="ghost reroll-btn" data-action="reroll-name"${rerolling ? " disabled" : ""}>Reroll name</button>
   </section>`;
 }
 
@@ -177,6 +188,27 @@ async function refresh(): Promise<void> {
   render();
 }
 
+async function rerollName(): Promise<void> {
+  if (rerolling || editingName) return;
+  const reduce = prefersReducedMotion();
+  const started = performance.now();
+  if (!reduce) {
+    rerolling = true;
+    render();
+  }
+  try {
+    const me = await api.reroll();
+    state.meName = me.name;
+  } catch (error) {
+    toast(error instanceof Error ? error.message : "Could not reroll that name.");
+  }
+  const wait = reduce ? 0 : Math.max(0, REROLL_MS - (performance.now() - started));
+  window.setTimeout(() => {
+    rerolling = false;
+    render();
+  }, wait);
+}
+
 async function saveName(name: string): Promise<void> {
   try {
     const me = await api.rename(name);
@@ -214,6 +246,9 @@ app.addEventListener("click", (event) => {
       editingName = false;
       render();
       break;
+    case "reroll-name":
+      void rerollName();
+      break;
     case "toggle-history":
       state.historyOpen = !state.historyOpen;
       render();
@@ -243,7 +278,7 @@ async function boot(): Promise<void> {
   await refresh();
   if (pollTimer !== null) window.clearInterval(pollTimer);
   pollTimer = window.setInterval(() => {
-    if (!editingName) void refresh();
+    if (!editingName && !rerolling) void refresh();
   }, POLL_MS);
 }
 

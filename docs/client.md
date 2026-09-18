@@ -304,12 +304,39 @@ nodes and updates their text. Both pages separately wrap `innerHTML` assignment 
 a `paint` helper that saves and restores `window.scrollY`, so a server snapshot
 does not throw a scrolled phone back to the top.
 
+## Rerolling a name before the first deal
+
+Auto-names are Culture ships. Before the first deal a player can ask for
+another draw as many times as they like. The lookbook's *Reroll name* is the
+control; the typed rename on the lobby is still there for someone who wants
+to be Ada.
+
+On the waiting room the button lives in `renderWaiting`, above the roster.
+The client sends `reroll-name` and, unless `prefers-reduced-motion: reduce`,
+replaces the name with tumbling dice for 400ms so the new ship does not
+appear until they settle. `paint()` would otherwise wipe the animation on
+the snapshot that carries the new name, so the dice are a local clock
+(`rerollUntil`) consulted on every render, not a CSS class left on a node
+that is about to be thrown away. After the first deal the button is not
+drawn — `round > 0` is `renderPlay` — and the server refuses the message
+anyway.
+
+The lobby's button is the same delight on a page that has no socket: it
+`POST`s `/api/me` and runs the same 400ms dice. A poll that landed mid-tumble
+would restore the old name, so the interval skips while `rerolling` is set,
+the way it already skips an open rename field.
+
+The name is on the session. The waiting-room press has to reach the room, not
+just D1, or the other seats keep the previous ship until that socket drops.
+See [table-room.md](table-room.md).
+
 ## The lobby is deliberately dumber
 
 `client/src/lobby.ts` does not use a WebSocket. It polls `/api/tables` and
 `/api/history` every four seconds, refreshes when the tab becomes visible, and
-skips a poll while the rename field is open so it cannot overwrite what someone is
-typing. The lobby's data is low-frequency and a few seconds stale is fine; giving
+skips a poll while the rename field is open or a name is mid-reroll so it cannot
+overwrite what someone is typing or the dice still in the air. The lobby's data
+is low-frequency and a few seconds stale is fine; giving
 it a socket would mean a connection per idle browser sitting on the front page.
 
 The table list marks a full waiting table as a disabled button rather than a link.

@@ -160,6 +160,7 @@ async function verifyLobby(page: Page): Promise<void> {
   await page.waitForSelector(".me-card .name");
   const shipName = (await page.textContent(".me-card .name"))?.trim() ?? "";
   check("a ship name is shown", shipName.length > 3, shipName);
+  check("the lobby offers a name reroll", (await page.$('[data-action="reroll-name"]')) !== null);
   await shot(page, "01-lobby");
   check("no horizontal scroll at 375px", (await overflow(page)) === 0, `${await overflow(page)}px overflow`);
 
@@ -1129,6 +1130,25 @@ async function main(): Promise<void> {
   await page.waitForSelector(".room-card");
   await shot(page, "02-table-waiting");
   check("the waiting room shows the share control", (await page.$('[data-action="share"]')) !== null);
+  check("the waiting room offers a name reroll", (await page.$('[data-action="reroll-name"]')) !== null);
+
+  const youWere = ((await page.textContent("[data-you-name]")) ?? "").trim();
+  await page.click('[data-action="reroll-name"]');
+  await page.waitForSelector(".reroll-dice", { timeout: 2_000 });
+  await shot(page, "02c-name-reroll");
+  check("reroll shows tumbling dice before the new name lands", (await page.$(".reroll-dice")) !== null);
+  await page.waitForFunction(
+    (was) => {
+      const node = document.querySelector("[data-you-name]");
+      if (!node || node.classList.contains("rolling")) return false;
+      const now = (node.textContent ?? "").trim();
+      return now.length > 0 && now !== was;
+    },
+    youWere,
+    { timeout: 5_000 },
+  );
+  const youAre = ((await page.textContent("[data-you-name]")) ?? "").trim();
+  check("the waiting-room name changes after a reroll", youAre !== youWere && youAre.length > 3, `${youWere} → ${youAre}`);
 
   await verifyShare(page, context, browser, tableId);
   await verifyCreatorCanStart(browser);

@@ -150,10 +150,17 @@ The press itself is in [table-room.md](table-room.md).
 
 ## What reaches the browser
 
-The JSON API is small and read-mostly: `/api/me` (with `PATCH` to rename),
-`/api/tables`, `/api/tables/:id`, `/api/tables/:id/ws`, `/api/history`. Names and
+The JSON API is small and read-mostly: `/api/me` (`POST` draws another Culture
+ship name, `PATCH` submits one), `/api/tables`, `/api/tables/:id`,
+`/api/tables/:id/ws`, `/api/history`. Names and
 table names are trimmed, control characters stripped and length-checked in
 `validateName`; over-long or malformed input is a 400, a wrong method is a 405.
+`POST /api/me` is the drawn-name path: it calls `pickShipName` against the
+recent pool and reserves the current name so a reroll always lands on a
+different ship while any other one exists. That write reaches D1 only. A
+player already seated at a waiting table has to send `reroll-name` on the
+socket as well, or the room keeps the old name until the socket drops — see
+[table-room.md](table-room.md).
 The history endpoint clamps its `limit` query parameter. There is no endpoint that
 exposes another player's hidden dice, because dice live only in the Durable Object
 and leave it only through redaction.
