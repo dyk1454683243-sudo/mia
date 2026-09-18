@@ -702,6 +702,174 @@ async function showdownFrame(
   );
 }
 
+/**
+ * Rewrite a live-showdown clone into the typed double-Mia case so the pip
+ * checks and the mid-flight screenshot do not depend on the dice producing
+ * one. Runs in the page; keep it a single function so the three callers
+ * cannot drift.
+ */
+function thunderCloneSetup(): string {
+  return `({ clone, span, fraction }) => {
+    clone.classList.remove("caught", "believed");
+    clone.classList.add("mia", "thunder");
+    clone.style.pointerEvents = "none";
+    clone.style.setProperty("--showdown-elapsed", Math.round(span * fraction) + "ms");
+    const stamp = clone.querySelector(".showdown-stamp");
+    if (stamp) stamp.textContent = "MIA";
+    const claimed = clone.querySelector(".showdown-claimed .showdown-value");
+    if (claimed) {
+      claimed.textContent = "MIA";
+      claimed.classList.add("chip", "mia", "showdown-value");
+    }
+    const dice = clone.querySelector(".showdown-actual .dice");
+    if (dice) {
+      dice.innerHTML =
+        '<span class="die lg" role="img" aria-label="2"><i class="tl"></i><i class="br"></i></span>' +
+        '<span class="die lg" role="img" aria-label="1"><i class="c"></i></span>';
+    }
+    const verdict = clone.querySelector(".verdict");
+    if (verdict) {
+      verdict.classList.remove("caught");
+      verdict.classList.add("believed");
+      verdict.innerHTML =
+        "Bot 1 really had <b>MIA</b>, claimed <b>MIA</b>. Bot 2 doubted — loses 2 lives. Doubled — the Mia was real.";
+    }
+    const loss = clone.querySelector(".showdown-loss");
+    if (loss) {
+      loss.classList.add("thunder");
+      loss.classList.remove("out");
+      const toll = loss.querySelector("b");
+      if (toll) toll.textContent = "\\u22122";
+      const badge = loss.querySelector(".badge.out");
+      if (badge) badge.remove();
+      const pips = loss.querySelector(".pips");
+      if (pips) {
+        pips.innerHTML =
+          '<i class="pip on"></i><i class="pip on"></i><i class="pip on"></i><i class="pip on"></i>' +
+          '<i class="pip lost strike-1"></i><i class="pip lost strike-2 thunder"></i>';
+      }
+    }
+  }`;
+}
+
+/**
+ * The double-Mia pip deaths, sampled the same way as the verdict decoration:
+ * an off-screen clone of the live showdown, forced to the thunder register,
+ * with two vanished pips injected so the check does not depend on the dice
+ * producing a real Mia. A pip is "on" when its background is the danger red
+ * or the brass flash; "off" when it has settled to the spent-life grey.
+ *
+ * 50% is after the stamp and before either pip dies; 79% is the gap (first
+ * out, second still lit); 96% is both out. Those three frames are the
+ * property — two lives do not vanish as one.
+ */
+async function showdownThunderFrame(
+  page: Page,
+  fraction: number,
+): Promise<{ strike1On: boolean; strike2On: boolean; flashOpacity: number }> {
+  return await page.evaluate(
+    ({ fraction, setupSrc }) => {
+      const setup = new Function("return (" + setupSrc + ")")() as (args: {
+        clone: HTMLElement;
+        span: number;
+        fraction: number;
+      }) => void;
+      const live = document.querySelector<HTMLElement>(".showdown");
+      if (!live) throw new Error("no live showdown to sample");
+      const span = Number.parseFloat(live.style.getPropertyValue("--showdown-span")) || 0;
+      const clone = live.cloneNode(true) as HTMLElement;
+      setup({ clone, span, fraction });
+      clone.style.visibility = "hidden";
+      document.body.appendChild(clone);
+      void clone.offsetWidth;
+      const lit = (background: string) =>
+        background.includes("226, 104, 95") || background.includes("232, 196, 106");
+      const strike1 = clone.querySelector<HTMLElement>(".pip.lost.strike-1");
+      const strike2 = clone.querySelector<HTMLElement>(".pip.lost.strike-2");
+      const flash = getComputedStyle(clone, "::after");
+      const frame = {
+        strike1On: strike1 ? lit(getComputedStyle(strike1).backgroundColor) : false,
+        strike2On: strike2 ? lit(getComputedStyle(strike2).backgroundColor) : false,
+        flashOpacity: Number(flash.opacity),
+      };
+      clone.remove();
+      return frame;
+    },
+    { fraction, setupSrc: thunderCloneSetup() },
+  );
+}
+
+/** Mount a visible thunder clone at the 79% gap and screenshot it. */
+async function shotThunderGap(page: Page): Promise<void> {
+  const mounted = await page.evaluate((setupSrc) => {
+    const setup = new Function("return (" + setupSrc + ")")() as (args: {
+      clone: HTMLElement;
+      span: number;
+      fraction: number;
+    }) => void;
+    const live = document.querySelector<HTMLElement>(".showdown");
+    if (!live) return false;
+    const span = Number.parseFloat(live.style.getPropertyValue("--showdown-span")) || 0;
+    const clone = live.cloneNode(true) as HTMLElement;
+    setup({ clone, span, fraction: 0.79 });
+    clone.classList.add("showdown-thunder-shot");
+    clone.style.visibility = "visible";
+    clone.style.zIndex = "80";
+    document.body.appendChild(clone);
+    void clone.offsetWidth;
+    return true;
+  }, thunderCloneSetup());
+  if (mounted) {
+    await page.locator(".showdown-thunder-shot").screenshot({ path: `${OUT}/07b-double-mia-thunder.png` });
+    console.log(`  [shot] ${OUT}/07b-double-mia-thunder.png`);
+    await page.evaluate(() => document.querySelector(".showdown-thunder-shot")?.remove());
+  }
+}
+
+/**
+ * Under reduced motion the vanished pips are the settled (off) state from the
+ * first frame, and no thunder animation is declared. Emulate, sample fraction
+ * 0, restore — so the rest of the run keeps motion.
+ */
+async function showdownThunderReduced(
+  page: Page,
+): Promise<{ strike1On: boolean; strike2On: boolean; flashOpacity: number; animated: boolean }> {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  try {
+    return await page.evaluate((setupSrc) => {
+      const setup = new Function("return (" + setupSrc + ")")() as (args: {
+        clone: HTMLElement;
+        span: number;
+        fraction: number;
+      }) => void;
+      const live = document.querySelector<HTMLElement>(".showdown");
+      if (!live) throw new Error("no live showdown to sample");
+      const span = Number.parseFloat(live.style.getPropertyValue("--showdown-span")) || 0;
+      const clone = live.cloneNode(true) as HTMLElement;
+      setup({ clone, span, fraction: 0 });
+      clone.style.visibility = "hidden";
+      document.body.appendChild(clone);
+      void clone.offsetWidth;
+      const lit = (background: string) =>
+        background.includes("226, 104, 95") || background.includes("232, 196, 106");
+      const strike1 = clone.querySelector<HTMLElement>(".pip.lost.strike-1");
+      const strike2 = clone.querySelector<HTMLElement>(".pip.lost.strike-2");
+      const flash = getComputedStyle(clone, "::after");
+      const strike1Style = strike1 ? getComputedStyle(strike1) : null;
+      const frame = {
+        strike1On: strike1 ? lit(getComputedStyle(strike1).backgroundColor) : true,
+        strike2On: strike2 ? lit(getComputedStyle(strike2).backgroundColor) : true,
+        flashOpacity: Number(flash.opacity),
+        animated: (strike1Style?.animationName ?? "none") !== "none",
+      };
+      clone.remove();
+      return frame;
+    }, thunderCloneSetup());
+  } finally {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+  }
+}
+
 /** One browser move, chosen from what is actually on screen. */
 async function act(page: Page): Promise<string> {
   return await page.evaluate(() => {
@@ -911,6 +1079,20 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
       );
       const layout = await showdownLayout(page);
       check("claimed and actual stand side by side in the showdown", layout.sideBySide, layout.detail);
+      const lossPips = await page.evaluate(() => ({
+        lost: document.querySelectorAll(".showdown-loss .pip.lost").length,
+        thunder: document.querySelector(".showdown.thunder") !== null,
+      }));
+      check(
+        "the showdown marks the vanished pips on the loss row",
+        lossPips.lost >= 1,
+        `${lossPips.lost} lost pips`,
+      );
+      check(
+        "thunder class follows the typed MIA stamp, not a two-life guess",
+        (snap.stamp === "MIA") === lossPips.thunder,
+        `stamp=${snap.stamp} thunder=${lossPips.thunder}`,
+      );
       // The staging's whole value is *when* the verdict appears, and every
       // other check here only tests *that* it appears. Read the first and last
       // beat for each tone from an off-screen clone, so a tone rule that leaks
@@ -943,6 +1125,35 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
         "the showdown shows the verdict by beat 3",
         missing.length === 0,
         missing.join("; ") || "beat 3: stamp up and verdict decorated in all three tones",
+      );
+      // Two lives must not vanish as one. Sample the thunder pip deaths at
+      // three fractions of the same window: both still on after the stamp,
+      // the gap with only the first out, then both out. The clone is forced
+      // to thunder so a game that never rolled a real Mia still exercises it.
+      const beforePips = await showdownThunderFrame(page, 0.5);
+      const gapPips = await showdownThunderFrame(page, 0.79);
+      const afterPips = await showdownThunderFrame(page, 0.96);
+      check(
+        "double-Mia thunder keeps both pips lit until after the stamp",
+        beforePips.strike1On && beforePips.strike2On,
+        `50% strike-1=${beforePips.strike1On} strike-2=${beforePips.strike2On}`,
+      );
+      check(
+        "double-Mia thunder puts the first pip out before the second",
+        !gapPips.strike1On && gapPips.strike2On,
+        `79% strike-1=${gapPips.strike1On} strike-2=${gapPips.strike2On}`,
+      );
+      check(
+        "double-Mia thunder has both pips out by the end of the window",
+        !afterPips.strike1On && !afterPips.strike2On,
+        `96% strike-1=${afterPips.strike1On} strike-2=${afterPips.strike2On}`,
+      );
+      await shotThunderGap(page);
+      const reduced = await showdownThunderReduced(page);
+      check(
+        "double-Mia thunder is skipped under prefers-reduced-motion",
+        !reduced.strike1On && !reduced.strike2On && reduced.flashOpacity === 0 && !reduced.animated,
+        `strike-1=${reduced.strike1On} strike-2=${reduced.strike2On} flash=${reduced.flashOpacity} animated=${reduced.animated}`,
       );
     }
     // A Mia claim is the one roll where the verdict must read "MIA" and never

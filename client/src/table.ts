@@ -34,11 +34,14 @@ import {
 } from "../../src/shared/replay";
 import {
   showdownLoser,
+  showdownLoss,
   showdownSentence,
   showdownStamp,
+  showdownThunder,
   showdownTiming,
   showdownTone,
   showdownValue,
+  type ShowdownLoss,
 } from "../../src/shared/showdown";
 import { api, escapeHtml, TableSocket } from "./net";
 
@@ -63,6 +66,24 @@ function diceOf(player: MiaPlayer | undefined, size: "sm" | "lg" = "lg"): string
     return `<span class="dice"><span class="die ${size} hidden">?</span><span class="die ${size} hidden">?</span></span>`;
   }
   return `<span class="dice">${dieFace(player.dice[0], size)}${dieFace(player.dice[1], size)}</span>`;
+}
+
+function renderPipRow(lives: number): string {
+  return Array.from({ length: STARTING_LIVES }, (_, life) =>
+    life < lives ? '<i class="pip on"></i>' : '<i class="pip"></i>',
+  ).join("");
+}
+
+function renderLossPips(plan: ShowdownLoss): string {
+  return plan.pips
+    .map((pip) => {
+      if (pip.kind === "on") return '<i class="pip on"></i>';
+      if (pip.kind === "off") return '<i class="pip"></i>';
+      const strike = pip.strike === 2 ? " strike-2" : " strike-1";
+      const thunder = pip.thunder ? " thunder" : "";
+      return `<i class="pip lost${strike}${thunder}"></i>`;
+    })
+    .join("");
 }
 
 function valueChip(value: number, extra = ""): string {
@@ -110,6 +131,12 @@ function rolledDice(value: number): string {
  * `.reveal`, `.reveal-dice` and `.verdict` keep the exact meaning
  * `scripts/ui-check.ts` reads: their presence is the `revealing` phase, the
  * claim and the actual dice, and the factual one-liner.
+ *
+ * The loss pips are a fourth beat inside the same window. A single life
+ * snuffs after the stamp; a typed `double-mia` puts two pips out one after
+ * the other with weight between them. The class `.thunder` is
+ * `showdownThunder(reveal)` — `penaltyApplied === "double-mia"` — never
+ * `livesLost === 2`.
  */
 function renderShowdown(game: MiaState, view: StateView, reveal: DoubtReveal): string {
   const stamp = showdownStamp(reveal);
@@ -118,10 +145,10 @@ function renderShowdown(game: MiaState, view: StateView, reveal: DoubtReveal): s
   const timing = showdownTiming(game.turnStartedAt, game.deadlineAt, clock.now());
   const remaining = clock.secondsLeft(game.deadlineAt) ?? 0;
   const loserPlayer = playerById(game, loser.id);
-  const lives = Array.from(
-    { length: STARTING_LIVES },
-    (_, life) => (life < (loserPlayer?.lives ?? 0) ? '<i class="pip on"></i>' : '<i class="pip"></i>'),
-  ).join("");
+  const loss = showdownLoss(reveal, loserPlayer?.lives ?? 0);
+  const lives = renderLossPips(loss);
+  // The class keys off the typed penalty, not off `livesLost === 2`.
+  const thunder = showdownThunder(reveal);
   const living = game.players
     .filter((player) => !player.eliminated)
     .map(
@@ -131,15 +158,14 @@ function renderShowdown(game: MiaState, view: StateView, reveal: DoubtReveal): s
         )}</span>${escapeHtml(player.name)}</span>`,
     )
     .join("");
-  const next =
-    loserPlayer && !loserPlayer.eliminated
-      ? `${loser.name} starts the next round.`
-      : "The next player starts the next round.";
+  const next = loss.eliminated
+    ? `${loser.name} is out. The next player starts the next round.`
+    : `${loser.name} starts the next round.`;
   // The identity of this particular reveal, so a rebuilt subtree can be told
   // apart from a genuinely new one. `--showdown-elapsed` is what CSS actually
   // resumes from; the key is the stable handle on the same showdown.
   const key = `${reveal.announcerId}:${reveal.doubterId}:${reveal.announced}:${reveal.actual}:${game.round}`;
-  return `<section class="showdown reveal ${tone} beat-${timing.beat}${
+  return `<section class="showdown reveal ${tone}${thunder ? " thunder" : ""} beat-${timing.beat}${
     timing.done ? " done" : ""
   }" data-reveal-key="${escapeHtml(key)}" style="--showdown-span:${timing.span}ms;--showdown-elapsed:${timing.elapsed}ms">
     <div class="showdown-panel">
@@ -170,7 +196,13 @@ function renderShowdown(game: MiaState, view: StateView, reveal: DoubtReveal): s
         </div>
         <div class="showdown-stamp-wrap"><span class="showdown-stamp">${stamp}</span></div>
         ${verdictLine(reveal)}
-        <p class="showdown-loss"><b>−${loser.livesLost}</b> ${escapeHtml(loser.name)}<span class="pips">${lives}</span></p>
+        <p class="showdown-loss${thunder ? " thunder" : ""}${loss.eliminated ? " out" : ""}"><b>−${
+          loser.livesLost
+        }</b> ${escapeHtml(loser.name)}${
+          loss.eliminated ? '<span class="badge out">out</span>' : ""
+        }<span class="pips" aria-label="${loss.remaining} of ${STARTING_LIVES} lives${
+          thunder ? ", doubled Mia penalty" : ""
+        }${loss.eliminated ? ", out" : ""}">${lives}</span></p>
         <p class="showdown-next">${escapeHtml(next)}</p>
         <div class="showdown-still"><span class="label">Still in</span>${living}</div>
       </div>
@@ -312,6 +344,8 @@ function renderPlayers(game: MiaState, view: StateView): string {
   );
   const positions = seatPositions(players.length, viewerIndex);
   const claim = game.lastAnnouncement;
+  const reveal = game.phase === "revealing" ? (game.pendingDoubt ?? game.lastReveal) : null;
+  const loserId = reveal ? showdownLoser(reveal).id : null;
 
   const seats = players
     .map((player, index) => {
@@ -320,9 +354,9 @@ function renderPlayers(game: MiaState, view: StateView): string {
       const offline = !view.connected.includes(player.id);
       const isYou = player.id === view.you;
       const ownTurn = turn && isYou && countdown !== null;
-      const lives = Array.from({ length: STARTING_LIVES }, (_, life) =>
-        life < player.lives ? '<i class="pip on"></i>' : '<i class="pip"></i>',
-      ).join("");
+      const losing =
+        reveal !== null && loserId === player.id ? showdownLoss(reveal, player.lives) : null;
+      const lives = losing ? renderLossPips(losing) : renderPipRow(player.lives);
       const { x, y } = positions[index]!;
       // A bubble hangs on the claimant's chair, so a claim repeated round after
       // round is visible at their seat instead of remembered from the log.

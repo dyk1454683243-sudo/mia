@@ -160,6 +160,19 @@ neutral through beats 1 and 2. This is the point of the staging: the lean
 between the claim and the answer. `scripts/ui-check.ts` pins it by sampling the
 first and last beat for all three tones.
 
+A single life and a doubled Mia do not vanish the same way. The loss row's pips
+come from `showdownLoss` in `src/shared/showdown.ts`, which keys **thunder** off
+`penaltyApplied === "double-mia"` and never off `livesLost === 2`. After the
+stamp lands, still inside the server's reveal window, one pip snuffs; for
+thunder a second, heavier pip dies after a beat of weight, the `−2` tolls twice
+and a brass wash flashes with the second hit. `livesBefore` on the reveal is
+what lets a doubled charge that eliminates someone who had one life left
+extinguish one pip rather than invent a second — they are still out, the
+charge is still two, and the last pip is the heavier hit. None of this holds
+the round: the animations are fractions of `--showdown-span`, the same window
+the alarm already owns. Under `prefers-reduced-motion: reduce` the pips are
+simply off and the wash is not declared.
+
 `paint()` still replaces the whole DOM on every snapshot, and a snapshot can
 land mid-showdown (a connect or disconnect broadcast, or a toast). A plain CSS
 animation would restart from beat one in that rebuilt subtree. Instead the

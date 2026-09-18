@@ -10,9 +10,13 @@
  * it. `client/src/table.ts` turns this into CSS custom properties; the module
  * itself is pure so the `unit` project can pin it under plain Node (the browser
  * module queries `#app` at import and cannot be).
+ *
+ * The double-Mia pip plan lives here for the same reason: which pips go out,
+ * and whether that going-out is thunder, is a function of the typed
+ * `DoubtReveal` and the loser's remaining lives, not of a DOM walk.
  */
 import { escapeHtml } from "./html";
-import { formatValue, MIA, type DoubtReveal } from "./mia";
+import { formatValue, MIA, STARTING_LIVES, type DoubtReveal } from "./mia";
 
 /** Where the stamp's outcome comes from the engine's `DoubtReveal`. */
 export type ShowdownStamp = "BLUFF" | "TRUE" | "MIA";
@@ -112,6 +116,69 @@ export function showdownLoser(reveal: DoubtReveal): ShowdownLoser {
 /** A roll value as it should read in prose: `21` is "MIA", never "2·1". */
 export function showdownValue(value: number): string {
   return value === MIA ? "MIA" : formatValue(value);
+}
+
+/**
+ * The double-Mia theatre. True only for the engine's typed penalty — never
+ * inferred from `livesLost === 2`. A forged reveal that charges two under
+ * `penaltyApplied: "single"` is not thunder.
+ */
+export function showdownThunder(reveal: DoubtReveal): boolean {
+  return reveal.penaltyApplied === "double-mia";
+}
+
+export interface ShowdownLossPip {
+  kind: "on" | "lost" | "off";
+  /** Which strike this vanished pip is. 1 is first (or a single-life loss). */
+  strike?: 1 | 2;
+  /** The heavier hit: the second pip of a double charge, or the only pip when
+   *  one life was left to take. */
+  thunder?: boolean;
+}
+
+export interface ShowdownLoss {
+  thunder: boolean;
+  /** How many pips actually go from on to off. A doubled charge against one
+   *  remaining life only extinguishes one. */
+  vanished: number;
+  remaining: number;
+  eliminated: boolean;
+  pips: ShowdownLossPip[];
+}
+
+/**
+ * Which pips go out this reveal, and whether the going-out is thunder.
+ *
+ * `thunder` is `penaltyApplied === "double-mia"`. `vanished` is how many pips
+ * were actually on: `livesBefore` (written at the same moment as the
+ * subtraction) minus what remains, so a doubled penalty that eliminates
+ * someone who had one life left does not invent a second pip.
+ */
+export function showdownLoss(reveal: DoubtReveal, remainingLives: number): ShowdownLoss {
+  const thunder = showdownThunder(reveal);
+  const remaining = Math.max(0, remainingLives);
+  const before = reveal.livesBefore ?? remaining + reveal.livesLost;
+  const vanished = Math.max(
+    0,
+    Math.min(reveal.livesLost, before - remaining, STARTING_LIVES - remaining),
+  );
+  const pips: ShowdownLossPip[] = [];
+  for (let life = 0; life < STARTING_LIVES; life++) {
+    if (life < remaining) {
+      pips.push({ kind: "on" });
+      continue;
+    }
+    if (life < remaining + vanished) {
+      const index = life - remaining;
+      // One vanished pip under thunder is the second, heavier hit, so the
+      // first beat of −2 can land before the last life goes.
+      const strike: 1 | 2 = thunder && vanished === 1 ? 2 : index === 0 ? 1 : 2;
+      pips.push({ kind: "lost", strike, thunder: thunder && strike === 2 });
+      continue;
+    }
+    pips.push({ kind: "off" });
+  }
+  return { thunder, vanished, remaining, eliminated: remaining === 0, pips };
 }
 
 /**
