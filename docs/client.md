@@ -304,6 +304,39 @@ nodes and updates their text. Both pages separately wrap `innerHTML` assignment 
 a `paint` helper that saves and restores `window.scrollY`, so a server snapshot
 does not throw a scrolled phone back to the top.
 
+## Haptics on the turn, the doubt and the lost life
+
+Three vibrations, via `navigator.vibrate`, for events that happened to **you**:
+
+- one short tap when the cup reaches you;
+- a double when someone doubts you;
+- a longer buzz when you lose a life.
+
+They fire on the *transition* between snapshots, never on the state. `render`
+runs on every snapshot and a reconnect replays the current one, so a check
+written against "it is your turn" would buzz a phone for a life lost ten
+minutes ago. `src/shared/table-cues.ts` is the when: the first snapshot after
+a connect is a baseline, and a reconnect resets the tracker. Sound, when that
+item lands, reads the same module so the two cannot drift.
+
+Nothing fires for someone else's turn, someone else's doubt, or a spectator
+with no seat. A table-wide `reveal` cue exists so a later thud can play for
+everyone; haptics ignore it. A caught bluff emits `doubted` and `life-lost`
+together — `navigator.vibrate` replaces the current pattern, so the life is
+the one that plays.
+
+The default is **on**. `prefers-reduced-motion: reduce` is a hard no. The
+preference hook is `localStorage` key `mia_haptics`: only the literal `"off"`
+opts out, so a missing key, a typo, or a future toggle that has not been
+pressed cannot silence the phone. That is the opposite of sound, which is off
+unless the stored value is exactly `"on"`. There is no control in the top bar
+yet; the parse is the hook for one.
+
+`navigator.vibrate` is missing on iOS Safari and is a no-op elsewhere until
+the user has tapped. Every call goes through a feature-detect in
+`client/src/haptics.ts`. The patterns themselves live in `src/shared/haptics.ts`
+so the `unit` project can pin them without a browser.
+
 ## The lobby is deliberately dumber
 
 `client/src/lobby.ts` does not use a WebSocket. It polls `/api/tables` and

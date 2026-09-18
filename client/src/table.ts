@@ -1,6 +1,8 @@
 /**
  * Table page: one render function over the latest server snapshot.
  * All hidden-dice redaction happens server-side; this file only draws.
+ * Haptics fire from snapshot transitions in `table-cues.ts`, never from
+ * the state itself — a reconnect must not replay a life lost ten minutes ago.
  */
 import {
   finalStandings,
@@ -40,6 +42,8 @@ import {
   showdownTone,
   showdownValue,
 } from "../../src/shared/showdown";
+import { CueTracker } from "../../src/shared/table-cues";
+import { fireTableHaptics } from "./haptics";
 import { api, escapeHtml, TableSocket } from "./net";
 
 const PIPS: Record<number, string[]> = {
@@ -202,6 +206,8 @@ const state: PageState = { table: null, view: null, error: null, fatal: null, la
 /** Drift is captured when a snapshot lands, then reused for every tick. */
 const clock = new TurnClock();
 let socket: TableSocket | null = null;
+/** First snapshot after a connect is a baseline; a reconnect resets it. */
+const cueTracker = new CueTracker();
 
 function send(message: ClientMessage): void {
   // Stamp the snapshot this move was decided against. A move queued during a
@@ -844,8 +850,10 @@ async function boot(): Promise<void> {
   socket = new TableSocket(tableId, {
     onState: (view) => {
       clock.sync(view.serverTime);
+      const justHappened = cueTracker.observe(view.state, view.you);
       state.view = view;
       render();
+      fireTableHaptics(justHappened);
     },
     onError: (message, code) => {
       // "Table full" is terminal: there is no seat and no snapshot to wait for.
@@ -859,7 +867,10 @@ async function boot(): Promise<void> {
       }
       toast(message);
     },
-    onClose: () => render(),
+    onClose: () => {
+      cueTracker.reset();
+      render();
+    },
   });
   socket.connect();
   render();
