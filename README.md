@@ -242,6 +242,8 @@ src/shared/     pure TypeScript, no Cloudflare imports
   clock.ts        turn-countdown arithmetic (clock drift captured per snapshot)
   seat-positions.ts  round-table seat geometry (pure, no DOM)
   replay.ts       the endgame filmstrip and the per-player stat lines (pure)
+  table-cues.ts   snapshot transitions for optional sound (and later haptics)
+  sound-pref.ts   localStorage parse for the speaker toggle (default off)
   ships.ts        Culture ship-name pool for new players
 src/worker/
   index.ts        routes: assets, /t/:id, JSON API, WebSocket upgrade proxy
@@ -251,18 +253,22 @@ src/worker/
 client/
   index.html      lobby page
   table.html      table page (/t/:id serves this)
-  src/            lobby.ts, table.ts, net.ts, styles.css
+  src/            lobby.ts, table.ts, net.ts, styles.css, sound.ts, sound-ui.ts
+                  sounds/     cup-rattle, die-on-wood, reveal-thud (tiny WAVs)
 test/
   mia.test.ts     rules engine (node)
   clock.test.ts   countdown arithmetic (node)
   seat-positions.test.ts  round-table rotation (node)
   replay.test.ts  endgame filmstrip, stat lines and per-player tallies (node)
+  sound-pref.test.ts  speaker-toggle default-off parse (node)
+  table-cues.test.ts  delight transitions, including reconnect silence (node)
   room.test.ts    Durable Object + D1 + WebSockets (workerd)
 scripts/
   lib.ts          shared harness internals (client, strategy, HTTP)
   e2e.ts          protocol-level end-to-end checks
   bots.ts         seat bots at a table a human is playing at
   ui-check.ts     headless-browser verification and screenshots
+  generate-table-sounds.mjs  remake the three tiny WAV samples
 docs/             lower-level architecture and rationale (start at docs/README.md)
 wrangler.jsonc    Worker, assets, D1 and Durable Object bindings
 ```

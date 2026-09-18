@@ -1,6 +1,8 @@
 /**
  * Table page: one render function over the latest server snapshot.
  * All hidden-dice redaction happens server-side; this file only draws.
+ * Optional sound is a local preference: cues come from snapshot transitions
+ * in `table-cues.ts`, never from the server.
  */
 import {
   finalStandings,
@@ -40,7 +42,10 @@ import {
   showdownTone,
   showdownValue,
 } from "../../src/shared/showdown";
+import { CueTracker } from "../../src/shared/table-cues";
 import { api, escapeHtml, TableSocket } from "./net";
+import { tableSound } from "./sound";
+import { soundToggleHtml } from "./sound-ui";
 
 const PIPS: Record<number, string[]> = {
   1: ["c"],
@@ -202,6 +207,14 @@ const state: PageState = { table: null, view: null, error: null, fatal: null, la
 /** Drift is captured when a snapshot lands, then reused for every tick. */
 const clock = new TurnClock();
 let socket: TableSocket | null = null;
+/** First snapshot after a connect is a baseline; a reconnect resets it. */
+const cueTracker = new CueTracker();
+
+function renderTopbar(title: string | null, extra = ""): string {
+  return `<header class="topbar"><a class="brand" href="/">Mia</a>${
+    title !== null ? `<span class="table-title">${escapeHtml(title)}</span>` : ""
+  }${extra}${soundToggleHtml(tableSound.enabled())}</header>`;
+}
 
 function send(message: ClientMessage): void {
   // Stamp the snapshot this move was decided against. A move queued during a
@@ -745,9 +758,7 @@ function paint(html: string): void {
 function render(): void {
   const view = state.view;
   const title = state.table?.name ?? view?.state.tableName ?? "Table";
-  const topbar = `<header class="topbar"><a class="brand" href="/">Mia</a><span class="table-title">${escapeHtml(
-    title,
-  )}</span></header>`;
+  const topbar = renderTopbar(title);
 
   // A terminal refusal (a full table) outranks everything: there is no snapshot
   // coming, so "Connecting…" would be a lie the page told forever.
@@ -776,11 +787,10 @@ function render(): void {
   const started = view.state.round > 0;
   const over = view.state.gameOver !== null;
   paint(`
-    <header class="topbar">
-      <a class="brand" href="/">Mia</a>
-      <span class="table-title">${escapeHtml(title)}</span>
-      <span class="round">${over ? "Final" : started ? `Round ${view.state.round}` : "Lobby"}</span>
-    </header>
+    ${renderTopbar(
+      title,
+      `<span class="round">${over ? "Final" : started ? `Round ${view.state.round}` : "Lobby"}</span>`,
+    )}
     <main class="page">
       ${state.error ? `<p class="toast">${escapeHtml(state.error)}</p>` : ""}
       ${started ? renderPlay(view) : renderWaiting(view)}
@@ -818,6 +828,10 @@ app.addEventListener("click", (event) => {
     case "rematch":
       send({ type: "rematch" });
       break;
+    case "toggle-sound":
+      tableSound.setEnabled(!tableSound.enabled());
+      render();
+      break;
     default:
       break;
   }
@@ -832,7 +846,7 @@ async function boot(): Promise<void> {
     state.table = await api.table(tableId);
   } catch (error) {
     app.innerHTML = `
-      <header class="topbar"><a class="brand" href="/">Mia</a></header>
+      ${renderTopbar(null)}
       <main class="page"><section class="card">
         <h2>Table not found</h2>
         <p class="muted">${escapeHtml(error instanceof Error ? error.message : "Unknown table.")}</p>
@@ -844,8 +858,10 @@ async function boot(): Promise<void> {
   socket = new TableSocket(tableId, {
     onState: (view) => {
       clock.sync(view.serverTime);
+      const justHappened = cueTracker.observe(view.state, view.you);
       state.view = view;
       render();
+      tableSound.play(justHappened);
     },
     onError: (message, code) => {
       // "Table full" is terminal: there is no seat and no snapshot to wait for.
@@ -859,9 +875,16 @@ async function boot(): Promise<void> {
       }
       toast(message);
     },
-    onClose: () => render(),
+    onClose: () => {
+      cueTracker.reset();
+      render();
+    },
   });
   socket.connect();
+  if (tableSound.enabled()) {
+    tableSound.preload();
+    document.addEventListener("pointerdown", () => tableSound.unlockFromGesture(), { once: true, passive: true });
+  }
   render();
 }
 

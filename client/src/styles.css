@@ -83,6 +83,29 @@ body {
   color: var(--ink-dim);
 }
 
+.sound-toggle {
+  flex-shrink: 0;
+  width: var(--tap);
+  min-height: var(--tap);
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: none;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+
+.sound-toggle.on {
+  color: var(--gold);
+}
+
+.sound-icon {
+  width: 1.35rem;
+  height: 1.35rem;
+  display: block;
+}
+
 .page {
   display: flex;
   flex-direction: column;

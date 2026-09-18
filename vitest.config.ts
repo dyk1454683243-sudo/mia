@@ -21,6 +21,8 @@ export default defineConfig({
             "test/seat-positions.test.ts",
             "test/showdown.test.ts",
             "test/replay.test.ts",
+            "test/sound-pref.test.ts",
+            "test/table-cues.test.ts",
           ],
         },
       },

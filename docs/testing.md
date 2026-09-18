@@ -6,10 +6,11 @@ The suite runs in two different runtimes, and the split is the point.
 
 - **`unit`** runs in plain Node with no Workers runtime. It covers the pure rules
   engine, the clock arithmetic, the seat-limit constants, the round table's
-  seat geometry, the showdown's verdict and beat arithmetic and the endgame
-  replay's filmstrip and stat lines. These are the tests that can be reasoned
-  about from the code alone, and they run fast because there is no platform
-  underneath them.
+  seat geometry, the showdown's verdict and beat arithmetic, the endgame
+  replay's filmstrip and stat lines, the sound-preference parse, and the
+  snapshot transitions that fire the optional delights. These are the tests
+  that can be reasoned about from the code alone, and they run fast because
+  there is no platform underneath them.
 - **`workers`** runs inside `workerd` with a real D1 database and a real Durable
   Object. It covers the Durable Object and the HTTP API. These are the tests that
   need the actual storage and socket behavior, because a mock of a Durable Object
@@ -113,7 +114,9 @@ cover the assembled system, and they need a running `wrangler dev` (or a deploye
   produced. At the end it checks the finished screen's filmstrip, stats and
   rematch against the snapshot, and opens the rematch link in a second page to
   see the seeded lobby — the one place the rematch handoff is exercised with a
-  real browser and a real cookie.
+  real browser and a real cookie. The speaker toggle is checked on the waiting
+  room: default off, no `Audio` constructed until the press, three constructions
+  when it turns on, and the stored preference still on after a reload.
 - **`scripts/bots.ts`** fills the non-human seats so a person can play in a
   browser. It shares `scripts/lib.ts` with `e2e.ts`.
 
