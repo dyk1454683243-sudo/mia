@@ -23,6 +23,7 @@ import {
 import type { ClientMessage, StateView, TableSummary } from "../../src/shared/protocol";
 import { TurnClock } from "../../src/shared/clock";
 import { seatPositions } from "../../src/shared/seat-positions";
+import { seatIsThinking } from "../../src/shared/thinking";
 import {
   frameLabel,
   lastRoundFilmstrip,
@@ -300,8 +301,9 @@ function initialsOf(name: string): string {
  * The DOM keeps the contract the harness relies on — each seat is a `.player`
  * with `.name` (and `.name em` for the viewer), `.player-dice` only when the
  * snapshot actually carries dice, a `.badge.cup`, the `turn`/`out` classes on
- * the seat, and one `.pip.on` per life. The claim is a text speech bubble on the
- * seat that made it, never dice, so the secrecy rule is untouched.
+ * the seat, one `.pip.on` per life, and a `.thinking` ellipsis on the active
+ * connected seat only. The claim is a text speech bubble on the seat that made
+ * it, never dice, so the secrecy rule is untouched.
  */
 function renderPlayers(game: MiaState, view: StateView): string {
   const countdown = clock.secondsLeft(game.deadlineAt);
@@ -320,6 +322,11 @@ function renderPlayers(game: MiaState, view: StateView): string {
       const offline = !view.connected.includes(player.id);
       const isYou = player.id === view.you;
       const ownTurn = turn && isYou && countdown !== null;
+      // Client-only: `turnPlayerId` is already on the snapshot. An offline seat
+      // on its own turn reads as offline, not as thinking — a stalled phone and
+      // a long think have to look different, and the ellipsis is not a badge so
+      // it cannot sit next to `offline` and argue with it.
+      const thinking = seatIsThinking({ turn, offline, eliminated: player.eliminated });
       const lives = Array.from({ length: STARTING_LIVES }, (_, life) =>
         life < player.lives ? '<i class="pip on"></i>' : '<i class="pip"></i>',
       ).join("");
@@ -332,6 +339,7 @@ function renderPlayers(game: MiaState, view: StateView): string {
       }" data-player-id="${escapeHtml(player.id)}" style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%">
         <span class="avatar" aria-hidden="true">${escapeHtml(initialsOf(player.name))}</span>
         <span class="name">${escapeHtml(player.name)}${isYou ? " <em>(you)</em>" : ""}</span>
+        ${thinking ? '<span class="thinking" aria-hidden="true"><i></i><i></i><i></i></span>' : ""}
         <span class="tag-row">
           ${player.eliminated ? '<span class="badge out">out</span>' : ""}
           ${cup ? '<span class="badge cup">cup</span>' : ""}

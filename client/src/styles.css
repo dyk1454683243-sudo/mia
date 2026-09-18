@@ -458,6 +458,46 @@ ul {
   text-overflow: ellipsis;
 }
 
+/* The inhabited-table tell: someone is on the clock. Three dots under the
+ * name, not a badge — the offline badge has to stay the only word when a
+ * phone has dropped. Animation is declared only when motion is welcome;
+ * under reduce the dots just sit there, which the issue called fine. */
+.player .thinking {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.18rem;
+  height: 0.4rem;
+}
+
+.player .thinking i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--gold);
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .player .thinking i {
+    opacity: 0.22;
+    animation: thinking 1.15s ease-in-out infinite;
+  }
+
+  .player .thinking i:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+
+  .player .thinking i:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+}
+
+@keyframes thinking {
+  0%, 70%, 100% { opacity: 0.22; transform: translateY(0); }
+  35% { opacity: 1; transform: translateY(-1.5px); }
+}
+
 .player .tag-row {
   display: flex;
   flex-wrap: wrap;

@@ -40,8 +40,9 @@ the viewer at index 0, so the centring term is dead code in every run.
 The rearrangement is visual only. The seats are still one semantic `<ul>` of
 `.player` items, each keeping the contract the harness reads — `.name` (with
 `.name em` marking the viewer), `.player-dice` only when the snapshot actually
-carries dice, a `.badge.cup`, the `turn`/`out` classes on the seat, and one
-`.pip.on` per life plus the lives `aria-label`. What changed is that the standing
+carries dice, a `.badge.cup`, the `turn`/`out` classes on the seat, a
+`.thinking` ellipsis on the active connected seat, and one `.pip.on` per life
+plus the lives `aria-label`. What changed is that the standing
 claim now lives in the centre inside the same `.standing` the page-level reads
 use, and a claim is a text speech bubble pinned to the claimant's chair rather
 than a row in a list. The bubble is never a die, so the secrecy invariant is
@@ -57,6 +58,17 @@ replacing it.
 Eliminated players keep their chair and are greyed; the roster is every seat, not
 the survivors. Turn, cup and elimination are carried by words on badges as well as
 colour and opacity, never by colour alone.
+
+The active seat also carries a thinking ellipsis under the name — three gold
+dots, animated only when motion is welcome. It is client-only: the seat already
+has the `turn` class and `game.turnPlayerId` is on every snapshot, so nothing
+new goes on the wire. `seatIsThinking` in `src/shared/thinking.ts` is the
+predicate (turn, not offline, not eliminated) so the `unit` project can pin the
+offline exclusion; an offline seat on its own turn reads as offline, not as a
+long think, and the ellipsis is not a badge so it cannot sit next to that word
+and argue with it. Under `prefers-reduced-motion` the dots stay put. The
+ellipsis is `aria-hidden`: the `turn` badge is still the word that names the
+state.
 
 ## The announce ladder
 
