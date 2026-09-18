@@ -59,8 +59,9 @@ Eliminated players keep their chair and are greyed; the roster is every seat, no
 the survivors. Turn, cup and elimination are carried by words on badges as well as
 colour and opacity, never by colour alone.
 
-The active seat also carries a thinking ellipsis under the name — three gold
-dots, animated only when motion is welcome. It is client-only: the seat already
+The active seat also carries a thinking ellipsis under the name — three cream
+middots, animated only when motion is welcome. They are cream rather than gold
+so they do not vanish into the turn highlight. It is client-only: the seat already
 has the `turn` class and `game.turnPlayerId` is on every snapshot, so nothing
 new goes on the wire. `seatIsThinking` in `src/shared/thinking.ts` is the
 predicate (turn, not offline, not eliminated) so the `unit` project can pin the
