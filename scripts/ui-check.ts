@@ -703,6 +703,56 @@ async function showdownFrame(
 }
 
 /**
+ * Rewrite a live-showdown clone into the typed double-Mia case so the pip
+ * checks and the mid-flight screenshot do not depend on the dice producing
+ * one. Runs in the page; keep it a single function so the three callers
+ * cannot drift.
+ */
+function thunderCloneSetup(): string {
+  return `({ clone, span, fraction }) => {
+    clone.classList.remove("caught", "believed");
+    clone.classList.add("mia", "thunder");
+    clone.style.pointerEvents = "none";
+    clone.style.setProperty("--showdown-elapsed", Math.round(span * fraction) + "ms");
+    const stamp = clone.querySelector(".showdown-stamp");
+    if (stamp) stamp.textContent = "MIA";
+    const claimed = clone.querySelector(".showdown-claimed .showdown-value");
+    if (claimed) {
+      claimed.textContent = "MIA";
+      claimed.classList.add("chip", "mia", "showdown-value");
+    }
+    const dice = clone.querySelector(".showdown-actual .dice");
+    if (dice) {
+      dice.innerHTML =
+        '<span class="die lg" role="img" aria-label="2"><i class="tl"></i><i class="br"></i></span>' +
+        '<span class="die lg" role="img" aria-label="1"><i class="c"></i></span>';
+    }
+    const verdict = clone.querySelector(".verdict");
+    if (verdict) {
+      verdict.classList.remove("caught");
+      verdict.classList.add("believed");
+      verdict.innerHTML =
+        "Bot 1 really had <b>MIA</b>, claimed <b>MIA</b>. Bot 2 doubted — loses 2 lives. Doubled — the Mia was real.";
+    }
+    const loss = clone.querySelector(".showdown-loss");
+    if (loss) {
+      loss.classList.add("thunder");
+      loss.classList.remove("out");
+      const toll = loss.querySelector("b");
+      if (toll) toll.textContent = "\\u22122";
+      const badge = loss.querySelector(".badge.out");
+      if (badge) badge.remove();
+      const pips = loss.querySelector(".pips");
+      if (pips) {
+        pips.innerHTML =
+          '<i class="pip on"></i><i class="pip on"></i><i class="pip on"></i><i class="pip on"></i>' +
+          '<i class="pip lost strike-1"></i><i class="pip lost strike-2 thunder"></i>';
+      }
+    }
+  }`;
+}
+
+/**
  * The double-Mia pip deaths, sampled the same way as the verdict decoration:
  * an off-screen clone of the live showdown, forced to the thunder register,
  * with two vanished pips injected so the check does not depend on the dice
@@ -717,74 +767,58 @@ async function showdownThunderFrame(
   page: Page,
   fraction: number,
 ): Promise<{ strike1On: boolean; strike2On: boolean; flashOpacity: number }> {
-  return await page.evaluate((fraction) => {
-    const live = document.querySelector<HTMLElement>(".showdown");
-    if (!live) throw new Error("no live showdown to sample");
-    const span = Number.parseFloat(live.style.getPropertyValue("--showdown-span")) || 0;
-    const clone = live.cloneNode(true) as HTMLElement;
-    clone.classList.remove("caught", "believed");
-    clone.classList.add("mia", "thunder");
-    clone.style.visibility = "hidden";
-    clone.style.pointerEvents = "none";
-    clone.style.setProperty("--showdown-elapsed", `${Math.round(span * fraction)}ms`);
-    const loss = clone.querySelector(".showdown-loss");
-    if (loss) {
-      loss.classList.add("thunder");
-      const pips = loss.querySelector(".pips");
-      if (pips) {
-        pips.innerHTML =
-          '<i class="pip on"></i><i class="pip on"></i><i class="pip on"></i><i class="pip on"></i>' +
-          '<i class="pip lost strike-1"></i><i class="pip lost strike-2 thunder"></i>';
-      }
-      const toll = loss.querySelector("b");
-      if (toll) toll.textContent = "−2";
-    }
-    document.body.appendChild(clone);
-    void clone.offsetWidth;
-    const lit = (background: string) =>
-      background.includes("226, 104, 95") || background.includes("232, 196, 106");
-    const strike1 = clone.querySelector<HTMLElement>(".pip.lost.strike-1");
-    const strike2 = clone.querySelector<HTMLElement>(".pip.lost.strike-2");
-    const flash = getComputedStyle(clone, "::after");
-    const frame = {
-      strike1On: strike1 ? lit(getComputedStyle(strike1).backgroundColor) : false,
-      strike2On: strike2 ? lit(getComputedStyle(strike2).backgroundColor) : false,
-      flashOpacity: Number(flash.opacity),
-    };
-    clone.remove();
-    return frame;
-  }, fraction);
+  return await page.evaluate(
+    ({ fraction, setupSrc }) => {
+      const setup = new Function("return (" + setupSrc + ")")() as (args: {
+        clone: HTMLElement;
+        span: number;
+        fraction: number;
+      }) => void;
+      const live = document.querySelector<HTMLElement>(".showdown");
+      if (!live) throw new Error("no live showdown to sample");
+      const span = Number.parseFloat(live.style.getPropertyValue("--showdown-span")) || 0;
+      const clone = live.cloneNode(true) as HTMLElement;
+      setup({ clone, span, fraction });
+      clone.style.visibility = "hidden";
+      document.body.appendChild(clone);
+      void clone.offsetWidth;
+      const lit = (background: string) =>
+        background.includes("226, 104, 95") || background.includes("232, 196, 106");
+      const strike1 = clone.querySelector<HTMLElement>(".pip.lost.strike-1");
+      const strike2 = clone.querySelector<HTMLElement>(".pip.lost.strike-2");
+      const flash = getComputedStyle(clone, "::after");
+      const frame = {
+        strike1On: strike1 ? lit(getComputedStyle(strike1).backgroundColor) : false,
+        strike2On: strike2 ? lit(getComputedStyle(strike2).backgroundColor) : false,
+        flashOpacity: Number(flash.opacity),
+      };
+      clone.remove();
+      return frame;
+    },
+    { fraction, setupSrc: thunderCloneSetup() },
+  );
 }
 
 /** Mount a visible thunder clone at the 79% gap and screenshot it. */
 async function shotThunderGap(page: Page): Promise<void> {
-  const mounted = await page.evaluate(() => {
+  const mounted = await page.evaluate((setupSrc) => {
+    const setup = new Function("return (" + setupSrc + ")")() as (args: {
+      clone: HTMLElement;
+      span: number;
+      fraction: number;
+    }) => void;
     const live = document.querySelector<HTMLElement>(".showdown");
     if (!live) return false;
     const span = Number.parseFloat(live.style.getPropertyValue("--showdown-span")) || 0;
     const clone = live.cloneNode(true) as HTMLElement;
-    clone.classList.remove("caught", "believed");
-    clone.classList.add("mia", "thunder", "showdown-thunder-shot");
+    setup({ clone, span, fraction: 0.79 });
+    clone.classList.add("showdown-thunder-shot");
     clone.style.visibility = "visible";
-    clone.style.pointerEvents = "none";
     clone.style.zIndex = "80";
-    clone.style.setProperty("--showdown-elapsed", `${Math.round(span * 0.79)}ms`);
-    const loss = clone.querySelector(".showdown-loss");
-    if (loss) {
-      loss.classList.add("thunder");
-      const pips = loss.querySelector(".pips");
-      if (pips) {
-        pips.innerHTML =
-          '<i class="pip on"></i><i class="pip on"></i><i class="pip on"></i><i class="pip on"></i>' +
-          '<i class="pip lost strike-1"></i><i class="pip lost strike-2 thunder"></i>';
-      }
-      const toll = loss.querySelector("b");
-      if (toll) toll.textContent = "−2";
-    }
     document.body.appendChild(clone);
     void clone.offsetWidth;
     return true;
-  });
+  }, thunderCloneSetup());
   if (mounted) {
     await page.locator(".showdown-thunder-shot").screenshot({ path: `${OUT}/07b-double-mia-thunder.png` });
     console.log(`  [shot] ${OUT}/07b-double-mia-thunder.png`);
@@ -802,24 +836,18 @@ async function showdownThunderReduced(
 ): Promise<{ strike1On: boolean; strike2On: boolean; flashOpacity: number; animated: boolean }> {
   await page.emulateMedia({ reducedMotion: "reduce" });
   try {
-    return await page.evaluate(() => {
+    return await page.evaluate((setupSrc) => {
+      const setup = new Function("return (" + setupSrc + ")")() as (args: {
+        clone: HTMLElement;
+        span: number;
+        fraction: number;
+      }) => void;
       const live = document.querySelector<HTMLElement>(".showdown");
       if (!live) throw new Error("no live showdown to sample");
+      const span = Number.parseFloat(live.style.getPropertyValue("--showdown-span")) || 0;
       const clone = live.cloneNode(true) as HTMLElement;
-      clone.classList.remove("caught", "believed");
-      clone.classList.add("mia", "thunder");
+      setup({ clone, span, fraction: 0 });
       clone.style.visibility = "hidden";
-      clone.style.pointerEvents = "none";
-      clone.style.setProperty("--showdown-elapsed", "0ms");
-      const loss = clone.querySelector(".showdown-loss");
-      if (loss) {
-        const pips = loss.querySelector(".pips");
-        if (pips) {
-          pips.innerHTML =
-            '<i class="pip on"></i><i class="pip on"></i><i class="pip on"></i><i class="pip on"></i>' +
-            '<i class="pip lost strike-1"></i><i class="pip lost strike-2 thunder"></i>';
-        }
-      }
       document.body.appendChild(clone);
       void clone.offsetWidth;
       const lit = (background: string) =>
@@ -836,7 +864,7 @@ async function showdownThunderReduced(
       };
       clone.remove();
       return frame;
-    });
+    }, thunderCloneSetup());
   } finally {
     await page.emulateMedia({ reducedMotion: "no-preference" });
   }
