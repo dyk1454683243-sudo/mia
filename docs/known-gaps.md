@@ -42,10 +42,11 @@ decision to change the product:
 
 ## Behaviors that are allowed rather than blocked
 
-- **A late joiner stays connected and watches.** Joining a started game sends an
-  error and the current snapshot, but the socket is not closed, so the player
-  keeps receiving broadcasts as a spectator. The behavior is intentional; the
-  error now tells them they are watching rather than leaving them to guess.
+- **A late joiner stays connected and watches.** Joining a started game does not
+  seat the player: the socket is marked a spectator and receives the current
+  snapshot with `spectator: true`. The behavior is intentional, and the protocol
+  now carries it as a state rather than as an error, which is what the spectator
+  screen (#54) renders from.
 - **A pre-game table with no creator connected can be started by anyone seated.**
   This is the abandoned-host case: refusing would brick the table. The creator,
   while present, is still the only one who may start.

@@ -2,12 +2,14 @@
  * Forged-header regression for the table WebSocket upgrade.
  *
  * The Worker is the only party allowed to say who a socket is: before it
- * forwards the upgrade it overwrites five `X-Mia-*` headers with values derived
+ * forwards the upgrade it overwrites six `X-Mia-*` headers with values derived
  * from the signed session cookie and the D1 `tables` row. `Headers.set` replaces
  * a client-supplied value; `Headers.append` would preserve it, and the Durable
  * Object has no way to tell a forwarded header from a client-supplied one. This
- * drives the real Worker entrypoint with all five headers forged and reads the
- * state the Durable Object actually built. See issue #24.
+ * drives the real Worker entrypoint with all six headers forged and reads the
+ * state the Durable Object actually built. `X-Mia-Spectator` cannot escalate —
+ * it only ever drops a seat — but the object still hears the Worker's value, not
+ * the client's copy. See issue #24 and #45.
  */
 import { env, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -66,6 +68,9 @@ describe("forged X-Mia-* headers on the table upgrade", () => {
         "X-Mia-Table-Name": encodeURIComponent("Forged Table"),
         "X-Mia-Table-Id": "forged-table-id",
         "X-Mia-Host-Id": "forged-host-id",
+        // No `?watch=1` on the URL, so the canonical value is "0": a forged
+        // spectator header must not stop this socket from being seated.
+        "X-Mia-Spectator": "1",
       },
     });
     expect(response.status).toBe(101);

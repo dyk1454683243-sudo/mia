@@ -78,13 +78,16 @@ It also does two things people forget it does:
 
 - **The upgrade is where authority is attached.** The Worker looks up the D1
   `tables` row, then overwrites `X-Mia-Player`, `X-Mia-Name`, `X-Mia-Table-Name`,
-  `X-Mia-Table-Id` and `X-Mia-Host-Id` on the forwarded request. A client cannot
-  forge any of them because the Worker uses `set`, not `append`: a client-supplied
-  value is replaced rather than joined by a second one. `test/headers.test.ts`
-  drives the real Worker with all five forged and asserts the Durable Object still
-  sees the cookie's player and the table's D1 record. Any future header the
-  Durable Object trusts must be added to this list, because the object itself has
-  no way to tell a forwarded header from a client-supplied one.
+  `X-Mia-Table-Id`, `X-Mia-Host-Id` and `X-Mia-Spectator` on the forwarded
+  request. A client cannot forge any of them because the Worker uses `set`, not
+  `append`: a client-supplied value is replaced rather than joined by a second
+  one. The spectator header is not authority — it only ever drops a seat — and it
+  is derived from the `?watch=1` query so the object still hears only what the
+  Worker says. `test/headers.test.ts` drives the real Worker with all six forged
+  and asserts the Durable Object still sees the cookie's player and the table's
+  D1 record. Any future header the Durable Object trusts must be added to this
+  list, because the object itself has no way to tell a forwarded header from a
+  client-supplied one.
 - **Cross-site writes are rejected before routing.** A non-GET request whose
   `Sec-Fetch-Site` header is neither `same-origin` nor `none` gets a 403. That is
   cheap CSRF cover for the demo; it does not protect against a non-browser

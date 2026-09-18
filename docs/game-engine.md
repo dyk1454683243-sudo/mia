@@ -200,3 +200,9 @@ because it forgot.
 
 `visibilityFor` and `redactState` are exported separately so the visibility rule
 can be reasoned about without building a whole view.
+
+A spectator is not a special case here. A watching socket is redacted for a
+viewer id that matches no player, so `visibilityFor` grants it no own dice while
+the reveal still shows the doubted pair in `revealing`/`finished`. It reuses this
+one boundary rather than adding a second way to build a view, which is what keeps
+the boundary from drifting.

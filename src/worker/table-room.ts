@@ -75,10 +75,24 @@ const EMPTY_TABLE_TTL_MS = 60 * 60 * 1000;
  * loop. Nudging forward breaks the cycle while still waking promptly.
  */
 const MIN_ALARM_DELAY_MS = 1_000;
+/**
+ * The viewer id a spectator's snapshot is redacted for. It matches no player, so
+ * the one shared `visibilityFor` rule grants it no own dice even when the
+ * spectator's session happens to be a seated player's. There is deliberately no
+ * second redaction path: a spectator is just a viewer who is never the cup
+ * holder.
+ */
+const SPECTATOR_VIEWER = "";
 
 interface SocketAttachment {
   playerId: string;
   name: string;
+  /**
+   * True when this socket holds no seat: it asked to watch, or it arrived after
+   * the game had started. Spectators are redacted to the public view, do not
+   * appear in `connected`, and do not count as occupancy for reaping.
+   */
+  spectator: boolean;
 }
 
 type RoomStatus = "waiting" | "playing" | "finished" | "abandoned";
@@ -168,15 +182,17 @@ export class TableRoom extends DurableObject<Env> {
     // ...and the table's creator, from the D1 row, so "who starts" never depends
     // on which socket happened to arrive first.
     const hostId = request.headers.get("X-Mia-Host-Id") || null;
+    // The explicit watching intent, canonicalized by the Worker from `?watch=1`.
+    const spectator = request.headers.get("X-Mia-Spectator") === "1";
 
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
     // Hibernation: both the socket and its tag survive eviction.
     this.ctx.acceptWebSocket(server, [playerId]);
-    server.serializeAttachment({ playerId, name: playerName } satisfies SocketAttachment);
+    server.serializeAttachment({ playerId, name: playerName, spectator } satisfies SocketAttachment);
 
-    await this.handleConnect(server, playerId, playerName, tableName, tableId, hostId);
+    await this.handleConnect(server, playerId, playerName, tableName, tableId, hostId, spectator);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -187,12 +203,28 @@ export class TableRoom extends DurableObject<Env> {
     tableName: string,
     tableId: string,
     hostId: string | null,
+    spectator: boolean,
   ): Promise<void> {
+    const state = this.state;
+
+    // Two kinds of socket never take a seat, and neither may count as occupancy:
+    // one that asked to watch, and one that arrived after the game had started.
+    // The second is the de-facto watcher the lobby's Watch link already leads to;
+    // it is now a state the protocol expresses rather than an error.
+    if (spectator || (state !== null && state.round > 0 && !playerById(state, playerId))) {
+      this.markSpectator(socket, playerId, name);
+      this.sendSpectatorSnapshot(socket, playerId);
+      // Explicitly *not* `clearEmptySince` and *not* resetting `stagnantWakes`:
+      // a TV left on must not hold a reaped table open, and it is not new
+      // information about the game.
+      await this.ensureAlarm();
+      return;
+    }
+
     await this.clearEmptySince();
     // A connection is fresh information: give a room that had stopped re-arming
     // another chance to make progress.
     this.stagnantWakes = 0;
-    const state = this.state;
 
     if (state === null) {
       // No game yet: this is a lobby seat. The roster lives in the DO so a
@@ -224,15 +256,6 @@ export class TableRoom extends DurableObject<Env> {
 
     const existing = playerById(next, playerId);
     if (!existing) {
-      if (next.round > 0) {
-        this.sendTo(playerId, {
-          type: "error",
-          message: "That game already started, so you are watching. Ask for a new table to play.",
-        });
-        const view = this.redactedFor(playerId);
-        if (view) this.sendTo(playerId, view);
-        return;
-      }
       if (next.players.length >= MAX_PLAYERS) {
         this.rejectJoin(socket, "table-full", `That table is full (${MAX_PLAYERS} players).`);
         return;
@@ -257,6 +280,17 @@ export class TableRoom extends DurableObject<Env> {
     await this.commit(next);
     await this.syncTableRow();
     await this.ensureAlarm();
+  }
+
+  /** Re-tag a socket that does not hold a seat, so every reader agrees it is a spectator. */
+  private markSpectator(socket: WebSocket, playerId: string, name: string): void {
+    socket.serializeAttachment({ playerId, name, spectator: true } satisfies SocketAttachment);
+  }
+
+  /** Push one public-view snapshot to a spectator, if there is any state to send. */
+  private sendSpectatorSnapshot(socket: WebSocket, playerId: string): void {
+    const view = this.redactedFor(playerId, true);
+    if (view) this.send(socket, view);
   }
 
   /**
@@ -354,9 +388,18 @@ export class TableRoom extends DurableObject<Env> {
       this.send(ws, { type: "error", message: "Malformed message." });
       return;
     }
+    // A spectator holds no seat, so no game action is theirs to take. Refusing
+    // here keeps the `redactedFor(playerId)` in the error paths from ever being
+    // built for a session that also happens to be seated, and it means the
+    // seated check in `handleStart` is defence in depth rather than the only
+    // thing stopping a watcher from starting the game.
+    if (attachment.spectator === true && parsed.type !== "ping") {
+      this.send(ws, { type: "error", message: "Spectators cannot act at this table." });
+      return;
+    }
 
     try {
-      await this.handleMessage(attachment.playerId, parsed);
+      await this.handleMessage(attachment.playerId, parsed, attachment.spectator === true);
     } catch (error) {
       this.send(ws, { type: "error", message: `Server error: ${describe(error)}` });
     }
@@ -394,10 +437,12 @@ export class TableRoom extends DurableObject<Env> {
     await this.ensureAlarm();
   }
 
-  /** True when `playerId` still has a live socket other than the one closing. */
+  /** True when `playerId` still has a live *player* socket other than the closing one. */
   private hasOtherSocket(playerId: string, closing: WebSocket | null): boolean {
     for (const socket of this.ctx.getWebSockets(playerId)) {
-      if (socket !== closing && socket.deserializeAttachment()) return true;
+      if (socket === closing) continue;
+      const attachment = socket.deserializeAttachment() as SocketAttachment | null;
+      if (attachment && !attachment.spectator) return true;
     }
     return false;
   }
@@ -423,7 +468,7 @@ export class TableRoom extends DurableObject<Env> {
     // falling through would reschedule the same stale deadline forever. It is
     // also independent of whether state still exists, so the reaper runs for
     // real tables and not just for rooms storage has already been dropped in.
-    if (this.ctx.getWebSockets().length === 0 && !this.hasPendingWork(now)) {
+    if (this.seatedSocketCount() === 0 && !this.hasPendingWork(now)) {
       await this.maybeReapEmptyRoom(now);
       return;
     }
@@ -606,7 +651,7 @@ export class TableRoom extends DurableObject<Env> {
   }
 
   private async maybeReapEmptyRoom(now: number): Promise<void> {
-    if (this.ctx.getWebSockets().length > 0) {
+    if (this.seatedSocketCount() > 0) {
       await this.clearEmptySince();
       return;
     }
@@ -656,14 +701,14 @@ export class TableRoom extends DurableObject<Env> {
   // Message handling
   // -------------------------------------------------------------------------
 
-  private async handleMessage(playerId: string, message: ClientMessage): Promise<void> {
+  private async handleMessage(playerId: string, message: ClientMessage, spectator = false): Promise<void> {
     switch (message.type) {
       case "ping": {
         // Reply to the caller only. A full broadcast here let one client
         // amplify a single message into a snapshot for every socket at the
         // table, which is the cheapest possible abuse of a demo with no rate
         // limiting.
-        const view = this.redactedFor(playerId);
+        const view = this.redactedFor(playerId, spectator);
         if (view) this.sendTo(playerId, view);
         return;
       }
@@ -706,6 +751,14 @@ export class TableRoom extends DurableObject<Env> {
     }
     if (state.round > 0) {
       await this.reportError(playerId, "The game already started.");
+      return;
+    }
+    // A spectator in the lobby has no seat, so it has no say in starting the
+    // game. Without this, a non-seated socket could start the table whenever the
+    // creator happened to be away (the abandoned-host rule below never checks
+    // that the caller is seated).
+    if (!playerById(state, playerId)) {
+      await this.reportError(playerId, "You are not at this table.");
       return;
     }
     if (state.players.length < MIN_PLAYERS) {
@@ -1030,13 +1083,17 @@ export class TableRoom extends DurableObject<Env> {
   // Broadcasting
   // -------------------------------------------------------------------------
 
-  private redactedFor(viewerId: string): StateView | null {
+  private redactedFor(viewerId: string, spectator = false): StateView | null {
     const state = this.state;
     if (state === null) return null;
     return {
       type: "state",
-      state: buildView(state, viewerId),
+      // A spectator is redacted for a viewer that owns no dice, reusing the one
+      // visibility rule rather than adding a second way to build a view. `you`
+      // stays the socket's own id so the client can still tell who it is.
+      state: buildView(state, spectator ? SPECTATOR_VIEWER : viewerId),
       you: viewerId,
+      spectator,
       deadlineAt: state.deadlineAt,
       serverTime: Date.now(),
       connected: [...this.connectedIds()],
@@ -1056,8 +1113,9 @@ export class TableRoom extends DurableObject<Env> {
       if (!attachment) continue;
       this.send(socket, {
         type: "state",
-        state: buildView(state, attachment.playerId),
+        state: buildView(state, attachment.spectator ? SPECTATOR_VIEWER : attachment.playerId),
         you: attachment.playerId,
+        spectator: attachment.spectator,
         deadlineAt: state.deadlineAt,
         serverTime: Date.now(),
         connected,
@@ -1069,14 +1127,29 @@ export class TableRoom extends DurableObject<Env> {
     const ids = new Set<string>();
     for (const socket of this.ctx.getWebSockets()) {
       const attachment = socket.deserializeAttachment() as SocketAttachment | null;
-      if (attachment) ids.add(attachment.playerId);
+      if (attachment && !attachment.spectator) ids.add(attachment.playerId);
     }
     return ids;
   }
 
+  /**
+   * Live sockets that hold or seek a seat. Spectators are not occupancy: a room
+   * whose players have all gone is empty even with a TV still tuned to it, and
+   * only this count may keep the reaper away.
+   */
+  private seatedSocketCount(): number {
+    let count = 0;
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = socket.deserializeAttachment() as SocketAttachment | null;
+      if (attachment && !attachment.spectator) count += 1;
+    }
+    return count;
+  }
+
   private isConnected(playerId: string): boolean {
     for (const socket of this.ctx.getWebSockets(playerId)) {
-      if (socket.deserializeAttachment()) return true;
+      const attachment = socket.deserializeAttachment() as SocketAttachment | null;
+      if (attachment && !attachment.spectator) return true;
     }
     return false;
   }
@@ -1130,9 +1203,9 @@ export class TableRoom extends DurableObject<Env> {
       if (this.needsImmediateWake(state)) {
         if (this.stagnantWakes >= MAX_STAGNANT_WAKES) {
           // Several wakes have changed nothing: the beat is wedged. With nobody
-          // connected, let the reaper have the room; otherwise stop re-arming
+          // seated, let the reaper have the room; otherwise stop re-arming
           // and say so, rather than billing a 1 Hz loop forever.
-          if (this.ctx.getWebSockets().length === 0) {
+          if (this.seatedSocketCount() === 0) {
             await this.maybeReapEmptyRoom(now);
             return;
           }
@@ -1150,10 +1223,12 @@ export class TableRoom extends DurableObject<Env> {
       }
     }
 
-    if (this.ctx.getWebSockets().length === 0) {
-      // Nobody connected and nothing to play: keep exactly one reap alarm
+    if (this.seatedSocketCount() === 0) {
+      // Nobody seated and nothing to play: keep exactly one reap alarm
       // pending. This is the only path that can compute a stale target, so it
-      // goes through `scheduleAlarm` rather than `setAlarm` directly.
+      // goes through `scheduleAlarm` rather than `setAlarm` directly. A
+      // spectator does not change this — a watched table with no players is
+      // still an empty table.
       await this.maybeReapEmptyRoom(now);
       return;
     }

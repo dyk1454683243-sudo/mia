@@ -175,6 +175,41 @@ frozen instead: the seat stays, the D1 row keeps counting the player, and auto-p
 covers their turns. A player with another socket still open keeps their seat in
 both cases, which is why `hasOtherSocket` excludes the closing socket explicitly.
 
+## Spectators
+
+A socket can ask to watch rather than play by opening the upgrade at
+`/api/tables/:id/ws?watch=1`. The Worker reads that query, sets
+`X-Mia-Spectator` on the forwarded request — never trusting a client's copy — and
+the object tags the socket `spectator: true` in its hibernating attachment. That
+flag is what every other reader consults, so a spectator is one kind of socket
+from connect to disconnect.
+
+Four things follow from the tag, and each is a bug if it is missed:
+
+- **It never takes a seat.** `handleConnect` returns before the lobby or join
+  paths, so a pre-game spectator never enters `state.players` and a spectator at
+  a full table is not refused with `table-full` — it never asks for one of the
+  eight. This is why `MAX_PLAYERS` and the `tables.player_count` sync need no
+  change: both already read `state.players`, which a spectator never joins.
+- **It is redacted to the public view.** Snapshots are built with
+  `buildView(state, SPECTATOR_VIEWER)`, where `SPECTATOR_VIEWER` matches no
+  player, so the single `visibilityFor` rule grants no own dice even when the
+  spectator's session is also a seated player's. There is deliberately no second
+  redaction path; a spectator is just a viewer that is never the cup holder.
+  Revealed dice still show in `revealing`/`finished`.
+- **It is not occupancy.** `seatedSocketCount()` counts only non-spectator
+  sockets, and the alarm's reap decision, `maybeReapEmptyRoom` and `ensureAlarm`
+  all consult it. A TV left on an empty table does not reset `emptySince` and
+  does not keep the room past `EMPTY_TABLE_TTL_MS`. The same holds for
+  `connected`: `connectedIds()` skips spectator sockets, so the offline badge
+  still means what it says.
+- **It is a state, not an error.** A late arrival with no watch intent (the
+  lobby's Watch link does not carry the query yet) is marked a spectator on the
+  spot and receives a `StateView` with `spectator: true`; the old unsigned
+  "That game already started" error is gone. A spectator that sends anything but
+  `ping` is refused uniformly, because a socket with no seat has no game action
+  to take.
+
 ## Who may start the table
 
 The creator is a property of the D1 `tables` row, not of who happened to open a

@@ -187,6 +187,11 @@ async function upgrade(
   forwarded.headers.set("X-Mia-Table-Id", tableId);
   // The creator is a property of the D1 row, not of who opens a socket first.
   forwarded.headers.set("X-Mia-Host-Id", table.hostId);
+  // Watching is an explicit intent on the upgrade (`?watch=1`). The Worker sets
+  // the header from that query and never from the client's copy, so the object
+  // still hears only what the Worker says. A spectator can only ever lose
+  // privileges (no seat, no occupancy), so a forged value could not escalate.
+  forwarded.headers.set("X-Mia-Spectator", new URL(request.url).searchParams.get("watch") === "1" ? "1" : "0");
   const response = await stub.fetch(forwarded);
   return respond(response);
 }

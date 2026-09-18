@@ -57,8 +57,13 @@ interface TestSocket {
   close(): void;
 }
 
-async function connect(tableId: string, player: { name: string; cookie: string }): Promise<TestSocket> {
-  const response = await SELF.fetch(`https://mia.test/api/tables/${tableId}/ws`, {
+async function connect(
+  tableId: string,
+  player: { name: string; cookie: string },
+  options: { watch?: boolean } = {},
+): Promise<TestSocket> {
+  const query = options.watch ? "?watch=1" : "";
+  const response = await SELF.fetch(`https://mia.test/api/tables/${tableId}/ws${query}`, {
     headers: {
       Upgrade: "websocket",
       Cookie: player.cookie,
@@ -1441,17 +1446,19 @@ describe("TableRoom", () => {
 
     const gameId = await finishTwoPlayerGame(tableId, anna.id, [annaSocket, boSocket]);
     // A late arrival watches this table; they have no seat, so they cannot open
-    // the next one for the people who played.
+    // the next one for the people who played. Watching is now a spectator state,
+    // and a spectator is refused every action uniformly before `handleRematch`
+    // is reached, so the message is the spectator one rather than the seat one.
     const watcherSocket = await connect(tableId, watcher);
     await watcherSocket.nextState((view) => view.state.gameOver !== null, 6_000);
     watcherSocket.send({ type: "rematch" });
     await waitFor(
       async () =>
-        watcherSocket.errors.includes("Only players at this table can open a rematch.") ||
+        watcherSocket.errors.length > 0 ||
         ((await readState(tableId))?.rematchId ?? null) !== null,
       5_000,
     );
-    expect(watcherSocket.errors).toContain("Only players at this table can open a rematch.");
+    expect(watcherSocket.errors).toContain("Spectators cannot act at this table.");
     expect((await readState(tableId))?.rematchId).toBeNull();
     const stray = await env.DB.prepare(`SELECT COUNT(*) AS n FROM tables WHERE id = ?1`)
       .bind(rematchTableId(gameId))
@@ -1539,5 +1546,196 @@ describe("TableRoom", () => {
     expect((await readState(tableId))?.round).toBe(0);
 
     hostSocket.close();
+  }, 20_000);
+
+  // -------------------------------------------------------------------------
+  // Spectator sessions (#45): a socket the server understands as a watcher
+  // -------------------------------------------------------------------------
+
+  it("never shows a spectator another player's hidden dice, in any phase", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const tableId = await createTableRow("Spectator dice", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    // The watcher deliberately shares the cup holder's session id: redaction is
+    // per socket, so the decision to watch drops the seat's own-dice privilege.
+    // If the spectator were redacted for its raw player id instead of the
+    // public viewer, this socket would receive the holder's private roll.
+    const specSocket = await connect(tableId, anna, { watch: true });
+    const boSocket = await connect(tableId, bo);
+    await annaSocket.nextState((view) => view.state.players.length === 2);
+
+    const lobby = await specSocket.nextState((view) => view.state.round === 0 && view.state.players.length === 2);
+    expect(lobby.spectator).toBe(true);
+    expect(lobby.state.players.map((player) => player.id)).toEqual([anna.id, bo.id]);
+
+    annaSocket.send({ type: "start" });
+    const started = await annaSocket.nextState((view) => view.state.round === 1);
+    // The first seat opens round one, so the starter is Anna — whose session the
+    // spectator socket is using.
+    const starterId = started.state.turnPlayerId!;
+
+    await waitFor(async () => (await readState(tableId))?.phase === "deciding");
+    const starterSocket = starterId === anna.id ? annaSocket : boSocket;
+    starterSocket.send({ type: "roll" });
+    await starterSocket.nextState((view) => view.state.phase === "announcing");
+    await forceDice(tableId, starterId, [6, 6]);
+
+    // The holder's own socket really does see the pair...
+    const holder = await starterSocket.nextState((view) => {
+      const dice = view.state.players.find((player) => player.id === starterId)?.dice;
+      return dice?.[0] === 6 && dice?.[1] === 6;
+    });
+    expect(holder.state.players.find((player) => player.id === starterId)!.dice).toEqual([6, 6]);
+
+    // ...while the spectator socket for the same session sees none of it.
+    const watching = await specSocket.nextState(
+      (view) => view.state.phase === "announcing" && view.state.diceOwnerId === starterId,
+    );
+    expect(watching.you).toBe(starterId);
+    expect(watching.spectator).toBe(true);
+    expect(watching.state.players.every((player) => player.dice === null)).toBe(true);
+
+    // Across every snapshot the spectator has received, a non-null pair may
+    // only be the one the shared rule has actually turned face up.
+    for (const view of specSocket.states) {
+      const faceUp = view.state.phase === "revealing" || view.state.phase === "finished";
+      for (const player of view.state.players) {
+        if (player.dice !== null) {
+          expect(faceUp).toBe(true);
+          expect(player.id).toBe(view.state.diceOwnerId);
+        }
+      }
+    }
+
+    // The reveal is public to the spectator too: the doubted player's dice show.
+    await forceDice(tableId, starterId, [3, 1]);
+    starterSocket.send({ type: "announce", value: 65 });
+    await starterSocket.nextState((view) => view.state.lastAnnouncement?.value === 65);
+    const otherSocket = starterId === anna.id ? boSocket : annaSocket;
+    otherSocket.send({ type: "doubt" });
+    const revealed = await specSocket.nextState(
+      (view) => view.state.phase === "revealing" || view.state.lastReveal !== null,
+    );
+    expect(revealed.state.players.find((player) => player.id === starterId)!.dice).toEqual([3, 1]);
+
+    annaSocket.close();
+    boSocket.close();
+    specSocket.close();
+  }, 20_000);
+
+  it("never seats an explicit spectator, even at a full table, and never counts one toward the cap", async () => {
+    const players = [];
+    for (let index = 0; index < MAX_PLAYERS; index++) players.push(await makePlayer(`Player ${index + 1}`));
+    const tableId = await createTableRow("Full watch", players[0]!.id);
+    const sockets: TestSocket[] = [];
+    for (const player of players) sockets.push(await connect(tableId, player));
+    await sockets[MAX_PLAYERS - 1]!.nextState((view) => view.state.players.length === MAX_PLAYERS);
+    await waitFor(async () => (await playerCount(tableId)) === MAX_PLAYERS);
+
+    const watcher = await makePlayer("Watcher");
+    const watcherSocket = await connect(tableId, watcher, { watch: true });
+    const view = await watcherSocket.nextState((snapshot) => snapshot.state.players.length === MAX_PLAYERS);
+    expect(view.spectator).toBe(true);
+    expect(view.you).toBe(watcher.id);
+    expect(view.state.players.map((player) => player.id)).toEqual(players.map((player) => player.id));
+    expect([...view.connected].sort()).toEqual(players.map((player) => player.id).sort());
+    // No `table-full` refusal, no ninth seat, and the directory count still
+    // reads `state.players` rather than the sockets. This is the issue's
+    // "MAX_PLAYERS and syncTableRow already read state.players" claim, pinned.
+    expect(watcherSocket.errorCodes).toEqual([]);
+    expect((await readState(tableId))?.players).toHaveLength(MAX_PLAYERS);
+    expect(await playerCount(tableId)).toBe(MAX_PLAYERS);
+
+    for (const socket of sockets) socket.close();
+    watcherSocket.close();
+  }, 25_000);
+
+  it("marks a late arrival as a spectator in the snapshot instead of sending an error", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const late = await makePlayer("Late");
+    const tableId = await createTableRow("Late arrival", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    await annaSocket.nextState((view) => view.state.players.length === 2);
+
+    annaSocket.send({ type: "start" });
+    await annaSocket.nextState((view) => view.state.round === 1);
+
+    // No watch intent — the lobby's Watch link does not carry one yet — but the
+    // game has started, so the server must not seat them.
+    const lateSocket = await connect(tableId, late);
+    const lateView = await lateSocket.nextState((view) => view.state.round === 1);
+    expect(lateView.spectator).toBe(true);
+    expect(lateView.you).toBe(late.id);
+    // Watching is a state the protocol expresses now, not an unsigned error.
+    expect(lateSocket.errors).toEqual([]);
+    expect((await readState(tableId))?.players.map((player) => player.id)).toEqual([anna.id, bo.id]);
+    expect(lateView.state.players.map((player) => player.id)).toEqual([anna.id, bo.id]);
+
+    // A spectator has no seat, so it cannot act on the table.
+    const before = await readState(tableId);
+    lateSocket.send({ type: "start" });
+    await waitFor(() => lateSocket.errors.length > 0);
+    expect(lateSocket.errors).toContain("Spectators cannot act at this table.");
+    expect((await readState(tableId))?.round).toBe(before?.round);
+
+    annaSocket.close();
+    boSocket.close();
+    lateSocket.close();
+  }, 20_000);
+
+  it("does not let a spectator keep an otherwise-empty room from being reaped", async () => {
+    const host = await makePlayer("Host");
+    const watcher = await makePlayer("Watcher");
+    const tableId = await createTableRow("Watched empty", host.id);
+    const hostSocket = await connect(tableId, host);
+    const watcherSocket = await connect(tableId, watcher, { watch: true });
+    await hostSocket.nextState((view) => view.state.players.length === 1);
+    await watcherSocket.nextState((view) => view.state.round === 0);
+    await waitFor(async () => (await playerCount(tableId)) === 1);
+
+    // A short TTL, then the only player closes while the spectator stays tuned.
+    await setEmptyTtl(tableId, 400);
+    hostSocket.close();
+    await waitFor(async () => (await readState(tableId))?.players.length === 0, 5_000);
+
+    // The spectator is still connected...
+    expect(await socketCount(tableId)).toBe(1);
+    // ...but it is not occupancy: the room is reaped on the empty-table TTL.
+    await waitForValue(async () => ((await storedRoom(tableId)) === null ? true : null), 8_000);
+    expect(await scheduledAlarm(tableId)).toBeNull();
+    expect(await tableStatus(tableId)).toBe("abandoned");
+
+    watcherSocket.close();
+  }, 20_000);
+
+  it("keeps `connected` about players, not spectators", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const watcher = await makePlayer("Watcher");
+    const tableId = await createTableRow("Connected", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    await annaSocket.nextState((view) => view.state.players.length === 2);
+    const watcherSocket = await connect(tableId, watcher, { watch: true });
+    await watcherSocket.nextState((view) => view.spectator === true && view.state.players.length === 2);
+
+    // A spectator joining does not broadcast to players (nothing about the game
+    // changed), so force a broadcast by dropping Bo and read the rebuilt list.
+    boSocket.close();
+    const afterDrop = await annaSocket.nextState((view) => !view.connected.includes(bo.id), 5_000);
+    expect([...afterDrop.connected].sort()).toEqual([anna.id]);
+    expect(afterDrop.connected).not.toContain(watcher.id);
+
+    // The spectator's own snapshot agrees: `connected` is the roster's live
+    // players, and the watcher is not one of them.
+    const watchView = await watcherSocket.nextState((view) => !view.connected.includes(bo.id), 5_000);
+    expect([...watchView.connected].sort()).toEqual([anna.id]);
+    expect(watchView.connected).not.toContain(watcher.id);
+
+    annaSocket.close();
+    watcherSocket.close();
   }, 20_000);
 });

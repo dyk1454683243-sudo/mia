@@ -87,6 +87,13 @@ export interface StateView {
   state: MiaState;
   /** This viewer's id, so the client does not have to guess. */
   you: string;
+  /**
+   * True when this socket holds no seat: it asked to watch via `?watch=1`, or
+   * it arrived after the game started. A spectator is redacted to the public
+   * view, never appears in `connected`, and is not counted as occupancy. The
+   * spectator screen (#54) renders from this flag rather than from an error.
+   */
+  spectator: boolean;
   /** Epoch ms after which the current phase auto-plays. */
   deadlineAt: number | null;
   /** Server time when the snapshot was built, for clock-drift correction. */
