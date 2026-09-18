@@ -47,6 +47,36 @@ use, and a claim is a text speech bubble pinned to the claimant's chair rather
 than a row in a list. The bubble is never a die, so the secrecy invariant is
 untouched.
 
+## Dice that land
+
+A die that pops in with its pips already readable is a number generator, which
+is exactly what it is and exactly what the lookbook asked to hide. `diceOf`
+and `dieFace` give every real face a **400ms tumble with a settle-bounce**;
+the pips stay at opacity 0 until the bounce is done, and the accessible name
+is `rolling` until then — the label settles with the face, so a screen reader
+cannot hear the value mid-air. Hidden `?` dice do not tumble: there is no
+value to land.
+
+The snapshot arrives with the value already decided. The beat is presentation
+only — `tumbleTiming` in `src/shared/tumble.ts` is a function of
+`(startedAt, now)`, typically `performance.now()`, and nothing about the move
+stamp or the turn clock waits on it. `paint()` rebuilds the subtree on every
+snapshot, so a CSS animation that started at mount would restart and a toast
+mid-tumble would leave the die stuck in the air. The start time is remembered
+per owner and ordered faces; `--tumble-elapsed` is handed to CSS as a
+*negative animation-delay*, the same resume trick the showdown uses. When the
+pair leaves the page the start is forgotten, so a later roll of the same
+faces lands again.
+
+If no snapshot arrives at the 400ms mark, a timeout flips `aria-label` and
+drops `.tumbling` in place rather than repainting the page — a full `render()`
+would reset the announce ladder the way the countdown used to. Under
+`prefers-reduced-motion: reduce` the animations are not declared and
+`tumbleTiming` reports settled at once, so the face and its name appear on
+the first frame. `scripts/ui-check.ts` samples the first and last frame from
+an off-screen fixture and waits for the live dice to settle rather than
+shortening the beat to suit the harness.
+
 Names are the full string in the DOM, so assistive tech and the harness keep
 reading who someone is. At seat size they ellipsize for other players, while the
 viewer's own name wraps inside a slightly wider chair instead of clipping — the

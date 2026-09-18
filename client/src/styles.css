@@ -649,6 +649,48 @@ ul {
 .die i.bl { grid-area: 3 / 1; }
 .die i.br { grid-area: 3 / 3; }
 
+/* A ~400ms land with a settle-bounce. The face is held off until the die
+ * stops — instantaneous pips read as a number generator. `--tumble-elapsed`
+ * is a negative animation-delay so a `paint()` rebuild mid-tumble resumes
+ * instead of restarting (a stream of snapshots would otherwise leave the
+ * die stuck in the air). Animations are declared only under `no-preference`;
+ * under reduce the base styles — pips visible — simply show. */
+@media (prefers-reduced-motion: no-preference) {
+  .die.tumbling {
+    animation: die-tumble var(--tumble-span, 400ms) cubic-bezier(0.22, 1.25, 0.36, 1) both;
+    animation-delay: calc(-1 * var(--tumble-elapsed, 0ms));
+  }
+
+  .dice .die.tumbling:nth-child(2) {
+    animation-name: die-tumble-b;
+  }
+
+  .die.tumbling i {
+    animation: die-face-in var(--tumble-span, 400ms) ease-out both;
+    animation-delay: calc(-1 * var(--tumble-elapsed, 0ms));
+  }
+}
+
+@keyframes die-tumble {
+  0% { transform: translateY(-55%) rotate(-48deg) scale(0.72); }
+  55% { transform: translateY(14%) rotate(14deg) scale(1.1); }
+  72% { transform: translateY(-8%) rotate(-6deg) scale(0.96); }
+  100% { transform: none; }
+}
+
+@keyframes die-tumble-b {
+  0% { transform: translateY(-50%) rotate(42deg) scale(0.74); }
+  55% { transform: translateY(12%) rotate(-16deg) scale(1.08); }
+  72% { transform: translateY(-6%) rotate(5deg) scale(0.97); }
+  100% { transform: none; }
+}
+
+/* The value is unreadable until the bounce is done — not merely moving. */
+@keyframes die-face-in {
+  0%, 78% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
 /* -------------------------------------------------------------- standings */
 
 .standing {

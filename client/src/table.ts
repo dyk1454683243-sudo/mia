@@ -40,6 +40,7 @@ import {
   showdownTone,
   showdownValue,
 } from "../../src/shared/showdown";
+import { TUMBLE_MS, tumbleLabel, tumbleTiming, type TumbleTiming } from "../../src/shared/tumble";
 import { api, escapeHtml, TableSocket } from "./net";
 
 const PIPS: Record<number, string[]> = {
@@ -51,9 +52,80 @@ const PIPS: Record<number, string[]> = {
   6: ["tl", "tr", "ml", "mr", "bl", "br"],
 };
 
-function dieFace(value: number, size: "sm" | "lg"): string {
+/**
+ * When each visible pair first appeared, so a `paint()` rebuild mid-tumble
+ * can resume instead of restarting. Keyed by owner plus the ordered faces —
+ * the same pair on the seat and in the showdown share one clock. Forgotten
+ * once the pair leaves the page, so a later roll of the same faces lands again.
+ */
+const tumbleStarts = new Map<string, number>();
+const liveTumbleKeys = new Set<string>();
+let tumbleSettleTimer: number | null = null;
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function tumbleKey(ownerId: string, dice: [Die, Die]): string {
+  const hi = dice[0] >= dice[1] ? dice[0] : dice[1];
+  const lo = dice[0] >= dice[1] ? dice[1] : dice[0];
+  return `${ownerId}:${hi}:${lo}`;
+}
+
+function tumbleFor(ownerId: string, dice: [Die, Die], now: number, reducedMotion: boolean): TumbleTiming {
+  const key = tumbleKey(ownerId, dice);
+  liveTumbleKeys.add(key);
+  let startedAt = tumbleStarts.get(key);
+  if (startedAt === undefined) {
+    startedAt = now;
+    tumbleStarts.set(key, startedAt);
+  }
+  return tumbleTiming(startedAt, now, reducedMotion);
+}
+
+function pruneTumbles(): void {
+  for (const key of [...tumbleStarts.keys()]) {
+    if (!liveTumbleKeys.has(key)) tumbleStarts.delete(key);
+  }
+  liveTumbleKeys.clear();
+}
+
+/**
+ * Flip the accessible name when the CSS land finishes, without a full paint.
+ * A snapshot can arrive later; this is what settles the label if one does not.
+ */
+function armTumbleSettle(): void {
+  if (tumbleSettleTimer !== null) window.clearTimeout(tumbleSettleTimer);
+  const nodes = [...document.querySelectorAll<HTMLElement>(".die.tumbling")];
+  if (nodes.length === 0) {
+    tumbleSettleTimer = null;
+    return;
+  }
+  let remaining = 0;
+  for (const node of nodes) {
+    const span = Number.parseFloat(node.style.getPropertyValue("--tumble-span")) || TUMBLE_MS;
+    const elapsed = Number.parseFloat(node.style.getPropertyValue("--tumble-elapsed")) || 0;
+    remaining = Math.max(remaining, span - elapsed);
+  }
+  tumbleSettleTimer = window.setTimeout(() => {
+    tumbleSettleTimer = null;
+    for (const node of document.querySelectorAll<HTMLElement>(".die.tumbling")) {
+      node.classList.remove("tumbling");
+      const face = node.dataset.face;
+      if (face) node.setAttribute("aria-label", face);
+    }
+  }, Math.max(0, remaining));
+}
+
+function dieFace(value: number, size: "sm" | "lg", tumble: TumbleTiming | null = null): string {
   const pips = PIPS[value] ?? [];
-  return `<span class="die ${size}" role="img" aria-label="${value}">${pips
+  const settled = tumble === null || tumble.settled;
+  const label = tumbleLabel(value, settled);
+  const tumbling = tumble !== null && !tumble.settled;
+  const style = tumbling
+    ? ` style="--tumble-span:${tumble.span}ms;--tumble-elapsed:${tumble.elapsed}ms"`
+    : "";
+  return `<span class="die ${size}${tumbling ? " tumbling" : ""}" role="img" aria-label="${label}" data-face="${value}"${style}>${pips
     .map((pip) => `<i class="${pip}"></i>`)
     .join("")}</span>`;
 }
@@ -62,7 +134,8 @@ function diceOf(player: MiaPlayer | undefined, size: "sm" | "lg" = "lg"): string
   if (!player || !player.dice) {
     return `<span class="dice"><span class="die ${size} hidden">?</span><span class="die ${size} hidden">?</span></span>`;
   }
-  return `<span class="dice">${dieFace(player.dice[0], size)}${dieFace(player.dice[1], size)}</span>`;
+  const tumble = tumbleFor(player.id, player.dice, performance.now(), prefersReducedMotion());
+  return `<span class="dice">${dieFace(player.dice[0], size, tumble)}${dieFace(player.dice[1], size, tumble)}</span>`;
 }
 
 function valueChip(value: number, extra = ""): string {
@@ -89,10 +162,10 @@ function verdictLine(reveal: DoubtReveal): string {
 }
 
 /** The two physical dice behind a roll value, largest face first. */
-function rolledDice(value: number): string {
+function rolledDice(value: number, tumble: TumbleTiming | null = null): string {
   const hi = Math.floor(value / 10);
   const lo = value % 10;
-  return `<span class="dice">${dieFace(hi, "lg")}${dieFace(lo, "lg")}</span>`;
+  return `<span class="dice">${dieFace(hi, "lg", tumble)}${dieFace(lo, "lg", tumble)}</span>`;
 }
 
 /**
@@ -163,7 +236,18 @@ function renderShowdown(game: MiaState, view: StateView, reveal: DoubtReveal): s
           <div class="showdown-side showdown-actual">
             <p class="label">actually</p>
             <div class="showdown-dice-wrap">
-              ${rolledDice(reveal.actual)}
+              ${rolledDice(
+                reveal.actual,
+                tumbleFor(
+                  reveal.announcerId,
+                  [
+                    Math.floor(reveal.actual / 10) as Die,
+                    (reveal.actual % 10) as Die,
+                  ],
+                  performance.now(),
+                  prefersReducedMotion(),
+                ),
+              )}
               <div class="showdown-cup" aria-hidden="true"></div>
             </div>
           </div>
@@ -740,6 +824,8 @@ function paint(html: string): void {
   app.innerHTML = html;
   window.scrollTo(0, scrollY);
   pinLadder();
+  pruneTumbles();
+  armTumbleSettle();
 }
 
 function render(): void {
