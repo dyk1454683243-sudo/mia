@@ -136,3 +136,11 @@ export function showdownSentence(reveal: DoubtReveal): string {
   )} doubted — loses ${lives}.${penalty}`;
 }
 
+/**
+ * In-character line when the turn clock auto-plays for an idle seat (issue #62).
+ * Plain text — the table log HTML-escapes it — and the same wording covers both
+ * an auto-announce and an auto-believe/roll: the player said nothing either way.
+ */
+export function timeoutSentence(name: string): string {
+  return `${name} says nothing, so the cup decides for them.`;
+}
