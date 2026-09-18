@@ -1185,18 +1185,19 @@ ul {
 .honest-badge {
   align-self: center;
   display: inline-block;
-  margin: 0.35rem 0 0.15rem;
+  margin: 0.45rem 0 0.55rem;
   padding: 0.28rem 0.85rem 0.32rem;
   border: 4px solid var(--gold);
   border-radius: 10px;
   color: var(--gold);
   font-size: 1.05rem;
   font-weight: 800;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   line-height: 1.15;
   text-align: center;
   text-transform: uppercase;
-  transform: rotate(-4deg);
+  white-space: nowrap;
+  transform: rotate(-6deg);
   text-shadow: 0 0 18px rgba(232, 196, 106, 0.35);
 }
 
