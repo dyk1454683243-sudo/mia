@@ -12,7 +12,9 @@
  * - a caught bluff and an honest claim are distinguishable — opposite emotions
  *   must not share a layout;
  * - the beats are a fraction of the *server's* reveal window, so a shortened
- *   clock compresses the staging instead of desyncing from the alarm.
+ *   clock compresses the staging instead of desyncing from the alarm;
+ * - thunder is the typed `double-mia` penalty, and two pips go out one after
+ *   the other, including when that charge eliminates.
  */
 import { describe, expect, it } from "vitest";
 import { MIA, type DoubtReveal } from "../src/shared/mia";
@@ -20,8 +22,10 @@ import {
   CUP_BEAT_ENDS,
   DICE_BEAT_ENDS,
   showdownLoser,
+  showdownLoss,
   showdownSentence,
   showdownStamp,
+  showdownThunder,
   showdownTiming,
   showdownTone,
   showdownValue,
@@ -125,6 +129,63 @@ describe("showdownTiming", () => {
     expect(CUP_BEAT_ENDS).toBeGreaterThan(0);
     expect(DICE_BEAT_ENDS).toBeGreaterThan(CUP_BEAT_ENDS);
     expect(DICE_BEAT_ENDS).toBeLessThan(1);
+  });
+});
+
+describe("showdownThunder / showdownLoss", () => {
+  it("keys thunder off the typed penalty, not off livesLost === 2", () => {
+    expect(showdownThunder(REAL_MIA)).toBe(true);
+    expect(showdownThunder(CAUGHT_BLUFF)).toBe(false);
+    expect(showdownThunder(HONEST_CLAIM)).toBe(false);
+
+    // A forged reveal that charges two under a single penalty is not thunder.
+    // This is the assertion that fails if the view ever writes `livesLost === 2`.
+    const forgedDouble: DoubtReveal = { ...CAUGHT_BLUFF, livesLost: 2, penaltyApplied: "single" };
+    expect(showdownThunder(forgedDouble)).toBe(false);
+    expect(showdownLoss(forgedDouble, 4).thunder).toBe(false);
+    expect(showdownLoss(forgedDouble, 4).vanished).toBe(2);
+  });
+
+  it("puts two pips out in sequence when the doubled charge leaves lives behind", () => {
+    const loss = showdownLoss(REAL_MIA, 4);
+    expect(loss).toMatchObject({ thunder: true, vanished: 2, remaining: 4, eliminated: false });
+    expect(loss.pips.map((pip) => pip.kind)).toEqual(["on", "on", "on", "on", "lost", "lost"]);
+    expect(loss.pips[4]).toMatchObject({ kind: "lost", strike: 1, thunder: false });
+    expect(loss.pips[5]).toMatchObject({ kind: "lost", strike: 2, thunder: true });
+  });
+
+  it("extinguishes two pips and reads as out when the doubled charge takes the last two", () => {
+    const reveal: DoubtReveal = { ...REAL_MIA, livesBefore: 2 };
+    const loss = showdownLoss(reveal, 0);
+    expect(loss).toMatchObject({ thunder: true, vanished: 2, remaining: 0, eliminated: true });
+    expect(loss.pips.filter((pip) => pip.kind === "lost")).toHaveLength(2);
+    expect(loss.pips[0]).toMatchObject({ strike: 1, thunder: false });
+    expect(loss.pips[1]).toMatchObject({ strike: 2, thunder: true });
+  });
+
+  it("does not invent a second pip when the doubled penalty eliminates on one life", () => {
+    const reveal: DoubtReveal = { ...REAL_MIA, livesBefore: 1 };
+    const loss = showdownLoss(reveal, 0);
+    expect(loss).toMatchObject({ thunder: true, vanished: 1, remaining: 0, eliminated: true });
+    // The one remaining pip is the heavier hit, so −2 can land before it goes.
+    expect(loss.pips[0]).toMatchObject({ kind: "lost", strike: 2, thunder: true });
+    expect(loss.pips.slice(1).every((pip) => pip.kind === "off")).toBe(true);
+  });
+
+  it("snuffs one pip, without thunder, for a single-life loss", () => {
+    const loss = showdownLoss(CAUGHT_BLUFF, 5);
+    expect(loss).toMatchObject({ thunder: false, vanished: 1, remaining: 5, eliminated: false });
+    expect(loss.pips.map((pip) => pip.kind)).toEqual(["on", "on", "on", "on", "on", "lost"]);
+    expect(loss.pips[5]).toMatchObject({ kind: "lost", strike: 1, thunder: false });
+  });
+
+  it("reconstructs livesBefore from remaining + livesLost when the field is missing", () => {
+    // A room persisted before livesBefore existed. The common path (they had
+    // at least as many lives as the charge) still reconstructs correctly.
+    expect(REAL_MIA.livesBefore).toBeUndefined();
+    const loss = showdownLoss(REAL_MIA, 4);
+    expect(loss.vanished).toBe(2);
+    expect(loss.thunder).toBe(true);
   });
 });
 

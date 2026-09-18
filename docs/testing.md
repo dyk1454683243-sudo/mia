@@ -6,8 +6,9 @@ The suite runs in two different runtimes, and the split is the point.
 
 - **`unit`** runs in plain Node with no Workers runtime. It covers the pure rules
   engine, the clock arithmetic, the seat-limit constants, the round table's
-  seat geometry, the showdown's verdict and beat arithmetic and the endgame
-  replay's filmstrip and stat lines. These are the tests that can be reasoned
+  seat geometry, the showdown's verdict, beat arithmetic and double-Mia pip
+  plan, and the endgame replay's filmstrip and stat lines. These are the tests
+  that can be reasoned
   about from the code alone, and they run fast because there is no platform
   underneath them.
 - **`workers`** runs inside `workerd` with a real D1 database and a real Durable
@@ -158,7 +159,10 @@ green, because each one only asked whether an element was there. The fix was to
 assert the frame: mount an off-screen clone with `--showdown-elapsed` scrubbed to
 a chosen fraction and read the computed style at that instant. That also makes
 the check independent of which verdict the dice happen to produce, so all three
-tones are covered on every run instead of whichever one turned up.
+tones are covered on every run instead of whichever one turned up. The double-Mia
+pip deaths use the same trick: the clone is given two `.pip.lost` strikes and
+sampled at 50%, 79% and 96% of the window, so the gap between the first pip
+going out and the second is a frame, not a claim.
 
 Tests are weak here in a way that is worth naming: they are good at *what* exists
 and poor at *when* it appears and *what it looks like*. [AGENTS.md](../AGENTS.md)

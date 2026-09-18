@@ -589,6 +589,13 @@ ul {
   box-shadow: 0 0 6px rgba(226, 104, 95, 0.6);
 }
 
+/* A pip that just went out. Settled it is the same as an already-spent life;
+ * under `no-preference` the showdown animates it from on to off. */
+.pip.lost {
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: none;
+}
+
 .player-dice {
   margin-top: 0.4rem;
 }
@@ -945,6 +952,25 @@ ul {
   margin: 0;
 }
 
+.showdown-loss .badge.out {
+  margin: 0;
+}
+
+.showdown-loss.out {
+  color: var(--ink-dim);
+}
+
+/* A brass wash timed with the second pip. Opacity is the settled value (off);
+ * the animation brings it in only for the second strike. */
+.showdown.thunder::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 42%, rgba(232, 196, 106, 0.38), transparent 58%);
+  opacity: 0;
+}
+
 .showdown-next {
   margin: 0;
   color: var(--ink-dim);
@@ -1071,6 +1097,30 @@ ul {
       calc(-1 * var(--showdown-elapsed)),
       calc(-1 * var(--showdown-elapsed));
   }
+
+  /* Lives go out after the stamp, still inside the server's window — a
+   * single pip at ~70%, and for thunder a second, heavier hit after a
+   * beat of weight. The round is not held for this; the alarm already owns
+   * `deadlineAt`. */
+  .showdown .pip.lost.strike-1 {
+    animation: showdown-pip-out var(--showdown-span) ease-in both;
+    animation-delay: calc(-1 * var(--showdown-elapsed));
+  }
+
+  .showdown .pip.lost.strike-2 {
+    animation: showdown-pip-out-thunder var(--showdown-span) cubic-bezier(0.2, 0.7, 0.3, 1) both;
+    animation-delay: calc(-1 * var(--showdown-elapsed));
+  }
+
+  .showdown.thunder .showdown-loss b {
+    animation: showdown-thunder-toll var(--showdown-span) ease-out both;
+    animation-delay: calc(-1 * var(--showdown-elapsed));
+  }
+
+  .showdown.thunder::after {
+    animation: showdown-thunder-flash var(--showdown-span) ease-out both;
+    animation-delay: calc(-1 * var(--showdown-elapsed));
+  }
 }
 
 @keyframes showdown-cup-lift {
@@ -1127,6 +1177,65 @@ ul {
 @keyframes showdown-believed-glow {
   0%, 54% { filter: drop-shadow(0 0 0 transparent); }
   66%, 100% { filter: drop-shadow(0 0 12px rgba(111, 207, 151, 0.55)); }
+}
+
+/* First life: still on through the stamp, then snuffs. The 68–76% window is
+ * the gap the second pip waits in. */
+@keyframes showdown-pip-out {
+  0%, 68% {
+    background: var(--danger);
+    box-shadow: 0 0 6px rgba(226, 104, 95, 0.6);
+    transform: scale(1);
+  }
+  72% {
+    background: var(--danger);
+    box-shadow: 0 0 14px rgba(226, 104, 95, 0.9);
+    transform: scale(1.35);
+  }
+  78%, 100% {
+    background: rgba(255, 255, 255, 0.14);
+    box-shadow: none;
+    transform: scale(1);
+  }
+}
+
+/* Second life, or the only life left under a doubled charge. Later, heavier,
+ * and it flashes brass before it dies — that is the thunder. */
+@keyframes showdown-pip-out-thunder {
+  0%, 82% {
+    background: var(--danger);
+    box-shadow: 0 0 6px rgba(226, 104, 95, 0.6);
+    transform: scale(1);
+  }
+  86% {
+    background: var(--gold);
+    box-shadow: 0 0 18px rgba(232, 196, 106, 0.95);
+    transform: scale(1.7);
+  }
+  90% {
+    background: var(--danger);
+    box-shadow: 0 0 22px rgba(226, 104, 95, 1);
+    transform: scale(1.45);
+  }
+  94%, 100% {
+    background: rgba(255, 255, 255, 0.14);
+    box-shadow: none;
+    transform: scale(1);
+  }
+}
+
+@keyframes showdown-thunder-toll {
+  0%, 66% { transform: scale(1); color: var(--danger); }
+  72% { transform: scale(1.18); }
+  78% { transform: scale(1); }
+  86% { transform: scale(1.4); color: var(--gold); }
+  94%, 100% { transform: scale(1); color: var(--danger); }
+}
+
+@keyframes showdown-thunder-flash {
+  0%, 82% { opacity: 0; }
+  86% { opacity: 1; }
+  94%, 100% { opacity: 0; }
 }
 
 /* Under reduced motion the showdown still shows claimed, actual and the

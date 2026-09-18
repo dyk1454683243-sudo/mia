@@ -194,6 +194,14 @@ export interface DoubtReveal {
   verdict: "announcer" | "doubter";
   livesLost: number;
   penaltyApplied: "double-mia" | "single";
+  /**
+   * Lives the loser held *before* this charge. The view needs it to extinguish
+   * the right number of pips when a doubled penalty clamps at zero: `livesLost`
+   * is the rule (always 2 for a real Mia), not how many pips were actually on.
+   * Optional because a room persisted before this field existed has none, and
+   * the showdown reconstructs `remaining + livesLost` in that case.
+   */
+  livesBefore?: number;
 }
 
 export interface MiaEvent {
@@ -671,6 +679,7 @@ function applyDoubt(state: MiaState, playerId: string, timings: Timings, now: nu
   const livesLost = isMiaTrap ? 2 : 1;
   const loserId = bluffCaught ? owner.id : doubter.id;
   const loser = playerById(state, loserId)!;
+  const livesBefore = loser.lives;
   loser.lives = Math.max(0, loser.lives - livesLost);
 
   // The endgame tallies. A truthful claim that still got doubted is the
@@ -695,6 +704,7 @@ function applyDoubt(state: MiaState, playerId: string, timings: Timings, now: nu
     verdict: bluffCaught ? "announcer" : "doubter",
     livesLost,
     penaltyApplied: isMiaTrap ? "double-mia" : "single",
+    livesBefore,
   };
 
   state.pendingDoubt = reveal;

@@ -108,6 +108,15 @@ Mia and the dice really are `21`), and sets `nextStarterId` to whoever lost the
 life. `resolveEliminations` then knocks out anyone at zero lives and decides the
 game.
 
+`DoubtReveal.livesBefore` is the loser's count at the moment of the subtraction.
+The rule itself is `livesLost` (always 2 for a real Mia) and
+`penaltyApplied: "double-mia"`; `livesBefore` exists so the showdown can
+extinguish the pips that were actually on when a doubled charge clamps at zero.
+A room persisted before the field existed has none, and `showdownLoss`
+reconstructs `remaining + livesLost` in that case — right whenever they had at
+least as many lives as the charge, which is every path except the one-life
+clamp.
+
 The starter of the next round is the player who lost the life; if that loss
 eliminated them, it is the next living player after them. `resolveReveal` applies
 that rule when the reveal beat expires, not at doubt time, because the reveal has

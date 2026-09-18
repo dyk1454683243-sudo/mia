@@ -341,6 +341,8 @@ describe("doubt resolution", () => {
 
     expect(state.pendingDoubt?.penaltyApplied).toBe("double-mia");
     expect(state.pendingDoubt?.verdict).toBe("doubter");
+    expect(state.pendingDoubt?.livesLost).toBe(2);
+    expect(state.pendingDoubt?.livesBefore).toBe(STARTING_LIVES);
     expect(playerById(state, "bo")!.lives).toBe(STARTING_LIVES - 2);
     expect(state.lastLoss?.lives).toBe(2);
   });
@@ -395,6 +397,38 @@ describe("rounds, elimination and winning", () => {
     expect(next.lastAnnouncement).toBeNull();
     expect(next.players.every((player) => player.dice === null)).toBe(true);
     expect(next.players.every((player) => player.roundsPlayed === 2)).toBe(true);
+  });
+
+  it("records livesBefore when a doubled Mia eliminates a player who had one life", () => {
+    // Three seats so the knockout does not end the game: the showdown still
+    // plays, and the view has to read one pip going out, not invent a second.
+    let state = playing("anna", "bo", "cara");
+    playerById(state, "bo")!.lives = 1;
+    state = rollAs(state, "anna", [2, 1]);
+    state = announce(state, "anna", MIA);
+    state = must(applyAction(state, { type: "doubt", playerId: "bo" }, TIMINGS, T0));
+
+    expect(state.pendingDoubt?.penaltyApplied).toBe("double-mia");
+    expect(state.pendingDoubt?.livesLost).toBe(2);
+    expect(state.pendingDoubt?.livesBefore).toBe(1);
+    expect(playerById(state, "bo")!.lives).toBe(0);
+    expect(playerById(state, "bo")!.eliminated).toBe(true);
+    expect(state.phase).toBe("revealing");
+    expect(state.gameOver).toBeNull();
+  });
+
+  it("records livesBefore when a doubled Mia eliminates a player who had two lives", () => {
+    let state = playing("anna", "bo", "cara");
+    playerById(state, "bo")!.lives = 2;
+    state = rollAs(state, "anna", [2, 1]);
+    state = announce(state, "anna", MIA);
+    state = must(applyAction(state, { type: "doubt", playerId: "bo" }, TIMINGS, T0));
+
+    expect(state.pendingDoubt?.penaltyApplied).toBe("double-mia");
+    expect(state.pendingDoubt?.livesBefore).toBe(2);
+    expect(playerById(state, "bo")!.lives).toBe(0);
+    expect(playerById(state, "bo")!.eliminated).toBe(true);
+    expect(state.phase).toBe("revealing");
   });
 
   it("passes the opening turn on when the life loss eliminated them", () => {
