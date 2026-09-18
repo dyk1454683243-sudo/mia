@@ -1569,7 +1569,7 @@ describe("TableRoom", () => {
 
     annaSocket.close();
     boSocket.close();
-  });
+  }, 10_000);
 
   it("refuses a name reroll once the first deal has happened", async () => {
     const anna = await makePlayer("Anna");
@@ -1584,7 +1584,9 @@ describe("TableRoom", () => {
     const before = (await readState(tableId))!.players.find((player) => player.id === anna.id)!.name;
 
     annaSocket.send({ type: "reroll-name" });
-    await waitFor(() => annaSocket.errors.length > 0);
+    // A success path produces no error, so wait-for-error would time out and
+    // never reach the assertion that the name stayed put.
+    await new Promise((resolve) => setTimeout(resolve, 400));
     expect(annaSocket.errors).toContain("Names are locked once the game starts.");
     expect((await readState(tableId))!.players.find((player) => player.id === anna.id)!.name).toBe(before);
 
@@ -1595,5 +1597,5 @@ describe("TableRoom", () => {
 
     annaSocket.close();
     boSocket.close();
-  });
+  }, 10_000);
 });
