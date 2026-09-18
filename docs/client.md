@@ -304,6 +304,33 @@ nodes and updates their text. Both pages separately wrap `innerHTML` assignment 
 a `paint` helper that saves and restores `window.scrollY`, so a server snapshot
 does not throw a scrolled phone back to the top.
 
+## Optional sound
+
+Three samples — a cup rattle, a die on wood, a low thud — sit behind a speaker
+toggle in the top bar. The default is **off**, and the choice is remembered in
+`localStorage` (`mia_sound`), not per table and not on the server. Half of these
+games start in a room where everyone's phone is on, which is why the toggle is
+visible rather than buried and why a missing or unknown stored value cannot turn
+the speakers on.
+
+`src/shared/sound-pref.ts` is the parse; `src/shared/table-cues.ts` is the
+when. Cues fire on the *transition* between snapshots — the cup reaching you,
+someone doubting you, your lives dropping, a new reveal — never on the state
+itself. The first snapshot after a connect is a baseline, and a reconnect
+resets the tracker, so a mid-game reload does not replay a life lost ten
+minutes ago. Haptics, when that item lands, will read the same module.
+
+The files are Vite assets imported from `client/src/sound.ts`. `publicDir` is
+off, so a file that is not imported is not in the build. No `Audio` object is
+constructed while sound is off: turning the toggle on is the user gesture that
+builds the three players, preloads them, and unlocks playback. Turning it off
+drops them again. A returning visitor whose preference is already on gets the
+preload on boot and unlocks on the next tap, so the reveal thud is not late.
+
+The lobby draws the same toggle so the preference can be set before a table
+exists, but it does not import the samples — those stay on the table page's
+bundle.
+
 ## The lobby is deliberately dumber
 
 `client/src/lobby.ts` does not use a WebSocket. It polls `/api/tables` and

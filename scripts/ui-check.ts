@@ -12,6 +12,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { formatValue, MAX_PLAYERS, MIA, MIN_PLAYERS, outranks, RANKING } from "../src/shared/mia.ts";
+import { SOUND_STORAGE_KEY } from "../src/shared/sound-pref.ts";
 import { api, BASE, createPlayer } from "./lib.ts";
 
 const OUT = process.env.MIA_UI_OUT ?? ".r1-screenshots";
@@ -95,6 +96,58 @@ function watch(page: Page): void {
     if (message.type() === "error") consoleErrors.push(`${page.url()} :: ${message.text()}`);
   });
   page.on("pageerror", (error) => pageErrors.push(`${page.url()} :: ${error.message}`));
+}
+
+/**
+ * Count `new Audio()` constructions. The feature's safety is that a fresh
+ * visitor constructs none at all; hooking the constructor is the only way to
+ * watch that from outside the page.
+ */
+async function installAudioProbe(context: BrowserContext): Promise<void> {
+  await context.addInitScript(() => {
+    const Original = window.Audio;
+    let created = 0;
+    window.Audio = class extends Original {
+      constructor(src?: string) {
+        super(src);
+        created += 1;
+        (window as unknown as { __miaAudioCreated: number }).__miaAudioCreated = created;
+      }
+    };
+    (window as unknown as { __miaAudioCreated: number }).__miaAudioCreated = 0;
+  });
+}
+
+function audioCreated(page: Page): Promise<number> {
+  return page.evaluate(() => (window as unknown as { __miaAudioCreated?: number }).__miaAudioCreated ?? 0);
+}
+
+async function verifySoundToggle(page: Page): Promise<void> {
+  section("Optional sound");
+  const toggle = page.locator('[data-action="toggle-sound"]');
+  check("the top bar has a speaker toggle", (await toggle.count()) === 1);
+  check("sound is off by default", (await toggle.getAttribute("aria-pressed")) === "false");
+  const stored = await page.evaluate((key) => localStorage.getItem(key), SOUND_STORAGE_KEY);
+  check("a fresh browser has no sound preference stored", stored === null, String(stored));
+  check("no audio object is constructed while sound is off", (await audioCreated(page)) === 0, `${await audioCreated(page)} Audio()`);
+
+  await toggle.click();
+  check("turning sound on persists in localStorage", (await page.evaluate((key) => localStorage.getItem(key), SOUND_STORAGE_KEY)) === "on");
+  check("the toggle reads as on after the press", (await toggle.getAttribute("aria-pressed")) === "true");
+  check("turning sound on constructs the three samples", (await audioCreated(page)) === 3, `${await audioCreated(page)} Audio()`);
+  await shot(page, "02c-sound-on");
+
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForSelector('[data-action="toggle-sound"]');
+  check(
+    "the sound preference survives a reload",
+    (await page.locator('[data-action="toggle-sound"]').getAttribute("aria-pressed")) === "true",
+  );
+  check("a returning visitor with sound on preloads the three samples", (await audioCreated(page)) === 3, `${await audioCreated(page)} Audio()`);
+
+  await page.locator('[data-action="toggle-sound"]').click();
+  check("turning sound off persists", (await page.evaluate((key) => localStorage.getItem(key), SOUND_STORAGE_KEY)) === "off");
+  check("the toggle reads as off after the second press", (await page.locator('[data-action="toggle-sound"]').getAttribute("aria-pressed")) === "false");
 }
 
 async function shot(page: Page, name: string): Promise<void> {
@@ -1121,14 +1174,17 @@ async function main(): Promise<void> {
   });
   const page = await context.newPage();
   watch(page);
+  await installAudioProbe(context);
 
   await verifyLobby(page);
+  check("the lobby constructs no audio object while sound is off", (await audioCreated(page)) === 0, `${await audioCreated(page)} Audio()`);
   const tableId = await createTableThroughUi(page);
 
   section("Table (waiting for players)");
   await page.waitForSelector(".room-card");
   await shot(page, "02-table-waiting");
   check("the waiting room shows the share control", (await page.$('[data-action="share"]')) !== null);
+  await verifySoundToggle(page);
 
   await verifyShare(page, context, browser, tableId);
   await verifyCreatorCanStart(browser);

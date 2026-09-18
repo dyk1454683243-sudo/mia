@@ -4,6 +4,7 @@
  */
 import type { HistoryEntry, TableSummary } from "../../src/shared/protocol";
 import { api, escapeHtml, relativeTime } from "./net";
+import { readSoundPref, soundToggleHtml, writeSoundPref } from "./sound-ui";
 
 const POLL_MS = 4_000;
 
@@ -142,7 +143,7 @@ function paint(html: string): void {
 
 function render(): void {
   paint(`
-    <header class="topbar"><span class="brand">Mia</span><span class="round">dice bluffing</span></header>
+    <header class="topbar"><span class="brand">Mia</span><span class="round">dice bluffing</span>${soundToggleHtml()}</header>
     <main class="page">
       ${state.error ? `<p class="toast">${escapeHtml(state.error)}</p>` : ""}
       ${renderMe()}
@@ -216,6 +217,10 @@ app.addEventListener("click", (event) => {
       break;
     case "toggle-history":
       state.historyOpen = !state.historyOpen;
+      render();
+      break;
+    case "toggle-sound":
+      writeSoundPref(!readSoundPref());
       render();
       break;
     default:
