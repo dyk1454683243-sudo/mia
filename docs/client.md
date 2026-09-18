@@ -24,6 +24,30 @@ to draw. The Durable Object re-derives legality and rejects anything the browser
 should not have offered. The client's copy is a convenience; the trust boundary is
 the server.
 
+## The waiting room
+
+`renderWaiting` is the table before the first deal: the roster, the start
+button, a printed join link, and a practice cup. Sitting alone used to look like
+an error because the only control was a disabled "Waiting for at least 2
+players…" button. One seat and five seats now share the same chrome, and the
+status line always says *waiting*.
+
+The **join link** is the URL itself, large enough to read aloud on a phone call,
+selectable text sitting next to the share button rather than hidden behind it.
+Host and path are two lines so you say the workers.dev hostname and then spell
+`/t/…`. `joinLink` in `src/shared/join-link.ts` is the split; `share()` still
+sends the same `href` it always did, and still falls back to the clipboard when
+`navigator.share` is missing.
+
+The **practice cup** is local. Shaking it calls `rollDice` in the browser and
+sends nothing on the socket — a real `roll` against a lobby that has not started
+would be a move. The last shake and the tumble clock live in module scope, not
+in the snapshot, because `paint()` rebuilds the card whenever a friend joins and
+a DOM-only roll would vanish. The value is unnamed until the 400ms beat
+settles (`practiceIsRolling` in `src/shared/practice.ts`); reduced motion skips
+the beat. #55's real-dice tumble has not landed, so this animation is the
+practice cup's own and is scoped to `.practice-cup`.
+
 ## The table in the round
 
 `renderPlayers` seats everyone on an ellipse with the standing claim dead centre.

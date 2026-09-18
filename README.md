@@ -243,6 +243,8 @@ src/shared/     pure TypeScript, no Cloudflare imports
   seat-positions.ts  round-table seat geometry (pure, no DOM)
   replay.ts       the endgame filmstrip and the per-player stat lines (pure)
   ships.ts        Culture ship-name pool for new players
+  join-link.ts    shareable table URL split for reading aloud (pure)
+  practice.ts     waiting-room practice-cup tumble clock (pure)
 src/worker/
   index.ts        routes: assets, /t/:id, JSON API, WebSocket upgrade proxy
   table-room.ts   TableRoom Durable Object: live state, sockets, the alarm
@@ -257,6 +259,7 @@ test/
   clock.test.ts   countdown arithmetic (node)
   seat-positions.test.ts  round-table rotation (node)
   replay.test.ts  endgame filmstrip, stat lines and per-player tallies (node)
+  waiting.test.ts  join-link split and practice-cup tumble clock (node)
   room.test.ts    Durable Object + D1 + WebSockets (workerd)
 scripts/
   lib.ts          shared harness internals (client, strategy, HTTP)

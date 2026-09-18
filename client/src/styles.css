@@ -357,6 +357,144 @@ ul {
   white-space: nowrap;
 }
 
+/* The waiting room is a table, not an error: the join URL is printed at
+ * reading size because a ghost button is not something you can spell out
+ * over a phone call, and the practice cup is a local thumb toy so sitting
+ * alone has something to do. One seat and five seats share this chrome. */
+
+.join-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px dashed var(--line);
+}
+
+.join-url {
+  margin: 0;
+  padding: 0.7rem 0.8rem;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--line);
+  user-select: all;
+  -webkit-user-select: all;
+  cursor: text;
+}
+
+.join-host {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--ink-dim);
+  letter-spacing: 0.02em;
+  overflow-wrap: break-word;
+}
+
+.join-path {
+  display: block;
+  margin-top: 0.2rem;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+  line-height: 1.3;
+  color: var(--ink);
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.practice-cup {
+  margin-top: 0.85rem;
+  padding: 0.85rem 0.75rem 0.95rem;
+  border-radius: var(--radius);
+  border: 1px solid rgba(232, 196, 106, 0.22);
+  background: radial-gradient(ellipse at 50% 0%, #14624a 0%, #0c4534 70%, #07301f 100%);
+  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.28);
+  text-align: center;
+}
+
+.practice-cup .label {
+  color: var(--gold);
+}
+
+.practice-shake {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0.35rem 0.4rem 0.5rem;
+  background: transparent;
+  border: none;
+  color: var(--ink);
+}
+
+.practice-cup-shape {
+  position: relative;
+  display: block;
+  width: 3.2rem;
+  height: 2.85rem;
+  border-radius: 0 0 46% 46% / 0 0 58% 58%;
+  background: linear-gradient(180deg, #f0d68c, #c99a2e);
+  box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.16), 0 8px 18px -8px rgba(0, 0, 0, 0.7);
+}
+
+.practice-cup-shape::after {
+  content: "";
+  position: absolute;
+  right: -0.68rem;
+  top: 0.5rem;
+  width: 0.85rem;
+  height: 1.1rem;
+  border: 4px solid #c99a2e;
+  border-left: 0;
+  border-radius: 0 999px 999px 0;
+}
+
+.practice-cta {
+  font-weight: 700;
+}
+
+.practice-note {
+  margin: 0.35rem 0 0;
+}
+
+.practice-value {
+  margin: 0.55rem 0 0;
+}
+
+.practice-value .chip {
+  font-size: 1.25rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .practice-cup.rolling .die {
+    animation: practice-tumble 400ms cubic-bezier(0.22, 0.82, 0.28, 1.15) both;
+    animation-delay: calc(0ms - var(--practice-elapsed, 0ms));
+  }
+
+  .practice-cup.rolling .practice-cup-shape {
+    animation: practice-rattle 400ms ease-in-out both;
+    animation-delay: calc(0ms - var(--practice-elapsed, 0ms));
+  }
+}
+
+@keyframes practice-tumble {
+  0% { transform: translateY(-10px) rotate(-26deg); filter: blur(1.5px); }
+  45% { transform: translateY(5px) rotate(16deg); filter: none; }
+  72% { transform: translateY(-2px) rotate(-7deg); }
+  100% { transform: translateY(0) rotate(0); }
+}
+
+@keyframes practice-rattle {
+  0%, 100% { transform: rotate(0); }
+  20% { transform: rotate(-11deg) translateX(-2px); }
+  45% { transform: rotate(10deg) translateX(2px); }
+  70% { transform: rotate(-6deg); }
+}
+
 .players {
   position: absolute;
   inset: 0;

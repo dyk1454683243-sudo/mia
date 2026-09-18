@@ -6,8 +6,9 @@ The suite runs in two different runtimes, and the split is the point.
 
 - **`unit`** runs in plain Node with no Workers runtime. It covers the pure rules
   engine, the clock arithmetic, the seat-limit constants, the round table's
-  seat geometry, the showdown's verdict and beat arithmetic and the endgame
-  replay's filmstrip and stat lines. These are the tests that can be reasoned
+  seat geometry, the showdown's verdict and beat arithmetic, the endgame
+  replay's filmstrip and stat lines, and the waiting room's join-link split
+  and practice-cup tumble clock. These are the tests that can be reasoned
   about from the code alone, and they run fast because there is no platform
   underneath them.
 - **`workers`** runs inside `workerd` with a real D1 database and a real Durable
@@ -99,7 +100,10 @@ cover the assembled system, and they need a running `wrangler dev` (or a deploye
   action in such a pair is stale by construction.
 - **`scripts/ui-check.ts`** drives the real client in headless Chromium at a phone
   viewport, plays a full game against bots, captures screenshots and fails on any
-  console error. It fills the table to `MAX_PLAYERS` by default, because the
+  console error. The waiting-room pass pins the join URL as selectable text at
+  reading size, that shaking the practice cup sends nothing on the socket, that
+  the value is unnamed until the tumble settles, and that both a solo table and
+  a filled waiting table still read as waiting. It fills the table to `MAX_PLAYERS` by default, because the
   announce ladder's geometry is tightest at a full table and a three-seat run
   passes while an eight-seat one fails; `MIA_UI_SEATS` runs a smaller table.
   **Run both.** The worst case is not one seat count: the ring widens below seven
