@@ -39,6 +39,7 @@ import {
   showdownTiming,
   showdownTone,
   showdownValue,
+  timeoutSentence,
 } from "../../src/shared/showdown";
 import { api, escapeHtml, TableSocket } from "./net";
 
@@ -673,7 +674,17 @@ function renderPlay(view: StateView): string {
         ${game.events
           .slice(-8)
           .reverse()
-          .map((event) => `<li class="ev-${event.kind}">${escapeHtml(event.text)}</li>`)
+          .map((event) => {
+            // Prefer presentation from the typed reason so older "timed out"
+            // wording never has to live in persisted state (#62).
+            const label =
+              event.reason === "timeout"
+                ? timeoutSentence(
+                    game.players.find((player) => player.id === event.playerId)?.name ?? "Someone",
+                  )
+                : event.text;
+            return `<li class="ev-${event.kind}">${escapeHtml(label)}</li>`;
+          })
           .join("")}
       </ol>
     </section>
