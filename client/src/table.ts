@@ -3,6 +3,7 @@
  * All hidden-dice redaction happens server-side; this file only draws.
  */
 import {
+  finalStandings,
   formatValue,
   isDouble,
   legalMoves,
@@ -22,6 +23,15 @@ import {
 import type { ClientMessage, StateView, TableSummary } from "../../src/shared/protocol";
 import { TurnClock } from "../../src/shared/clock";
 import { seatPositions } from "../../src/shared/seat-positions";
+import {
+  frameLabel,
+  lastRoundFilmstrip,
+  playerChips,
+  playerOutcome,
+  statLines,
+  voiceFor,
+  YOU,
+} from "../../src/shared/replay";
 import {
   showdownLoser,
   showdownSentence,
@@ -170,28 +180,13 @@ function renderShowdown(game: MiaState, view: StateView, reveal: DoubtReveal): s
 }
 
 /**
- * A compact, static version of the same comparison for the reveal that has no
- * window to stage over. `resolveDoubt` sets `phase = "revealing"` with a
- * deadline, but its trailing `resolveEliminations` call flips a doubt that ends
- * the game to `finished` and clears `deadlineAt` in that same invocation, before
- * any snapshot can carry a revealing phase. The finished screen therefore
- * renders this recap, keeping the `.reveal`/`.reveal-dice`/`.verdict` contract.
+ * The game-ending doubt has no reveal window to stage over: `resolveDoubt` sets
+ * `phase = "revealing"` with a deadline, but its trailing `resolveEliminations`
+ * call flips a doubt that ends the game to `finished` and clears `deadlineAt`
+ * in the same invocation, before any snapshot can carry a revealing phase. The
+ * finished screen therefore recaps that reveal in the filmstrip below, from the
+ * same engine `DoubtReveal` the showdown uses.
  */
-function renderRevealCard(reveal: DoubtReveal): string {
-  const tone = showdownTone(reveal);
-  return `<section class="card standing-card reveal-card ${tone}">
-    <p class="label">Last claim</p>
-    <div class="reveal">
-      <div class="reveal-dice">
-        <div><p class="label">claimed</p>${valueChip(reveal.announced)}</div>
-        <div><p class="label">actual</p>${valueChip(reveal.actual, "actual")}</div>
-      </div>
-      <span class="showdown-stamp compact">${showdownStamp(reveal)}</span>
-      ${verdictLine(reveal)}
-    </div>
-  </section>`;
-}
-
 interface PageState {
   table: TableSummary | null;
   view: StateView | null;
@@ -375,6 +370,132 @@ function renderPlayers(game: MiaState, view: StateView): string {
   </section>`;
 }
 
+/**
+ * The last round as a filmstrip: every claim in order, the doubt in red, the
+ * truth at the end. It is the same story for everyone at the table, eliminated
+ * players and late spectators included — nothing here depends on the viewer
+ * holding a seat, only on the log and the engine's final reveal.
+ *
+ * The claims come from `MiaState.events`, the doubt and the dice from
+ * `lastReveal`; the frames themselves are built in `src/shared/replay.ts` so the
+ * order and the wording are unit-tested rather than only seen in one game.
+ */
+function renderFilmstrip(game: MiaState, view: StateView): string {
+  const strip = lastRoundFilmstrip(game);
+  if (strip.frames.length === 0) return "";
+  const cells = strip.frames
+    .map((frame) => {
+      const mine = frame.playerId === view.you;
+      const who = mine ? "you" : initialsOf(frame.playerName);
+      const label = mine ? "You" : escapeHtml(frame.playerName);
+      if (frame.kind === "doubt") {
+        return `<li class="film-cell doubt${mine ? " you" : ""}" aria-label="${label} doubted the claim">
+          <span class="film-who" aria-hidden="true">${escapeHtml(who)}</span>
+          <span class="film-value" aria-hidden="true">doubt</span>
+        </li>`;
+      }
+      if (frame.kind === "truth") {
+        const tone = frame.penaltyApplied === "double-mia" ? "mia" : frame.bluff ? "caught" : "believed";
+        return `<li class="film-cell truth ${tone}" aria-label="${label} really had ${frameLabel(frame.value)}">
+          <span class="film-who" aria-hidden="true">truth</span>
+          <span class="film-value" aria-hidden="true">${frameLabel(frame.value)}</span>
+        </li>`;
+      }
+      return `<li class="film-cell claim${mine ? " you" : ""}" data-player-id="${escapeHtml(frame.playerId)}" aria-label="${label} claimed ${frameLabel(frame.value)}">
+        <span class="film-who" aria-hidden="true">${escapeHtml(who)}</span>
+        <span class="film-value" aria-hidden="true">${frameLabel(frame.value)}</span>
+      </li>`;
+    })
+    .join("");
+  return `<section class="card film-card">
+    <h3>Round ${strip.round}, frame by frame</h3>
+    <ol class="filmstrip">${cells}</ol>
+    <p class="film-caption">${strip.caption}</p>
+  </section>`;
+}
+
+/** The finishing order and what each player did, read off their record. */
+function renderStats(game: MiaState, view: StateView): string {
+  const viewer = playerById(game, view.you);
+  const chips = viewer?.record ? playerChips(viewer.record) : [];
+  // A spectator has no seat and so no record: the heading goes with the numbers
+  // rather than sitting over an empty section.
+  const head =
+    viewer?.record && chips.length > 0
+      ? `<h3>How you played</h3>
+        <div class="stat-chips">${chips
+          .map(
+            (chip) =>
+              `<span class="stat-chip"><b>${escapeHtml(chip.value)}</b><span class="label">${escapeHtml(
+                chip.label,
+              )}</span></span>`,
+          )
+          .join("")}</div>
+        <p class="stat-line">${escapeHtml(statLines(viewer.record, YOU).join(" "))}</p>`
+      : "";
+  const rows = finalStandings(game)
+    .map(({ player, place }) => {
+      const line = player.record ? escapeHtml(statLines(player.record, voiceFor(player, view.you)).join(" ")) : "";
+      return `<li class="stat-row${player.id === view.you ? " you" : ""}">
+        <span class="place">${ordinal(place)}</span>
+        <span class="name">${escapeHtml(player.name)}${player.id === view.you ? " <em>(you)</em>" : ""}</span>
+        <span class="outcome">${escapeHtml(playerOutcome(player))}</span>
+        ${line ? `<span class="stat-line">${line}</span>` : ""}
+      </li>`;
+    })
+    .join("");
+  return `<section class="card stats-card">
+    ${head}
+    <h3 class="stats-table-head">The final table</h3>
+    <ol class="stats-table">${rows}</ol>
+  </section>`;
+}
+
+function ordinal(place: number): string {
+  const tens = place % 100;
+  if (tens >= 11 && tens <= 13) return `${place}th`;
+  return `${place}${place % 10 === 1 ? "st" : place % 10 === 2 ? "nd" : place % 10 === 3 ? "rd" : "th"}`;
+}
+
+/**
+ * The winner, the rematch and the way out. A table is single-use, so the
+ * rematch button is the honest "again" — it opens a *new* table seeded with
+ * this one's players, and once the server has one, `state.rematchId` turns the
+ * button into a link for everyone, including a client that reconnects after the
+ * press and never saw the broadcast.
+ *
+ * Only a player with a seat is offered the button. The server refuses a
+ * spectator — there is no seat to carry into the next table, and a button whose
+ * only outcome is an error is worse than none — so the page does not draw one.
+ * The link is different: once a rematch exists its id is part of every
+ * snapshot, and a spectator may follow it into the next game. They take a spare
+ * seat if the seeded lobby has one and get the terminal `table-full` page if the
+ * finished table was full; which of the two it is lives in the new room, so the
+ * link is drawn either way and the server decides.
+ */
+function renderFinishedActions(game: MiaState, view: StateView): string {
+  const winner = game.gameOver?.winnerName ?? "somebody";
+  const seated = playerById(game, view.you) !== undefined;
+  const rematch =
+    game.rematchId !== null
+      ? `<a class="primary link" data-action="join-rematch" href="/t/${encodeURIComponent(
+          game.rematchId,
+        )}">Join the rematch</a>
+        <p class="muted small">A new table with the same players. Everyone still here has the link.</p>`
+      : seated
+        ? `<button class="primary" data-action="rematch">Rematch</button>
+        <p class="muted small">A table is single-use: this opens a new one with everyone from this table.</p>`
+        : `<p class="muted small">A table is single-use. This one is over — a player at the table can open a rematch.</p>`;
+  return `<div class="card actions actions-end">
+    <p class="winner">🏆 ${escapeHtml(winner)} wins</p>
+    ${rematch}
+    <div class="row gap">
+      <button class="ghost" data-action="share">Share join link</button>
+      <a class="ghost link" href="/">Back to the lobby</a>
+    </div>
+  </div>`;
+}
+
 interface Rung {
   isLegal: boolean;
   isMine: boolean;
@@ -383,7 +504,6 @@ interface Rung {
   isCheapest: boolean;
   standing: Announcement | null;
 }
-
 /**
  * Short, engine-true hints for a rung. Every claim here is checked against
  * `src/shared/mia.ts`:
@@ -485,13 +605,7 @@ function renderPlay(view: StateView): string {
 
   let actions = "";
   if (game.phase === "finished") {
-    const winner = game.gameOver?.winnerName ?? "somebody";
-    actions = `<div class="card actions"><p class="winner">🏆 ${escapeHtml(winner)} wins</p>
-      <div class="row gap">
-        <a class="primary link" href="/">Back to the lobby</a>
-        <button class="ghost" data-action="share">Share join link</button>
-      </div>
-      <p class="muted small">A table is single-use — start a new one to play again.</p></div>`;
+    actions = renderFinishedActions(game, view);
   } else if (game.phase === "revealing") {
     actions = `<div class="card actions"><p class="muted">Reveal…</p></div>`;
   } else if (game.phase === "roundStart") {
@@ -539,18 +653,20 @@ function renderPlay(view: StateView): string {
   // The standing claim lives in the middle of the felt inside `renderPlayers`.
   // On the reveal beat the showdown takes over the screen as a fixed overlay, so
   // it never enters the page flow and cannot push the seats into the controls.
-  // The game-ending doubt resolves to `finished` inside `resolveDoubt` (its
-  // `resolveEliminations` runs before the reveal window can be used), so it has
-  // no `revealing` phase to stage over; that one reveal falls back to a compact
-  // card below the winner. A doubt that eliminates a player while others remain
-  // alive stays in `revealing` and plays the full showdown.
+  // The game-ending doubt has no `revealing` phase to stage over (see the note
+  // on `renderFilmstrip`), so the finished screen tells that story instead.
   const rosterCard = renderPlayers(game, view);
   const showdown = reveal && game.phase === "revealing" ? renderShowdown(game, view, reveal) : "";
-  const revealCard = reveal && game.phase !== "revealing" ? renderRevealCard(reveal) : "";
+  const finished = game.phase === "finished";
+  // The finished screen reads as a story: the felt, the last round frame by
+  // frame, then the winner and the rematch, then the numbers. The controls come
+  // before the stats rather than after them, so the way to play again is one
+  // short scroll past the filmstrip instead of a hunt past the table.
   return `
     ${rosterCard}
-    ${revealCard}
+    ${finished ? renderFilmstrip(game, view) : ""}
     ${actions}${showdown}
+    ${finished ? renderStats(game, view) : ""}
     <section class="card log-card">
       <h3>Table talk</h3>
       <ol class="log">
@@ -658,11 +774,12 @@ function render(): void {
   }
 
   const started = view.state.round > 0;
+  const over = view.state.gameOver !== null;
   paint(`
     <header class="topbar">
       <a class="brand" href="/">Mia</a>
       <span class="table-title">${escapeHtml(title)}</span>
-      <span class="round">${started ? `Round ${view.state.round}` : "Lobby"}</span>
+      <span class="round">${over ? "Final" : started ? `Round ${view.state.round}` : "Lobby"}</span>
     </header>
     <main class="page">
       ${state.error ? `<p class="toast">${escapeHtml(state.error)}</p>` : ""}
@@ -697,6 +814,9 @@ app.addEventListener("click", (event) => {
     }
     case "share":
       void share();
+      break;
+    case "rematch":
+      send({ type: "rematch" });
       break;
     default:
       break;

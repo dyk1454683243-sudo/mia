@@ -52,6 +52,11 @@ left out — see below.
   can be announced, otherwise believe and announce the minimum legal value — so
   a dropped phone never stalls the game.
 
+When the game ends it ends as a story: the last round replays as a filmstrip of
+every claim, the doubt in red and the truth at the end, with a line of stats per
+player, and a **Rematch** button that opens a new table pre-seeded with the same
+people and hands the link to every tab still open.
+
 **Variants deliberately left out:** passing or relaying the cup; accepting a
 stated Mia without turning the dice over; "rolling your own Mia ends the round".
 
@@ -236,6 +241,7 @@ src/shared/     pure TypeScript, no Cloudflare imports
   protocol.ts     WebSocket message + state types shared by both sides
   clock.ts        turn-countdown arithmetic (clock drift captured per snapshot)
   seat-positions.ts  round-table seat geometry (pure, no DOM)
+  replay.ts       the endgame filmstrip and the per-player stat lines (pure)
   ships.ts        Culture ship-name pool for new players
 src/worker/
   index.ts        routes: assets, /t/:id, JSON API, WebSocket upgrade proxy
@@ -250,6 +256,7 @@ test/
   mia.test.ts     rules engine (node)
   clock.test.ts   countdown arithmetic (node)
   seat-positions.test.ts  round-table rotation (node)
+  replay.test.ts  endgame filmstrip, stat lines and per-player tallies (node)
   room.test.ts    Durable Object + D1 + WebSockets (workerd)
 scripts/
   lib.ts          shared harness internals (client, strategy, HTTP)

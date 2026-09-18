@@ -41,6 +41,20 @@ export function ensureSchema(env: Env): Promise<unknown> {
          updated_at INTEGER NOT NULL
        )`,
     ),
+    // The pre-game roster a rematch hands to its new table. A brand-new table
+    // has no Durable Object and therefore no roster, so the seats have to wait
+    // somewhere the new room can read them; this is the one piece of a table's
+    // roster that reaches D1, and it is cleared the moment the game starts.
+    // Rows are written and deleted as a set, never updated mid-game.
+    env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS table_seats (
+         table_id TEXT NOT NULL,
+         player_id TEXT NOT NULL,
+         name TEXT NOT NULL,
+         seat INTEGER NOT NULL,
+         PRIMARY KEY (table_id, player_id)
+       )`,
+    ),
     env.DB.prepare(
       `CREATE TABLE IF NOT EXISTS games (
          id TEXT PRIMARY KEY,
@@ -231,6 +245,67 @@ export async function updateTable(
   await env.DB.prepare(`UPDATE tables SET ${sets.join(", ")} WHERE id = ?1`)
     .bind(...values)
     .run();
+}
+
+// ---------------------------------------------------------------------------
+// table_seats (the rematch handoff)
+// ---------------------------------------------------------------------------
+
+export interface SeededPlayer {
+  playerId: string;
+  name: string;
+}
+
+/**
+ * Create the table a rematch moves to, together with the roster it inherits, in
+ * one batch — a directory row nobody can join is worse than no row at all.
+ *
+ * Both inserts are `ON CONFLICT DO NOTHING`, which is what makes two players
+ * pressing Rematch at the same moment harmless: the id is derived from the
+ * finished game rather than minted, so both presses name the same table and the
+ * second batch is a no-op.
+ */
+export async function createRematchTable(
+  env: Env,
+  table: {
+    id: string;
+    name: string;
+    hostId: string;
+    maxPlayers: number;
+    players: SeededPlayer[];
+    now: number;
+  },
+): Promise<void> {
+  const statements = [
+    env.DB.prepare(
+      `INSERT INTO tables (id, name, host_id, status, player_count, max_players, created_at, updated_at)
+       VALUES (?1, ?2, ?3, 'waiting', ?4, ?5, ?6, ?6)
+       ON CONFLICT (id) DO NOTHING`,
+    ).bind(table.id, table.name, table.hostId, table.players.length, table.maxPlayers, table.now),
+    ...table.players.map((player, seat) =>
+      env.DB.prepare(
+        `INSERT INTO table_seats (table_id, player_id, name, seat)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT (table_id, player_id) DO NOTHING`,
+      ).bind(table.id, player.playerId, player.name, seat),
+    ),
+  ];
+  await env.DB.batch(statements);
+}
+
+/** The seats handed to a new table, in the order the finished table sat. */
+export async function readTableSeats(env: Env, tableId: string): Promise<SeededPlayer[]> {
+  const rows = await env.DB.prepare(
+    `SELECT player_id, name FROM table_seats WHERE table_id = ?1 ORDER BY seat ASC`,
+  )
+    .bind(tableId)
+    .all<{ player_id: string; name: string }>();
+  return (rows.results ?? []).map((row) => ({ playerId: row.player_id, name: row.name }));
+}
+
+/** The handoff is over once the new table's game starts. */
+export async function clearTableSeats(env: Env, tableId: string): Promise<void> {
+  await env.DB.prepare(`DELETE FROM table_seats WHERE table_id = ?1`).bind(tableId).run();
 }
 
 // ---------------------------------------------------------------------------

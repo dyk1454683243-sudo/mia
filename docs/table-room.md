@@ -199,6 +199,51 @@ and `handleStart` still refuse `""`, but that check is unreachable by constructi
 a non-null state by the time they run. It is kept only as defence in depth, not as
 the thing that keeps a guessed-id result row out of D1.
 
+## The rematch
+
+A finished table is still single-use: `handleStart` refuses once a round has
+begun and nothing here restarts a game in the same room. What the Rematch button
+does instead is open a *new* table — same name, same creator, the whole roster
+pre-seeded — and hand its link to everyone still connected.
+
+`state.rematchId` is that link, and it rides in the snapshot rather than in a
+message of its own. That is the whole reconnect story: a client whose socket was
+down when somebody pressed Rematch reconnects to the old room and receives the
+current state, which already carries the id, so nobody has to have been watching
+at the right moment. A one-off `rematch` frame pushed to whichever sockets happen
+to be open would lose exactly the people a rematch is for.
+
+**Anybody seated may press it**, eliminated players included; a spectator who
+opened the link after the game started has no seat and is refused. There is no
+host rule here, unlike `handleStart` — a rematch is the table's move, not a
+decision about who may begin — and a press while the game is still running is
+refused as well, because there is no next table until this one is over.
+
+**Two presses in the same instant cannot produce two tables**, and that is a
+property of the id rather than of a lock. `rematchTableId` derives it from the
+finished `gameId`, so both presses name the same table, and `createRematchTable`
+inserts the directory row and its seats with `ON CONFLICT DO NOTHING`. The work
+may happen twice; the row cannot. A lock would have to be persisted to survive a
+hibernation between two presses, and the derived id is both simpler and still
+true after any amount of time.
+
+The seats the new table inherits are read by its room on the first connect (see
+`readSeedSeats`) and cleared when its game starts. They live in D1 — the one place
+a roster does — and [identity-and-storage.md](identity-and-storage.md) is where
+that handoff and its cost are written down.
+
+The first connect is where the seat cap has to hold, because that room is built
+from the seeds rather than from an empty lobby: a connecting player who is in
+the seeded roster keeps their seat, and one who is not is appended only while
+there is room. At `MAX_PLAYERS` seeds the outsider is refused with `table-full` —
+the same coded refusal a full table gives everywhere else, and the one the client
+already treats as terminal — rather than seated ninth. `handleStart` carries the
+matching upper bound: a lobby that somehow holds more than `MAX_PLAYERS` (a
+hand-written `table_seats` row, or a state persisted before the bound existed)
+refuses to start, instead of producing a game the seat layout was never built
+for. The lower bound has always been there; the upper one arrived with the
+pre-filled roster.
+
 ## Test seams
 
 The seams a test needs — forcing dice, reading unredacted state, shortening the

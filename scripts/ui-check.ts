@@ -85,6 +85,11 @@ function labelValue(value: number): string {
   return value === MIA ? "MIA" : formatValue(value);
 }
 
+/** The inverse of `labelValue`, for reading a claim back off the DOM. */
+function claimRank(label: string): number {
+  return label === "MIA" ? MIA : Number(label.replace("·", ""));
+}
+
 function watch(page: Page): void {
   page.on("console", (message) => {
     if (message.type() === "error") consoleErrors.push(`${page.url()} :: ${message.text()}`);
@@ -372,6 +377,18 @@ interface Snapshot {
   standingClaimerId: string | null;
   /** The text claim bubble and the seat it hangs on. */
   claim: { by: string | null; count: number; value: string };
+  /** The endgame replay: the last round's filmstrip and the lines under it. */
+  film: {
+    cells: number;
+    claims: number;
+    doubt: number;
+    truth: number;
+    claimValues: string[];
+    truthValue: string;
+    caption: string;
+  };
+  stats: { rows: number; you: boolean; lines: string[]; chips: string[] };
+  rematch: { button: boolean; link: string | null };
 }
 
 async function snapshot(page: Page): Promise<Snapshot> {
@@ -408,6 +425,32 @@ async function snapshot(page: Page): Promise<Snapshot> {
       by: claimNodes[0]?.closest<HTMLElement>(".player")?.dataset.playerId ?? null,
       count: claimNodes.length,
       value: claimNodes[0]?.textContent?.trim() ?? "",
+    };
+    // The endgame. The filmstrip is read as a shape — how many cells, and how
+    // many of each kind — plus the values themselves, so the strip's claims can
+    // be checked against the claim on the felt and the truth against the caption.
+    const filmCells = [...document.querySelectorAll<HTMLElement>(".film-cell")];
+    const film = {
+      cells: filmCells.length,
+      claims: filmCells.filter((cell) => cell.classList.contains("claim")).length,
+      doubt: filmCells.filter((cell) => cell.classList.contains("doubt")).length,
+      truth: filmCells.filter((cell) => cell.classList.contains("truth")).length,
+      claimValues: filmCells
+        .filter((cell) => cell.classList.contains("claim"))
+        .map((cell) => cell.querySelector(".film-value")?.textContent?.trim() ?? ""),
+      truthValue: document.querySelector(".film-cell.truth .film-value")?.textContent?.trim() ?? "",
+      caption: document.querySelector(".film-caption")?.textContent?.trim() ?? "",
+    };
+    const statRows = [...document.querySelectorAll<HTMLElement>(".stat-row")];
+    const stats = {
+      rows: statRows.length,
+      you: statRows.some((row) => row.classList.contains("you")),
+      lines: statRows.map((row) => row.querySelector(".stat-line")?.textContent?.trim() ?? ""),
+      chips: [...document.querySelectorAll<HTMLElement>(".stat-chip")].map((chip) => chip.textContent?.trim() ?? ""),
+    };
+    const rematch = {
+      button: document.querySelector('[data-action="rematch"]') !== null,
+      link: document.querySelector<HTMLAnchorElement>('[data-action="join-rematch"]')?.getAttribute("href") ?? null,
     };
     const actions = text(".actions");
     const verdictNode = document.querySelector<HTMLElement>(".verdict");
@@ -461,6 +504,9 @@ async function snapshot(page: Page): Promise<Snapshot> {
       seatCount: players.length,
       standingClaimerId: standingNode?.dataset.claimerId ?? null,
       claim,
+      film,
+      stats,
+      rematch,
     } as Snapshot;
   }, MIA);
 }
@@ -691,7 +737,7 @@ async function act(page: Page): Promise<string> {
   });
 }
 
-async function playGame(page: Page, bots: ChildProcess): Promise<{ saw: Set<string>; secrecyViolations: string[]; claimBubbleViolations: string[]; countdownTicks: string[]; rerenderSurvived: boolean | null }> {
+async function playGame(page: Page, bots: ChildProcess, tableId: string): Promise<{ saw: Set<string>; secrecyViolations: string[]; claimBubbleViolations: string[]; countdownTicks: string[]; rerenderSurvived: boolean | null }> {
   section("A full game with bots");
   const saw = new Set<string>();
   const secrecyViolations: string[] = [];
@@ -929,7 +975,84 @@ async function playGame(page: Page, bots: ChildProcess): Promise<{ saw: Set<stri
         snap.seatCount === SEATS,
         `${snap.seatCount} of ${SEATS} seats · ${snap.players.filter((player) => player.out).length} out`,
       );
+      // The replay. One claim per announcement of the final round, then exactly
+      // one doubt and one truth. The counts alone do not say which round the
+      // strip is of — `cells === claims + 2` holds however many rounds it
+      // swallowed — so the claims are also walked: within one round every
+      // announcement has to outrank the one standing, and a strip that crosses
+      // a round boundary shows a claim that drops back down the ranking. That
+      // climb is the assertion with teeth.
+      const claimRanks = snap.film.claimValues.map(claimRank);
+      check(
+        "the filmstrip replays one round's claims, the doubt and the truth",
+        snap.film.claims >= 1 &&
+          snap.film.doubt === 1 &&
+          snap.film.truth === 1 &&
+          snap.film.cells === snap.film.claims + 2 &&
+          claimRanks.every((value, index) => index === 0 || outranks(value, claimRanks[index - 1]!)),
+        JSON.stringify(snap.film),
+      );
+      // The claims are derived from the event log and the felt's claim bubble
+      // from `lastAnnouncement`: two sources for the same fact, so they have to
+      // agree. That is what says the strip is the round that actually ended it.
+      const lastClaim = snap.film.claimValues.at(-1) ?? "";
+      check(
+        "the filmstrip's last claim is the claim left standing on the felt",
+        lastClaim.length > 0 && snap.claim.value === lastClaim,
+        `felt ${snap.claim.value || "none"} vs filmstrip ${lastClaim || "none"}`,
+      );
+      check(
+        "the filmstrip's caption names the truth the doubt turned over",
+        snap.film.truthValue.length > 0 && snap.film.caption.includes(snap.film.truthValue),
+        `${snap.film.truthValue} :: ${snap.film.caption.slice(0, 90)}`,
+      );
+      // The stats: one row per seat, the viewer's own marked, every line filled
+      // in and none of them a broken calculation.
+      check("the stats give every player at the table a row", snap.stats.rows === SEATS, `${snap.stats.rows} of ${SEATS}`);
+      check("the stats mark the viewer's own row", snap.stats.you);
+      check(
+        "every stat line is filled in and none of them reads as a broken number",
+        snap.stats.lines.length === SEATS &&
+          snap.stats.lines.every((line) => line.length > 0) &&
+          [...snap.stats.lines, ...snap.stats.chips].every((text) => !/NaN|undefined|\b0 times\b/.test(text)),
+        snap.stats.lines.slice(0, 2).join(" | "),
+      );
       await shot(page, "09-game-over");
+
+      // The rematch. A press opens a *new* table and the link reaches this
+      // socket through the snapshot; the new table's lobby is seeded with the
+      // whole roster before anyone else clicks.
+      if (!snap.rematch.button) {
+        check("the rematch button is offered to a player at the table", false, "no [data-action=rematch]");
+      } else {
+        await page.click('[data-action="rematch"]');
+        const join = await page
+          .waitForSelector('[data-action="join-rematch"]', { timeout: 10_000 })
+          .then((handle) => handle.getAttribute("href"))
+          .catch(() => null);
+        check(
+          "a rematch press opens a different table and links to it",
+          join !== null && join.startsWith("/t/") && join !== `/t/${tableId}`,
+          `${join ?? "no link"} (from /t/${tableId})`,
+        );
+        await shot(page, "09b-rematch");
+        if (join) {
+          const rematchPage = await page.context().newPage();
+          watch(rematchPage);
+          await rematchPage.goto(new URL(join, page.url()).toString(), { waitUntil: "networkidle" });
+          await rematchPage.waitForSelector(".roster-row", { timeout: 10_000 });
+          const seats = await rematchPage.evaluate(() => document.querySelectorAll(".roster-row").length);
+          const heading = (await rematchPage.textContent(".room-card h2"))?.trim() ?? "";
+          check(
+            "the rematch table is pre-seeded with the whole roster",
+            seats === SEATS,
+            `${seats} of ${SEATS} seats · ${heading}`,
+          );
+          check("the rematch table keeps the table's name", heading === "R1 table", heading);
+          await shot(rematchPage, "09c-rematch-lobby");
+          await rematchPage.close();
+        }
+      }
       break;
     }
 
@@ -954,7 +1077,9 @@ async function playGame(page: Page, bots: ChildProcess): Promise<{ saw: Set<stri
       let evidence: { survived: boolean | null; ticks: string[] };
       try {
         evidence = await page.evaluate(async () => {
-          const node = document.querySelector<HTMLElement>(".actions") ?? document.querySelector<HTMLElement>(".standing-card");
+          // The controls card is the marker: every in-play snapshot renders one,
+          // and it is the card a stale re-render would replace.
+          const node = document.querySelector<HTMLElement>(".actions");
           if (!node) return { survived: null as boolean | null, ticks: [] as string[] };
           (node as unknown as { __r1: boolean }).__r1 = true;
           const ticks: string[] = [];
@@ -965,8 +1090,7 @@ async function playGame(page: Page, bots: ChildProcess): Promise<{ saw: Set<stri
             if (value !== null && value !== ticks[ticks.length - 1]) ticks.push(value);
           }
           const stillThere =
-            (document.querySelector(".actions") as unknown as { __r1?: boolean } | null)?.__r1 === true ||
-            (document.querySelector(".standing-card") as unknown as { __r1?: boolean } | null)?.__r1 === true;
+            (document.querySelector(".actions") as unknown as { __r1?: boolean } | null)?.__r1 === true;
           return { survived: stillThere, ticks };
         });
       } finally {
@@ -1019,7 +1143,7 @@ async function main(): Promise<void> {
   check(`${BOTS} bots appear in the roster`, true, `${SEATS} seats`);
   await shot(page, "02b-table-with-bots");
 
-  const game = await playGame(page, bots);
+  const game = await playGame(page, bots, tableId);
   check("every table phase rendered", ["roundStart", "deciding", "announcing", "revealing", "finished"].every((phase) => game.saw.has(phase)), [...game.saw].join(", "));
   check("no other player's dice were ever on screen before a reveal", game.secrecyViolations.length === 0, game.secrecyViolations.slice(0, 3).join("; "));
   check("the claim bubble hangs on the seat that made the claim", game.claimBubbleViolations.length === 0, game.claimBubbleViolations.slice(0, 3).join("; "));
