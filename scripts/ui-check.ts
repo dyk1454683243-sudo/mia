@@ -769,6 +769,129 @@ async function showdownFrame(
   );
 }
 
+interface CountdownSample {
+  /** The number as rendered (`"42s"`), or null when no countdown is on screen. */
+  text: string | null;
+  seconds: number | null;
+  /** The ring element carries the last-ten-seconds class. */
+  urgent: boolean;
+  /** The felt card carries the shared last-ten-seconds class. */
+  feltUrgent: boolean;
+  /** `--countdown-frac` on the ring: 1 is a full ring, 0 is drained. */
+  fraction: number;
+  /** The `::before` conic gradient that draws the ring, as computed. */
+  ringImage: string;
+  /** The felt circle and the page background behind it, as computed. */
+  feltImage: string;
+  bodyImage: string;
+  /** Countdown rings drawn on any seat, and on the viewer's own seat. */
+  seatRings: number;
+  youSeatRing: boolean;
+  /** Seats mid-turn that are not the viewer's, read in the same DOM pass. */
+  nonTurnSeats: number;
+}
+
+/**
+ * The countdown as the browser actually paints it. The same element serves both
+ * render sites, so this reads the live one — the waiting card while a bot thinks
+ * and the viewer's own seat on their turn — rather than poking a class in.
+ */
+async function sampleCountdown(page: Page): Promise<CountdownSample> {
+  return await page.evaluate(() => {
+    const node = document.querySelector<HTMLElement>("[data-countdown]");
+    const felt = document.querySelector<HTMLElement>(".table-stage");
+    const number = node?.textContent?.match(/(\d+)/)?.[1];
+    return {
+      text: node?.textContent?.trim() ?? null,
+      seconds: number === undefined ? null : Number(number),
+      urgent: node?.classList.contains("urgent") ?? false,
+      feltUrgent: document.querySelector<HTMLElement>(".table-card")?.classList.contains("urgent") ?? false,
+      fraction: node ? Number.parseFloat(node.style.getPropertyValue("--countdown-frac")) : -1,
+      ringImage: node ? getComputedStyle(node, "::before").backgroundImage : "",
+      feltImage: felt ? getComputedStyle(felt).backgroundImage : "",
+      bodyImage: getComputedStyle(document.body).backgroundImage,
+      seatRings: document.querySelectorAll(".player .countdown").length,
+      youSeatRing: document.querySelector(".player.you .countdown") !== null,
+      nonTurnSeats: document.querySelectorAll(".player.turn:not(.you)").length,
+    };
+  });
+}
+
+/** The first `rgb()` in a computed gradient, for a semantic colour read. */
+function firstRgb(image: string): [number, number, number] | null {
+  const match = image.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+}
+
+/**
+ * Red, not merely a warm off-white: the neutral ring is cream (`244,239,227`),
+ * where `r > g` is true by five. A real red shifts the channel by tens.
+ */
+function reddish(image: string): boolean {
+  const rgb = firstRgb(image);
+  return rgb !== null && rgb[0] - rgb[1] > 40 && rgb[0] - rgb[2] > 40;
+}
+
+interface MotionProbe {
+  normalFelt: boolean;
+  normalRing: boolean;
+  normalBody: boolean;
+  reducedFelt: boolean;
+  reducedRing: boolean;
+  reducedBody: boolean;
+}
+
+/**
+ * The reduced-motion skip, read from a forced-urgent clone rather than the live
+ * clock so it cannot pass because the frame happened to be calm. The same clone
+ * is sampled twice, once under each motion preference: with the CSS gate in
+ * place the normal pass is red and the reduced pass is not, so a missing gate
+ * (red in both) and a missing treatment (red in neither) both fail.
+ */
+async function reducedMotionProbe(page: Page): Promise<MotionProbe | null> {
+  const sample = async (reduced: boolean) => {
+    await page.emulateMedia({ reducedMotion: reduced ? "reduce" : "no-preference" });
+    return await page.evaluate(() => {
+      const card = document.querySelector<HTMLElement>(".table-card");
+      if (!card) return null;
+      const clone = card.cloneNode(true) as HTMLElement;
+      clone.classList.add("urgent");
+      clone.style.position = "absolute";
+      clone.style.left = "-9999px";
+      clone.style.top = "0";
+      clone.style.width = `${card.getBoundingClientRect().width}px`;
+      document.body.appendChild(clone);
+      clone.querySelector<HTMLElement>("[data-countdown]")?.classList.add("urgent");
+      const stage = clone.querySelector<HTMLElement>(".table-stage");
+      const ring = clone.querySelector<HTMLElement>("[data-countdown]");
+      const red = (image: string) => {
+        const match = image.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (!match) return false;
+        return Number(match[1]) - Number(match[2]) > 40 && Number(match[1]) - Number(match[3]) > 40;
+      };
+      const result = {
+        felt: stage ? red(getComputedStyle(stage).backgroundImage) : false,
+        ring: ring ? red(getComputedStyle(ring, "::before").backgroundImage) : false,
+        body: red(getComputedStyle(document.body).backgroundImage),
+      };
+      clone.remove();
+      return result;
+    });
+  };
+  const normal = await sample(false);
+  const reduced = await sample(true);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  if (!normal || !reduced) return null;
+  return {
+    normalFelt: normal.felt,
+    normalRing: normal.ring,
+    normalBody: normal.body,
+    reducedFelt: reduced.felt,
+    reducedRing: reduced.ring,
+    reducedBody: reduced.body,
+  };
+}
+
 /** One browser move, chosen from what is actually on screen. */
 async function act(page: Page): Promise<string> {
   return await page.evaluate(() => {
@@ -818,6 +941,23 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
   let midGameDesktopChecked = false;
   let sawSeatLayout = false;
   let miaVerdictChecked = false;
+  // The countdown probe: one live frame above ten seconds, one below, plus the
+  // reduced-motion and non-turn-seat samples. It is the whole point that the two
+  // frames differ, so they are read rather than assumed.
+  let countdownAbove: CountdownSample | null = null;
+  let countdownBelow: CountdownSample | null = null;
+  // The third phase: the round-start beat, which arms a 2s deadline. Every frame
+  // of it is inside ten seconds, so it is where a bare `seconds <= 10` reddens
+  // the felt for the whole top of every round. The sample prefers the viewer's
+  // own chair, where the ring is drawn, and the check below asserts it stays
+  // neutral — the assertion the above/below pair was missing.
+  let roundStartSample: CountdownSample | null = null;
+  let roundStartRingShot = false;
+  let ownSeatRingSample: CountdownSample | null = null;
+  let nonTurnSeatRingViolations = 0;
+  let nonTurnSeatSamples = 0;
+  let motionProbe: MotionProbe | null = null;
+  let countdownProbed = false;
   const deadline = Date.now() + 12 * 60_000;
 
   await page.click('[data-action="start"]');
@@ -838,6 +978,22 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
         note(
           `07-revealing captured at beat ${snap.beat} (${snap.showdownTone}, elapsed ${snap.showdownElapsed}ms of ${snap.showdownSpan}ms)`,
         );
+      }
+    }
+    // The round-start beat, sampled live. It arms a deadline the same way the
+    // turn does (`armRoundStart`, 2s), so the whole phase is inside ten seconds
+    // while nobody is running out of time; sampling only the turn phases is what
+    // let the misfire through. The viewer starts round one, so the ring is on
+    // their chair in the first frame; a later round is kept as a fallback for
+    // the felt/page half.
+    if (snap.phase === "roundStart") {
+      const sample = await sampleCountdown(page);
+      if (roundStartSample === null || (sample.youSeatRing && !roundStartSample.youSeatRing)) {
+        roundStartSample = sample;
+      }
+      if (sample.youSeatRing && !roundStartRingShot) {
+        roundStartRingShot = true;
+        await shot(page, "04b-round-start-ring");
       }
     }
     // The ring is a visual arrangement, not a reading order: the harness still
@@ -1164,9 +1320,59 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
       await shot(page, "10-reconnect");
     }
 
+    // The countdown ring, read live above and below ten seconds. The viewer's
+    // own turn is the deterministic window: the server waits for them, so the
+    // turn clock is fresh and the seat ring — the pill this replaces — is on
+    // screen. The bots are frozen anyway so an in-flight broadcast cannot
+    // rebuild the page mid-read, and the real clock is then allowed to cross
+    // ten, which is what makes the below frame a live one rather than a class
+    // the harness poked in.
+    const waitingOnBot = snap.players.some((player) => player.turn && !player.you);
+    if (waitingOnBot && snap.countdown !== null) {
+      const waiting = await sampleCountdown(page);
+      // The turn state and the rings are read in one DOM pass, so a snapshot
+      // landing between the two cannot manufacture a violation.
+      if (waiting.nonTurnSeats > 0) {
+        nonTurnSeatSamples += 1;
+        if (waiting.seatRings > 0) nonTurnSeatRingViolations += 1;
+      }
+    }
+    if (
+      !countdownProbed &&
+      (snap.phase === "deciding" || snap.phase === "announcing") &&
+      snap.players.some((player) => player.you && player.turn) &&
+      snap.countdown !== null
+    ) {
+      countdownProbed = true;
+      bots.kill("SIGSTOP");
+      try {
+        await sleep(400); // let any in-flight broadcast land first
+        countdownAbove = await sampleCountdown(page);
+        ownSeatRingSample = countdownAbove.youSeatRing ? countdownAbove : null;
+        await shot(page, "12-countdown-above");
+        const until = Date.now() + 70_000;
+        while (Date.now() < until && countdownBelow === null) {
+          const live = await sampleCountdown(page);
+          if (live.seconds !== null && live.seconds <= 10) {
+            countdownBelow = live;
+            await shot(page, "12b-countdown-below");
+          } else {
+            await sleep(400);
+          }
+        }
+        if (countdownBelow !== null) {
+          motionProbe = await reducedMotionProbe(page);
+          await page.emulateMedia({ reducedMotion: "reduce" });
+          await shot(page, "12d-countdown-reduced");
+          await page.emulateMedia({ reducedMotion: "no-preference" });
+        }
+      } finally {
+        bots.kill("SIGCONT");
+      }
+    }
+
     // Countdown + re-render evidence: freeze the bots so no snapshots arrive,
     // then prove the clock ticks without the page being rebuilt beneath it.
-    const waitingOnBot = snap.players.some((player) => player.turn && !player.you);
     if (rerenderSurvived === null && snap.countdown !== null && waitingOnBot) {
       bots.kill("SIGSTOP");
       await sleep(600); // let any in-flight broadcast land first
@@ -1200,6 +1406,108 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
     if (action === "wait") await sleep(300);
     else await sleep(200);
   }
+
+  // The countdown's whole point is that the two frames differ, so the checks
+  // read both. The above frame is guaranteed over ten seconds and the below
+  // frame under ten — both captured from the live clock, not a class poked in —
+  // and the reduced-motion probe reads the same forced-urgent clone under both
+  // motion preferences.
+  check(
+    "the countdown keeps its data-countdown hook and a readable number",
+    /^\d+s$/.test(countdownAbove?.text ?? "") && /^\d+s$/.test(countdownBelow?.text ?? ""),
+    `above ${countdownAbove?.text ?? "none"} · below ${countdownBelow?.text ?? "none"}`,
+  );
+  check(
+    "the ring drains as the clock runs",
+    countdownAbove !== null &&
+      countdownBelow !== null &&
+      countdownAbove.fraction > countdownBelow.fraction &&
+      countdownAbove.fraction > 0 &&
+      countdownBelow.fraction < 1,
+    `fraction ${countdownAbove?.fraction ?? "none"} (${countdownAbove?.text ?? "none"}) -> ${
+      countdownBelow?.fraction ?? "none"
+    } (${countdownBelow?.text ?? "none"})`,
+  );
+  check(
+    "above ten seconds the ring and felt are neutral",
+    countdownAbove !== null &&
+      countdownAbove.seconds !== null &&
+      countdownAbove.seconds > 10 &&
+      !countdownAbove.urgent &&
+      !countdownAbove.feltUrgent &&
+      !reddish(countdownAbove.ringImage) &&
+      !reddish(countdownAbove.feltImage),
+    countdownAbove
+      ? `at ${countdownAbove.text} · urgent=${countdownAbove.urgent} feltUrgent=${countdownAbove.feltUrgent} ring=${firstRgb(
+          countdownAbove.ringImage,
+        )} felt=${firstRgb(countdownAbove.feltImage)}`
+      : "no above-ten frame",
+  );
+  check(
+    "at the last ten seconds the ring and felt redden",
+    countdownBelow !== null &&
+      countdownBelow.seconds !== null &&
+      countdownBelow.seconds <= 10 &&
+      countdownBelow.urgent &&
+      countdownBelow.feltUrgent &&
+      reddish(countdownBelow.ringImage) &&
+      reddish(countdownBelow.feltImage),
+    countdownBelow
+      ? `at ${countdownBelow.text} · urgent=${countdownBelow.urgent} feltUrgent=${countdownBelow.feltUrgent} ring=${firstRgb(
+          countdownBelow.ringImage,
+        )} felt=${firstRgb(countdownBelow.feltImage)}`
+      : "no below-ten frame",
+  );
+  check(
+    "the last ten seconds warm the whole felt, not only the ring",
+    countdownAbove !== null && countdownBelow !== null && !reddish(countdownAbove.bodyImage) && reddish(countdownBelow.bodyImage),
+    `body ${firstRgb(countdownAbove?.bodyImage ?? "")} -> ${firstRgb(countdownBelow?.bodyImage ?? "")}`,
+  );
+  // The third phase. The above/below pair reads only the turn clock, so a
+  // round-start beat that reddened the felt every round passed both: the red
+  // existed and arrived under ten seconds. This is the assertion that was
+  // missing — at 2s, with nobody running out of time, the felt, the page and the
+  // ring must all be neutral.
+  check(
+    "the round-start beat never reddens the felt, the page or the ring",
+    roundStartSample !== null &&
+      roundStartSample.youSeatRing &&
+      !roundStartSample.urgent &&
+      !roundStartSample.feltUrgent &&
+      !reddish(roundStartSample.ringImage) &&
+      !reddish(roundStartSample.feltImage) &&
+      !reddish(roundStartSample.bodyImage),
+    roundStartSample
+      ? `at ${roundStartSample.text} on ${
+          roundStartSample.youSeatRing ? "the viewer's chair" : "no ring"
+        } · urgent=${roundStartSample.urgent} feltUrgent=${roundStartSample.feltUrgent} ring=${firstRgb(
+          roundStartSample.ringImage,
+        )} felt=${firstRgb(roundStartSample.feltImage)} body=${firstRgb(roundStartSample.bodyImage)}`
+      : "no round-start frame",
+  );
+  check(
+    "the viewer's own seat draws the ring on their turn",
+    ownSeatRingSample !== null && ownSeatRingSample.youSeatRing,
+    ownSeatRingSample ? `${ownSeatRingSample.text} on .player.you` : "never seen",
+  );
+  check(
+    "no countdown ring is drawn for a viewer whose turn it is not",
+    nonTurnSeatSamples > 0 && nonTurnSeatRingViolations === 0,
+    `${nonTurnSeatRingViolations} rings across ${nonTurnSeatSamples} waiting samples`,
+  );
+  check(
+    "the last-ten-seconds treatment is skipped under prefers-reduced-motion",
+    motionProbe !== null &&
+      motionProbe.normalFelt &&
+      motionProbe.normalRing &&
+      motionProbe.normalBody &&
+      !motionProbe.reducedFelt &&
+      !motionProbe.reducedRing &&
+      !motionProbe.reducedBody,
+    motionProbe
+      ? `normal felt=${motionProbe.normalFelt} ring=${motionProbe.normalRing} body=${motionProbe.normalBody}; reduced felt=${motionProbe.reducedFelt} ring=${motionProbe.reducedRing} body=${motionProbe.reducedBody}`
+      : "no motion probe",
+  );
 
   if (!saw.has("finished")) note("the game did not finish inside the time box");
   return { saw, secrecyViolations, claimBubbleViolations, diceSpill, viewerDiceSeen, countdownTicks, rerenderSurvived };

@@ -114,10 +114,16 @@ cover the assembled system, and they need a running `wrangler dev` (or a deploye
   Its showdown-suspense check mounts an off-screen clone of the live showdown
   with `--showdown-elapsed` scrubbed, so it can read the first and last beat for
   all three verdict tones rather than only whichever tone the random dice
-  produced. At the end it checks the finished screen's filmstrip, stats and
-  rematch against the snapshot, and opens the rematch link in a second page to
-  see the seeded lobby — the one place the rematch handoff is exercised with a
-  real browser and a real cookie.
+  produced. The countdown-ring check is the sibling of that idea: it freezes the
+  bots on the viewer's own turn and reads a live frame above ten seconds, a live
+  frame below, and the round-start beat — the real clock, not a class poked in —
+  so the assertion fails if the red arrived at sixty seconds, or arrived at the
+  2s top of a round where nobody is running out of time, and it reads a
+  forced-urgent clone under both motion preferences so the reduced-motion skip
+  cannot pass by accident. At the end it checks the finished screen's filmstrip,
+  stats and rematch against the snapshot, and opens the rematch link in a second
+  page to see the seeded lobby — the one place the rematch handoff is exercised
+  with a real browser and a real cookie.
 - **`scripts/bots.ts`** fills the non-human seats so a person can play in a
   browser. It shares `scripts/lib.ts` with `e2e.ts`.
 

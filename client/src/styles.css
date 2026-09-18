@@ -368,9 +368,12 @@ ul {
  * viewer's chair, which `translate(-50%, -50%)` hangs past the felt: at three to
  * six seats `seatPositions` uses the wider ring, so the chair sits at 90% of the
  * height and dips furthest past the card. Without it the chair reaches into the
- * actions card, and the strict border-box overlap check reads a few px. */
+ * actions card, and the strict border-box overlap check reads a few px. The
+ * countdown ring makes the tag row ~8px taller than the old pill did, so the
+ * padding carries that too: `ui-check` caught the viewer's dice 1px past the
+ * card at three seats before this bump. */
 .table-card {
-  padding: 0.5rem 0.4rem calc(0.7rem + 16px);
+  padding: 0.5rem 0.4rem calc(0.7rem + 24px);
 }
 
 .table-stage {
@@ -572,11 +575,68 @@ ul {
   border-color: rgba(111, 207, 151, 0.4);
 }
 
-.badge.countdown {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--ink);
-  border-color: var(--line);
+/* The countdown ring. One element, used on the viewer's own seat and in the
+ * waiting-for-someone-else card: a `conic-gradient` sweep driven off
+ * `--countdown-frac` (1 = a full ring, 0 = drained). The number is the element's
+ * only text, so `[data-countdown]` still reads the seconds. The ring itself is
+ * `::before` paint behind that text, masked to an annulus, so it never competes
+ * with the number for content — the tick can replace the text freely. */
+.countdown {
+  --countdown-frac: 1;
+  --countdown-ring: rgba(244, 239, 227, 0.85);
+  --countdown-track: rgba(255, 255, 255, 0.16);
+  position: relative;
+  z-index: 0;
+  display: inline-grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  flex: none;
+  vertical-align: middle;
+  border-radius: 50%;
+  font-size: 0.5rem;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.countdown::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--countdown-ring) calc(var(--countdown-frac) * 1turn),
+    var(--countdown-track) 0
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+}
+
+/* The last-ten-seconds treatment is deliberate motion-like colour, so it lives
+ * behind `no-preference`: a reader who asked for reduced motion keeps the
+ * neutral ring and the green felt even while the clock runs down. The ring still
+ * drains under reduce — that is the number, not an animation. */
+@media (prefers-reduced-motion: no-preference) {
+  .countdown.urgent {
+    --countdown-ring: var(--danger);
+    --countdown-track: rgba(226, 104, 95, 0.2);
+    color: #ffd9d5;
+  }
+
+  /* The felt desaturates toward red for everyone at the table, not only the
+   * player on turn: the clock is shared, and this is what reads in peripheral
+   * vision while the reader is looking at the ladder. */
+  .table-card.urgent .table-stage {
+    border-color: rgba(226, 104, 95, 0.5);
+    background: radial-gradient(ellipse at 50% 38%, #6b322b 0%, #4a211b 58%, #2c1310 100%);
+    box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.45), 0 0 30px -8px rgba(226, 104, 95, 0.5);
+  }
+
+  body:has(.table-card.urgent) {
+    background: radial-gradient(circle at 50% 0%, #6b322b 0%, #4a211b 45%, #2c1310 100%);
+  }
 }
 
 .badge.muted,

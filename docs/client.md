@@ -146,7 +146,8 @@ lands — and every beat is a fraction of the server's reveal window rather than
 duration of its own. The window is `deadlineAt - turnStartedAt` on the snapshot
 (the server's `revealMs`), so a shortened test clock compresses the staging
 instead of letting it outlive the round; the visible timer is the same
-`deadlineAt`, counted by the ordinary `[data-countdown]` interval. The beat and
+`deadlineAt`, counted by the ordinary `[data-countdown]` interval and never red,
+because its 5s window is shorter than the urgency threshold. The beat and
 the elapsed offset come from `src/shared/showdown.ts` (pure, unit-tested under
 Node) and the CSS turns them into `--showdown-span` and `--showdown-elapsed`.
 
@@ -309,6 +310,57 @@ phone — all for one changing number. The interval now finds `[data-countdown]`
 nodes and updates their text. Both pages separately wrap `innerHTML` assignment in
 a `paint` helper that saves and restores `window.scrollY`, so a server snapshot
 does not throw a scrolled phone back to the top.
+
+### The clock as a ring
+
+The turn clock's countdown is a ring that drains and, in its last ten seconds,
+reddens; the felt desaturates toward red with it, so the clock reads in
+peripheral vision while the eyes are on the ladder. `TurnClock.countdown(startedAt,
+deadlineAt)` in `src/shared/clock.ts` is the whole of the arithmetic: the same
+`seconds` the old pill showed, the un-rounded `fraction` of the phase window
+still to run (1 is a full ring, 0 empty), and `urgent` — the one truth table for
+the last ten seconds, `COUNTDOWN_URGENT_SECONDS` sitting beside it so the CSS and
+the unit test cannot disagree about when the red arrives. `urgent` requires the
+phase *window* to be longer than the threshold, not merely the remaining seconds:
+the round-start beat (`roundStartMs`, 2s) and the reveal (`revealMs`, 5s) arm a
+`deadlineAt` the same way the 60s turn does, and every frame of them is inside
+ten seconds. Scoping the red to a long window is what keeps the felt green at the
+top of every round, where nobody is running out of time.
+
+Both places the countdown appears — the viewer's own seat in `renderPlayers` and
+the waiting-for-someone-else card in `renderPlay` — call one `countdownMarkup`
+and one tick, deliberately. There is no second countdown path: the element is a
+`.countdown` with `data-countdown`, its only text is `42s`, and the ring is a CSS
+`conic-gradient` driven by `--countdown-frac` on a `::before` masked to an
+annulus. The number is the element's text, so the harness and a screen reader
+still read it and the interval can replace the text without touching the ring;
+the `conic-gradient` is used rather than an SVG `stroke-dasharray` because there
+was nothing an SVG bought here.
+
+The tick runs every 500ms and writes `--countdown-frac` and the `urgent` class on
+the ring on every pass, even when the whole second has not changed, because the
+ring has to move between server broadcasts. Only the text is left alone when it
+already reads the same string, so a selection inside it is never dropped. The
+fraction and the class go only to `.countdown` elements; the showdown's "Deal the
+next round" span shares the `[data-countdown]` text hook and gets the number, but
+never the ring's paint or its class, so it cannot start reddening by accident.
+The `urgent` class is applied to the ring and to `.table-card`, and the felt's
+class is the shared half of the treatment: it changes for everyone watching, not
+only the player on turn. A seat only ever draws its ring on its own occupant's
+turn (`ownTurn`), so nothing on a chair animates for a viewer whose turn it is
+not — the felt is the only thing that moves for them.
+
+The red is colour, not information: it is gated behind
+`@media (prefers-reduced-motion: no-preference)`, so a reader who asked for
+reduced motion keeps the neutral ring and the green felt even in the last ten
+seconds. The ring still drains under reduce, because that is the number moving
+rather than an animation. `scripts/ui-check.ts` pins the whole decision across
+three phases: a live frame above ten seconds, a live frame below it, and the
+round-start beat, where a 2s deadline makes every frame "under ten" while nobody
+is running out of time — not a class it poked in. It asserts the ring drains, the
+ring and the whole felt are neutral above and at the round start and red below,
+the viewer's seat draws the ring on their turn, no chair does when it is not, and
+the forced-urgent clone stays neutral under `prefers-reduced-motion: reduce`.
 
 ## The lobby is deliberately dumber
 

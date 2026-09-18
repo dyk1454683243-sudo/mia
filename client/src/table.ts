@@ -21,7 +21,7 @@ import {
   type MiaState,
 } from "../../src/shared/mia";
 import type { ClientMessage, StateView, TableSummary } from "../../src/shared/protocol";
-import { TurnClock } from "../../src/shared/clock";
+import { TurnClock, type CountdownView } from "../../src/shared/clock";
 import { seatPositions } from "../../src/shared/seat-positions";
 import {
   frameLabel,
@@ -193,12 +193,11 @@ interface PageState {
   error: string | null;
   /** A terminal reason this client will never get a seat; stops reconnecting. */
   fatal: string | null;
-  lastCountdown: number | null;
 }
 
 const app = document.querySelector<HTMLElement>("#app")!;
 const tableId = location.pathname.startsWith("/t/") ? decodeURIComponent(location.pathname.slice(3)) : "";
-const state: PageState = { table: null, view: null, error: null, fatal: null, lastCountdown: null };
+const state: PageState = { table: null, view: null, error: null, fatal: null };
 /** Drift is captured when a snapshot lands, then reused for every tick. */
 const clock = new TurnClock();
 let socket: TableSocket | null = null;
@@ -295,6 +294,20 @@ function initialsOf(name: string): string {
 }
 
 /**
+ * The countdown, drawn once for both places it appears — the viewer's own seat
+ * and the waiting-for-someone-else card. The ring is a CSS `conic-gradient`
+ * driven by `--countdown-frac`; the number is the element's only text, so the
+ * `[data-countdown]` hook still reads the seconds and a screen reader still
+ * announces them. `urgent` is the one class the last-ten-seconds treatment (red
+ * ring, red felt) keys off, set here at render and re-applied by the interval.
+ */
+function countdownMarkup(countdown: CountdownView): string {
+  return `<span class="countdown${countdown.urgent ? " urgent" : ""}" data-countdown style="--countdown-frac:${countdown.fraction.toFixed(
+    4,
+  )}">${countdown.seconds}s</span>`;
+}
+
+/**
  * The table in the round: seats on the felt with the standing claim dead centre.
  *
  * The DOM keeps the contract the harness relies on — each seat is a `.player`
@@ -304,7 +317,7 @@ function initialsOf(name: string): string {
  * seat that made it, never dice, so the secrecy rule is untouched.
  */
 function renderPlayers(game: MiaState, view: StateView): string {
-  const countdown = clock.secondsLeft(game.deadlineAt);
+  const countdown = clock.countdown(game.turnStartedAt, game.deadlineAt);
   const players = game.players;
   const viewerIndex = Math.max(
     0,
@@ -338,7 +351,7 @@ function renderPlayers(game: MiaState, view: StateView): string {
           ${player.eliminated ? '<span class="badge out">out</span>' : ""}
           ${cup ? '<span class="badge cup">cup</span>' : ""}
           ${turn ? '<span class="badge turn">turn</span>' : ""}
-          ${ownTurn ? `<span class="badge countdown" data-countdown>${countdown}s</span>` : ""}
+          ${ownTurn && countdown !== null ? countdownMarkup(countdown) : ""}
           ${offline && !player.eliminated ? '<span class="badge muted">offline</span>' : ""}
         </span>
         <div class="pips" aria-label="${player.lives} of ${STARTING_LIVES} lives">${lives}</div>
@@ -364,7 +377,7 @@ function renderPlayers(game: MiaState, view: StateView): string {
       <p class="muted small">${claim ? `claimed by ${escapeHtml(claim.playerName)}` : "no claim yet"}</p>
     </div>`;
 
-  return `<section class="card table-card">
+  return `<section class="card table-card${countdown?.urgent ? " urgent" : ""}">
     <div class="table-stage">
       <ul class="players" data-seat-count="${players.length}">${seats}</ul>
       ${centre}
@@ -601,7 +614,7 @@ function renderPlay(view: StateView): string {
   const you = playerById(game, view.you);
   const standing = game.lastAnnouncement;
   const turnPlayer = playerById(game, game.turnPlayerId ?? "");
-  const countdown = clock.secondsLeft(view.deadlineAt);
+  const countdown = clock.countdown(game.turnStartedAt, view.deadlineAt);
   const reveal = game.pendingDoubt ?? game.lastReveal;
   const turnIsMine = game.turnPlayerId !== null && game.turnPlayerId === view.you;
 
@@ -617,7 +630,7 @@ function renderPlay(view: StateView): string {
   } else if (!turnIsMine) {
     actions = `<div class="card actions"><p class="muted">Waiting for ${escapeHtml(
       turnPlayer?.name ?? "the next player",
-    )}${countdown !== null ? ` · <span data-countdown>${countdown}s</span>` : ""}</p></div>`;
+    )}${countdown !== null ? ` · ${countdownMarkup(countdown)}` : ""}</p></div>`;
   } else if (game.phase === "announcing") {
     const held = you?.dice ? rollValue(you.dice[0], you.dice[1]) : null;
     const heldBelowCut = held !== null && !moves.announcements.includes(held);
@@ -870,15 +883,34 @@ async function boot(): Promise<void> {
 // Tick the clock without redrawing the world. A full `render()` here would
 // replace every node once a second, discarding text selection, in-flight taps,
 // focus and CSS transitions on a phone — all for one changing number.
+//
+// The ring has to move between snapshots, so the custom property and the
+// `urgent` class are written on every tick even when the whole second has not
+// changed; only the text is left alone when it already reads the same value, so
+// a selection inside it is never dropped. The felt's class is the shared half of
+// the treatment: it changes for everyone watching, not only the player on turn.
+//
+// The fraction and `urgent` are written only to the ring (`.countdown`). The
+// showdown's "Deal the next round" span shares the `[data-countdown]` hook and
+// reads the same number, but it is text: handing it the fraction or the urgent
+// class is meaningless today and would redden it the moment it gained the ring's
+// paint. The turn clock is the only clock that can be urgent, and the ring is
+// the only element that paints the clock.
 window.setInterval(() => {
   const view = state.view;
   if (!view || view.deadlineAt === null) return;
-  const remaining = clock.secondsLeft(view.deadlineAt);
-  if (remaining === state.lastCountdown) return;
-  state.lastCountdown = remaining;
-  const text = `${remaining}s`;
+  const countdown = clock.countdown(view.state.turnStartedAt, view.deadlineAt);
+  if (countdown === null) return;
+  const text = `${countdown.seconds}s`;
   for (const node of document.querySelectorAll<HTMLElement>("[data-countdown]")) {
-    node.textContent = text;
+    if (node.classList.contains("countdown")) {
+      node.style.setProperty("--countdown-frac", countdown.fraction.toFixed(4));
+      node.classList.toggle("urgent", countdown.urgent);
+    }
+    if (node.textContent !== text) node.textContent = text;
+  }
+  for (const felt of document.querySelectorAll<HTMLElement>(".table-card")) {
+    felt.classList.toggle("urgent", countdown.urgent);
   }
 }, 500);
 
