@@ -453,6 +453,14 @@ ul {
   border-radius: 0 999px 999px 0;
 }
 
+.practice-result {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  min-height: 44px;
+}
+
 .practice-cta {
   font-weight: 700;
 }
@@ -462,11 +470,11 @@ ul {
 }
 
 .practice-value {
-  margin: 0.55rem 0 0;
+  margin: 0;
 }
 
 .practice-value .chip {
-  font-size: 1.25rem;
+  font-size: 1.2rem;
 }
 
 @media (prefers-reduced-motion: no-preference) {

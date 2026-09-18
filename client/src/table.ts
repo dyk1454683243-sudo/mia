@@ -325,11 +325,13 @@ function renderPracticeCup(): string {
     <p class="label">Practice cup</p>
     <button type="button" class="practice-shake" data-action="practice-roll"${rolling ? " disabled" : ""}>
       <span class="practice-cup-shape" aria-hidden="true"></span>
-      ${practiceFaces()}
+      <span class="practice-result">
+        ${practiceFaces()}
+        ${value !== null ? `<span class="practice-value" data-practice-value>${valueChip(value)}</span>` : ""}
+      </span>
       <span class="practice-cta">${cta}</span>
     </button>
     <p class="muted small practice-note">Just for your thumb. Nobody else can see this, and it is not a real roll.</p>
-    ${value !== null ? `<p class="practice-value" data-practice-value>${valueChip(value)}</p>` : ""}
   </section>`;
 }
 
