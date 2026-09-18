@@ -23,15 +23,18 @@ export function writeSoundPref(on: boolean): void {
 }
 
 function speakerIcon(on: boolean): string {
+  // A large cone so the control reads as a speaker at 44px, not a punctuation
+  // mark. Off is the same cone with a slash through it; on adds the waves.
+  const cone = `<path fill="currentColor" d="M3.5 9.2v5.6h3.4L14 20.2V3.8L6.9 9.2H3.5z"/>`;
   if (on) {
     return `<svg class="sound-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <path fill="currentColor" d="M3 9v6h4l5 4V5L7 9H3z"/>
-      <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M16 9.2a4.2 4.2 0 0 1 0 5.6M18.6 7a7.4 7.4 0 0 1 0 10"/>
+      ${cone}
+      <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M16.2 9a4.4 4.4 0 0 1 0 6M18.8 6.6a7.6 7.6 0 0 1 0 10.8"/>
     </svg>`;
   }
   return `<svg class="sound-icon" viewBox="0 0 24 24" aria-hidden="true">
-    <path fill="currentColor" d="M3 9v6h4l5 4V5L7 9H3z"/>
-    <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M16 8.5 21.5 16M21.5 8.5 16 16"/>
+    ${cone}
+    <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M5 5l14 14"/>
   </svg>`;
 }
 

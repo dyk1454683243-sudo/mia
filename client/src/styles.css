@@ -91,18 +91,21 @@ body {
   display: grid;
   place-items: center;
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
+  border-radius: 12px;
   color: var(--ink-dim);
   cursor: pointer;
 }
 
 .sound-toggle.on {
   color: var(--gold);
+  background: rgba(232, 196, 106, 0.12);
+  border-color: rgba(232, 196, 106, 0.35);
 }
 
 .sound-icon {
-  width: 1.35rem;
-  height: 1.35rem;
+  width: 1.55rem;
+  height: 1.55rem;
   display: block;
 }
 
