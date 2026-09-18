@@ -25,6 +25,8 @@ import { TurnClock } from "../../src/shared/clock";
 import { seatPositions } from "../../src/shared/seat-positions";
 import {
   frameLabel,
+  HONEST_BADGE_LABEL,
+  honestWinner,
   lastRoundFilmstrip,
   playerChips,
   playerOutcome,
@@ -476,6 +478,16 @@ function ordinal(place: number): string {
 function renderFinishedActions(game: MiaState, view: StateView): string {
   const winner = game.gameOver?.winnerName ?? "somebody";
   const seated = playerById(game, view.you) !== undefined;
+  // The badge is the lookbook shout: win having never once bluffed, and the
+  // result card says so. `honestWinner` already requires a winner, at least
+  // one announcement, and a zero bluff count on the engine's record — the
+  // client does not re-derive the ranking, and a mid-game view has no record
+  // to read. Same stamp for every seat, including spectators: it is a fact
+  // about the game, not a compliment to the viewer.
+  const honest = honestWinner(game);
+  const badge = honest
+    ? `<p class="honest-badge" role="status">${escapeHtml(HONEST_BADGE_LABEL)}</p>`
+    : "";
   const rematch =
     game.rematchId !== null
       ? `<a class="primary link" data-action="join-rematch" href="/t/${encodeURIComponent(
@@ -488,6 +500,7 @@ function renderFinishedActions(game: MiaState, view: StateView): string {
         : `<p class="muted small">A table is single-use. This one is over — a player at the table can open a rematch.</p>`;
   return `<div class="card actions actions-end">
     <p class="winner">🏆 ${escapeHtml(winner)} wins</p>
+    ${badge}
     ${rematch}
     <div class="row gap">
       <button class="ghost" data-action="share">Share join link</button>

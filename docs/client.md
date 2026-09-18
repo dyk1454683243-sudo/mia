@@ -202,6 +202,18 @@ the truth 0 times", and a liar rate is only shown when there is a claim to be a
 rate of. The viewer's own numbers come from the redacted-until-game-over
 `PlayerRecord` (see [game-engine.md](game-engine.md)).
 
+The **honest-player badge** sits on the result card under the winner line, not
+in the stats. `honestWinner` in `src/shared/replay.ts` is the only gate: the
+winner, at least one announcement, and a zero on the same bluff count the chips
+print (`announcements - truths`). A player who never picked up the cup does not
+qualify by vacuum, and a single earlier bluff disqualifies a later honest
+finish. The client does not re-derive `outranks` and does not invent a live
+counter — the record is still null on every mid-game snapshot, which is what
+stops this from becoming #30's glass table by accident. The stamp is the
+lookbook sentence, *Never once bluffed*, in the same brass register as the
+showdown's TRUE / MIA stamp, and it is the same for every seat including a
+spectator: it is a fact about the game, not a compliment to the viewer.
+
 The **rematch** button asks the server for a new table. It becomes a real link on
 the same snapshot that carries `state.rematchId`, so a client that reconnects
 after the press finds the link waiting for it; the button is drawn from the

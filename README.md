@@ -54,8 +54,9 @@ left out — see below.
 
 When the game ends it ends as a story: the last round replays as a filmstrip of
 every claim, the doubt in red and the truth at the end, with a line of stats per
-player, and a **Rematch** button that opens a new table pre-seeded with the same
-people and hands the link to every tab still open.
+player, a **Rematch** button that opens a new table pre-seeded with the same
+people and hands the link to every tab still open, and — if the winner never
+once bluffed — a badge on the result card that says so.
 
 **Variants deliberately left out:** passing or relaying the cup; accepting a
 stated Mia without turning the dice over; "rolling your own Mia ends the round".

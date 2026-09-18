@@ -1177,6 +1177,30 @@ ul {
   text-align: center;
 }
 
+/* The honest-player badge. It will happen roughly never, which is why it is
+ * a stamp rather than a chip: the seat `.badge` is a status word, and this
+ * is a shout. Brass, words, a tilt — the same register as the showdown's
+ * TRUE / MIA stamp, smaller, so the result card stays a card. Colour is not
+ * the only signal; the sentence is. */
+.honest-badge {
+  align-self: center;
+  display: inline-block;
+  margin: 0.45rem 0 0.55rem;
+  padding: 0.28rem 0.85rem 0.32rem;
+  border: 4px solid var(--gold);
+  border-radius: 10px;
+  color: var(--gold);
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  line-height: 1.15;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transform: rotate(-6deg);
+  text-shadow: 0 0 18px rgba(232, 196, 106, 0.35);
+}
+
 /* --------------------------------------------------------- announce ladder */
 
 /* The ranking drawn as a ladder, not a lookup grid. It scrolls inside its own
