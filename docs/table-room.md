@@ -232,6 +232,18 @@ The seats the new table inherits are read by its room on the first connect (see
 a roster does — and [identity-and-storage.md](identity-and-storage.md) is where
 that handoff and its cost are written down.
 
+The first connect is where the seat cap has to hold, because that room is built
+from the seeds rather than from an empty lobby: a connecting player who is in
+the seeded roster keeps their seat, and one who is not is appended only while
+there is room. At `MAX_PLAYERS` seeds the outsider is refused with `table-full` —
+the same coded refusal a full table gives everywhere else, and the one the client
+already treats as terminal — rather than seated ninth. `handleStart` carries the
+matching upper bound: a lobby that somehow holds more than `MAX_PLAYERS` (a
+hand-written `table_seats` row, or a state persisted before the bound existed)
+refuses to start, instead of producing a game the seat layout was never built
+for. The lower bound has always been there; the upper one arrived with the
+pre-filled roster.
+
 ## Test seams
 
 The seams a test needs — forcing dice, reading unredacted state, shortening the

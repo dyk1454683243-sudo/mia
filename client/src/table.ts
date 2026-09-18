@@ -468,8 +468,10 @@ function ordinal(place: number): string {
  * spectator — there is no seat to carry into the next table, and a button whose
  * only outcome is an error is worse than none — so the page does not draw one.
  * The link is different: once a rematch exists its id is part of every
- * snapshot, and a spectator who wants to follow the table into the next game is
- * welcome to a spare seat there.
+ * snapshot, and a spectator may follow it into the next game. They take a spare
+ * seat if the seeded lobby has one and get the terminal `table-full` page if the
+ * finished table was full; which of the two it is lives in the new room, so the
+ * link is drawn either way and the server decides.
  */
 function renderFinishedActions(game: MiaState, view: StateView): string {
   const winner = game.gameOver?.winnerName ?? "somebody";

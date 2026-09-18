@@ -203,7 +203,11 @@ viewer with a seat: a spectator sees the finished screen and a line saying that 
 player can open a rematch, because the server refuses anyone without a seat and a
 button whose only outcome is an error is worse than none. Once a rematch exists
 its id is part of every snapshot, so the link itself is there for the spectator
-too — the new table is a lobby with seats in it.
+too. Following it takes a spare seat if the new lobby has one — the seeded roster
+may be smaller than `MAX_PLAYERS` — and is refused with the terminal `table-full`
+page when the finished table was full and there is none. The spectator's own
+snapshot cannot say which case they are in, because the new lobby's occupancy
+lives in its own room, so the link is drawn either way and the server decides.
 
 Above the breakpoint the filmstrip takes the centre column under the felt (the
 cell the mid-game reveal card used to occupy) and the stats list spans the whole

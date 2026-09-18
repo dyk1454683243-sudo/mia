@@ -123,7 +123,13 @@ arrives, and a room with no state has nowhere to keep a roster.
 
 So the finished room writes the seats in the same batch as the new `tables` row,
 and the new room reads them once, on its first connect, to build its lobby. They
-are deleted when that table's game starts. What is stored is who is expected — the
+are deleted when that table's game starts. The room applies the seat cap to what
+it reads: the rows are a roster of who was promised a place, not a licence for a
+ninth arriver — a player who is not in the seeded list is refused with
+`table-full` once the roster is at `MAX_PLAYERS`. Only `handleRematch` writes
+these rows, and it copies a game's roster, which is at most `MAX_PLAYERS`; a
+larger set can only be hand-written, and a lobby built from one refuses to start
+rather than becoming an out-of-spec game. What is stored is who is expected — the
 same fact the directory's `player_count` already carries — not lives, dice, moves
 or anything that happened in the finished game, and nothing updates the rows while
 a game is running. `recordGame` remains the only write that carries a game's

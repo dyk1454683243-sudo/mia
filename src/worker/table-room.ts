@@ -198,7 +198,17 @@ export class TableRoom extends DurableObject<Env> {
       // No game yet: this is a lobby seat. The roster lives in the DO so a
       // pre-game table keeps its list of who is waiting. A table opened by a
       // rematch also inherits the seats the finished table left for it.
-      this.state = this.newLobbyState(playerId, name, tableName, tableId, hostId, await this.readSeedSeats(tableId));
+      const seeded = await this.readSeedSeats(tableId);
+      // Unlike an ordinary first connect, a seeded lobby can already hold
+      // MAX_PLAYERS, so the cap the join path below enforces has to be enforced
+      // here too: an outsider opening a full rematch link is refused rather
+      // than seated ninth. A seeded player is never appended — their seat is
+      // already in the list — so this cannot turn a promised player away.
+      if (!seeded.some((seat) => seat.playerId === playerId) && seeded.length >= MAX_PLAYERS) {
+        this.rejectJoin(socket, "table-full", `That table is full (${MAX_PLAYERS} players).`);
+        return;
+      }
+      this.state = this.newLobbyState(playerId, name, tableName, tableId, hostId, seeded);
       await this.persistAndBroadcast();
       await this.syncTableRow();
       await this.ensureAlarm();
@@ -700,6 +710,15 @@ export class TableRoom extends DurableObject<Env> {
     }
     if (state.players.length < MIN_PLAYERS) {
       await this.reportError(playerId, `You need at least ${MIN_PLAYERS} players to start.`);
+      return;
+    }
+    // The lower bound has always been here; the upper one had no home until the
+    // rematch could hand a room a pre-filled roster. The join paths cap at
+    // MAX_PLAYERS, so a state this big means a hand-written `table_seats` row or
+    // one persisted before the cap — either way it must not become a game that
+    // `seat-positions` and the round table were never built for.
+    if (state.players.length > MAX_PLAYERS) {
+      await this.reportError(playerId, `That table has too many players to start (${MAX_PLAYERS} max).`);
       return;
     }
     // The table's creator starts. Arrival order is not authority: the D1 row

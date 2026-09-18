@@ -1462,4 +1462,82 @@ describe("TableRoom", () => {
     boSocket.close();
     watcherSocket.close();
   }, 25_000);
+
+  it("gives a spectator no ninth seat at a full table's rematch", async () => {
+    // A finished table's link is drawn for spectators too (docs/client.md), so
+    // this is an ordinary arrival, not an exotic one. The room is built by this
+    // connect — there is no state yet — which is exactly where the join cap was
+    // missing: the seeded roster already holds MAX_PLAYERS and the outsider was
+    // appended as a ninth.
+    const seated = [];
+    for (let index = 0; index < MAX_PLAYERS; index++) seated.push(await makePlayer(`Seeded ${index + 1}`));
+    const outsider = await makePlayer("Outsider");
+    const rematchId = crypto.randomUUID();
+    await ensureSchema(env);
+    await createRematchTable(env, {
+      id: rematchId,
+      name: "Full rematch",
+      hostId: seated[0]!.id,
+      maxPlayers: MAX_PLAYERS,
+      players: seated.map((player) => ({ playerId: player.id, name: player.name })),
+      now: Date.now(),
+    });
+
+    const outsiderSocket = await connect(rematchId, outsider);
+    // Wait for either outcome — the refusal, or the seat that should not have
+    // been handed out — then assert which one happened. Waiting only for the
+    // refusal would make the bug fail as a bare timeout, which says nothing
+    // about the ninth seat that was actually seated.
+    await waitFor(
+      async () => outsiderSocket.errorCodes.includes("table-full") || (await readState(rematchId)) !== null,
+      5_000,
+    );
+    const room = await readState(rematchId);
+    expect(room?.players.length ?? 0).toBeLessThanOrEqual(MAX_PLAYERS);
+    expect(outsiderSocket.errorCodes).toContain("table-full");
+    expect(outsiderSocket.states).toEqual([]);
+
+    // A promised player arriving afterwards still finds the eight seats the
+    // finished table left, and no trace of the refused outsider.
+    const hostSocket = await connect(rematchId, seated[0]!);
+    const lobby = await hostSocket.nextState((view) => view.state.round === 0, 6_000);
+    expect(lobby.state.players).toHaveLength(MAX_PLAYERS);
+    expect(lobby.state.players.map((player) => player.id)).not.toContain(outsider.id);
+
+    hostSocket.close();
+    outsiderSocket.close();
+  }, 20_000);
+
+  it("refuses to start a lobby that somehow holds more than MAX_PLAYERS", async () => {
+    // `handleRematch` never seeds more than MAX_PLAYERS, so nine seats can only
+    // come from a hand-written `table_seats` row or a state persisted before
+    // the cap. `seat-positions` and the round-table layout are built for eight,
+    // so the room must refuse to turn such a lobby into a game: the join cap
+    // alone is not enough, because the start is what does the damage.
+    const overflow = [];
+    for (let index = 0; index <= MAX_PLAYERS; index++) overflow.push(await makePlayer(`Seat ${index + 1}`));
+    const tableId = crypto.randomUUID();
+    await ensureSchema(env);
+    await createRematchTable(env, {
+      id: tableId,
+      name: "Overfull",
+      hostId: overflow[0]!.id,
+      maxPlayers: MAX_PLAYERS,
+      players: overflow.map((player) => ({ playerId: player.id, name: player.name })),
+      now: Date.now(),
+    });
+
+    const hostSocket = await connect(tableId, overflow[0]!);
+    const lobby = await hostSocket.nextState((view) => view.state.round === 0, 6_000);
+    // The room really does hold the ninth seat, so the refusal below is not an
+    // eight-seat lobby passing a redundant guard.
+    expect(lobby.state.players).toHaveLength(MAX_PLAYERS + 1);
+
+    hostSocket.send({ type: "start" });
+    await waitFor(async () => hostSocket.errors.length > 0 || (await readState(tableId))?.round === 1, 5_000);
+    expect(hostSocket.errors).toContain(`That table has too many players to start (${MAX_PLAYERS} max).`);
+    expect((await readState(tableId))?.round).toBe(0);
+
+    hostSocket.close();
+  }, 20_000);
 });

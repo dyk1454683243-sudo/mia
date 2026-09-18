@@ -32,7 +32,13 @@ decision to change the product:
   one who does not is carried into the game as an absent seat whose turns
   auto-play on the clock — the same treatment a dropped phone gets. Starting a
   rematch with somebody who never arrives is therefore allowed rather than
-  blocked, which is a product choice and not an oversight.
+  blocked, which is a product choice and not an oversight. The seats are a roster
+  and not an open invitation: somebody who was not at the finished table takes a
+  spare seat in the rematch lobby if one exists, and is refused with `table-full`
+  when the finished table was full. A lobby that somehow holds more than
+  `MAX_PLAYERS` refuses to start at all (the upper bound in `handleStart`); only
+  a hand-written `table_seats` row can get it there, because `handleRematch`
+  seeds at most eight and every join path is capped.
 
 ## Behaviors that are allowed rather than blocked
 
