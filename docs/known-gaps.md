@@ -25,10 +25,14 @@ decision to change the product:
   cross-site writes are rejected on `Sec-Fetch-Site`. None of that is a rate
   limit. This is a low-stakes demo with no accounts and no value at stake, and
   that is the stated trade-off rather than an oversight.
-- **A table is single-use.** `handleStart` refuses once a round has begun, so
-  there is no rematch; the finished screen says so, but the only path forward is
-  the lobby. This is reasonable, but it is a product choice that a player will
-  notice.
+- **A table is single-use.** `handleStart` refuses once a round has begun, so a
+  finished table never hosts a second game; the finished screen's Rematch button
+  opens a *new* table seeded with the same players instead. The seats are a
+  promise rather than a head-count: every player still has to open the link, and
+  one who does not is carried into the game as an absent seat whose turns
+  auto-play on the clock — the same treatment a dropped phone gets. Starting a
+  rematch with somebody who never arrives is therefore allowed rather than
+  blocked, which is a product choice and not an oversight.
 
 ## Behaviors that are allowed rather than blocked
 
@@ -43,12 +47,14 @@ decision to change the product:
 ## Seams that will hurt if ignored
 
 - **The persisted `MiaState` has no versioning and no migration.** The shape has
-  already changed once, when `eliminationIndex` was added, and a room persisted
-  before that change continues to load. It degrades gracefully — standings stay
-  dense and the winner is right — but only because the reader was made tolerant
-  (`?? 0` in the sort, `!= null` when counting). The next shape change has to make
-  the same allowance, and a game that starts before a deploy and finishes after it
-  is the case to test.
+  already changed more than once — `eliminationIndex`, then the per-player
+  `record` and `rematchId` — and a room persisted before a change continues to
+  load. It degrades gracefully — standings stay dense and the winner is right —
+  but only because the reader was made tolerant: `?? 0` in the sort, `!= null`
+  when counting, `recordOf` backfilling a missing record, and `normalizeState`
+  filling in what a stored state predates. The next shape change has to make the
+  same allowance, and a game that starts before a deploy and finishes after it is
+  the case to test.
 - **The result-retry give-up is the end of the data.** After the 6-hour window the
   object logs the recoverable payload and stops trying; if nobody reads the logs,
   the game is gone. That is the deliberate bound on a durably broken D1, but it

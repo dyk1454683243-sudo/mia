@@ -19,14 +19,24 @@ import {
   type MiaState,
   MAX_PLAYERS,
   MIN_PLAYERS,
+  normalizeState,
   playerById,
+  type MiaPlayer,
   resolveReveal,
   type Seat,
   STARTING_LIVES,
   type Timings,
 } from "../shared/mia";
 import type { ClientMessage, ErrorCode, ServerMessage, StateView } from "../shared/protocol";
-import { recordGame, updateTable, type FinalPlayer } from "./db";
+import {
+  clearTableSeats,
+  createRematchTable,
+  recordGame,
+  readTableSeats,
+  type FinalPlayer,
+  type SeededPlayer,
+  updateTable,
+} from "./db";
 
 const STATE_KEY = "room";
 /**
@@ -115,7 +125,9 @@ export class TableRoom extends DurableObject<Env> {
         ctx.storage.get<number>(RESULTS_FIRST_FAILED_KEY),
       ]);
       if (stored && stored.tableId) {
-        this.state = stored;
+        // A room can hibernate across a deploy, so the state it wakes up with
+        // may predate fields the current engine writes.
+        this.state = normalizeState(stored);
         // Only the persisted marker proves D1 has the result.
         this.resultsWritten = stored.gameOver !== null && written === true;
       }
@@ -184,8 +196,9 @@ export class TableRoom extends DurableObject<Env> {
 
     if (state === null) {
       // No game yet: this is a lobby seat. The roster lives in the DO so a
-      // pre-game table keeps its list of who is waiting.
-      this.state = this.newLobbyState(playerId, name, tableName, tableId, hostId);
+      // pre-game table keeps its list of who is waiting. A table opened by a
+      // rematch also inherits the seats the finished table left for it.
+      this.state = this.newLobbyState(playerId, name, tableName, tableId, hostId, await this.readSeedSeats(tableId));
       await this.persistAndBroadcast();
       await this.syncTableRow();
       await this.ensureAlarm();
@@ -222,6 +235,7 @@ export class TableRoom extends DurableObject<Env> {
         roundsPlayed: 0,
         eliminated: false,
         eliminationIndex: null,
+        record: null,
       });
       next.tableName = tableName;
     } else if (existing.name !== name) {
@@ -257,7 +271,14 @@ export class TableRoom extends DurableObject<Env> {
     tableName: string,
     tableId: string,
     hostId: string | null,
+    seeded: SeededPlayer[] = [],
   ): MiaState {
+    // A rematch hands its new table a roster, but this socket is the authority
+    // on who is actually here: the connecting player keeps their current name
+    // and is appended if the seeded list does not know them (someone opening a
+    // rematch link who was not at the old table).
+    const players = seeded.map((seat) => lobbySeat(seat.playerId, seat.playerId === playerId ? name : seat.name));
+    if (!seeded.some((seat) => seat.playerId === playerId)) players.push(lobbySeat(playerId, name));
     return {
       tableId,
       tableName,
@@ -267,17 +288,7 @@ export class TableRoom extends DurableObject<Env> {
       startedAt: null,
       phase: "roundStart",
       round: 0,
-      players: [
-        {
-          id: playerId,
-          name,
-          lives: STARTING_LIVES,
-          dice: null,
-          roundsPlayed: 0,
-          eliminated: false,
-          eliminationIndex: null,
-        },
-      ],
+      players,
       turnPlayerId: null,
       turnStartedAt: null,
       deadlineAt: null,
@@ -291,7 +302,26 @@ export class TableRoom extends DurableObject<Env> {
       logSeq: 0,
       roundEndsAt: null,
       gameOver: null,
+      rematchId: null,
     };
+  }
+
+  /**
+   * The seats a finished table left for this one, if any. Best effort: a D1
+   * hiccup here must not stop somebody joining a table, and an empty list is
+   * exactly what an ordinary table's first connect looks like.
+   *
+   * The id comes from the upgrade rather than from `tableId()`: this runs
+   * precisely when there is no state yet, so `tableId()` is still "".
+   */
+  private async readSeedSeats(tableId: string): Promise<SeededPlayer[]> {
+    if (tableId === "") return [];
+    try {
+      return await readTableSeats(this.env, tableId);
+    } catch (error) {
+      console.error("failed to read the rematch seats", describe(error));
+      return [];
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -650,6 +680,9 @@ export class TableRoom extends DurableObject<Env> {
       case "leave":
         await this.handleLeave(playerId);
         return;
+      case "rematch":
+        await this.handleRematch(playerId);
+        return;
       default:
         await this.reportError(playerId, "Unknown message.");
     }
@@ -692,8 +725,83 @@ export class TableRoom extends DurableObject<Env> {
     next.hostId = state.hostId ?? hostId;
     await this.resetResultsWrite();
     await this.commit(next);
+    // The rematch handoff is over: this table's roster lives in its own room now.
+    await this.clearSeedSeats();
     await this.syncTableRow("playing");
     await this.ensureAlarm();
+  }
+
+  /** Drop the seats a rematch handed this table. Best effort, like the syncs. */
+  private async clearSeedSeats(): Promise<void> {
+    const id = this.tableId();
+    if (id === "") return;
+    try {
+      await clearTableSeats(this.env, id);
+    } catch (error) {
+      console.error("failed to clear the rematch seats", describe(error));
+    }
+  }
+
+  /**
+   * Open the table a finished game's rematch plays at.
+   *
+   * A table is single-use by design, so this creates a *new* one — same name,
+   * same creator, same roster — and the link travels to every socket inside the
+   * snapshot (`state.rematchId`) rather than in a message of its own. That is
+   * what reaches a client whose socket was down when the press happened: the
+   * snapshot it reconnects to already carries the link, so nobody has to have
+   * been watching at the right moment.
+   *
+   * Anybody seated may press it, eliminated players included; a spectator who
+   * opened the link after the game started is not at the table and may not.
+   * There is no host rule here, unlike `handleStart`: a rematch is the whole
+   * table's move, not a decision about who is allowed to begin.
+   *
+   * Two presses in the same instant cannot produce two tables, and that is a
+   * property of the id rather than of a lock: it is derived from the finished
+   * game (`rematchTableId`), so both presses name the same table, and both
+   * inserts are `ON CONFLICT DO NOTHING`. The work may happen twice; the row
+   * cannot.
+   */
+  private async handleRematch(playerId: string): Promise<void> {
+    const state = this.state;
+    if (state === null || state.gameOver === null) {
+      await this.reportError(playerId, "This table's game is not over yet.");
+      return;
+    }
+    if (!playerById(state, playerId)) {
+      await this.reportError(playerId, "Only players at this table can open a rematch.");
+      return;
+    }
+    // Already open: every snapshot carries the link, and this one just arrived.
+    if (state.rematchId !== null) return;
+
+    const id = rematchTableId(state.gameId);
+    const seats: SeededPlayer[] = state.players.map((player) => ({ playerId: player.id, name: player.name }));
+    if (this.tableId() === "") {
+      await this.reportError(playerId, "This table has no id, so it cannot open a rematch.");
+      return;
+    }
+    try {
+      await createRematchTable(this.env, {
+        id,
+        name: state.tableName,
+        hostId: state.hostId ?? playerId,
+        maxPlayers: MAX_PLAYERS,
+        players: seats,
+        now: Date.now(),
+      });
+    } catch (error) {
+      // Nothing half-open: the new table's row and its seats go in one batch, so
+      // a failure leaves no table to join and the press can simply be repeated.
+      console.error(`failed to open rematch table ${id}`, describe(error));
+      await this.reportError(playerId, "Could not open the rematch table. Try again.");
+      return;
+    }
+    const next = structuredClone(this.state ?? state);
+    next.rematchId = id;
+    // The broadcast reaches every open socket, the presser included.
+    await this.commit(next);
   }
 
   private async handleLeave(playerId: string): Promise<void> {
@@ -1036,6 +1144,17 @@ export class TableRoom extends DurableObject<Env> {
 }
 
 /**
+ * The id of the table a rematch opens. Derived from the finished game instead of
+ * minted: two players can press Rematch at the same moment, and both presses
+ * have to name the same table for `ON CONFLICT DO NOTHING` to make the second a
+ * no-op. The suffix keeps it out of the uuid shape a table created through the
+ * lobby has, so the two can never collide.
+ */
+export function rematchTableId(gameId: string): string {
+  return `${gameId}-r`;
+}
+
+/**
  * Never hand `setAlarm` a timestamp in the past. A past alarm fires at once,
  * and if the target is recomputed from an unchanged deadline it fires at once
  * again, forever. Clamp forward by a small floor instead.
@@ -1053,6 +1172,23 @@ export function resultWriteBackoffMs(attempts: number): number {
   const base = 1_000;
   const cap = 5 * 60 * 1000;
   return Math.min(base * 2 ** Math.max(0, attempts - 1), cap);
+}
+
+/**
+ * A pre-game seat. There is no record yet — nothing has been played — and the
+ * fields the engine fills in at `createGameState` are the neutral values.
+ */
+function lobbySeat(id: string, name: string): MiaPlayer {
+  return {
+    id,
+    name,
+    lives: STARTING_LIVES,
+    dice: null,
+    roundsPlayed: 0,
+    eliminated: false,
+    eliminationIndex: null,
+    record: null,
+  };
 }
 
 /** Decode a percent-encoded header, tolerating malformed input. */

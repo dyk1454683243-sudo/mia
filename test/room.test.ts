@@ -6,9 +6,9 @@ import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare
 import { beforeAll, describe, expect, it } from "vitest";
 import { MAX_PLAYERS, MIN_PLAYERS, type Die, type MiaState } from "../src/shared/mia";
 import type { ServerMessage, StateView } from "../src/shared/protocol";
-import { ensureSchema } from "../src/worker/db";
+import { ensureSchema, createRematchTable } from "../src/worker/db";
 import { signCookie } from "../src/worker/session";
-import { clampAlarmTime, resultWriteBackoffMs } from "../src/worker/table-room";
+import { clampAlarmTime, rematchTableId, resultWriteBackoffMs } from "../src/worker/table-room";
 import { TestTableRoom } from "./table-room-test";
 
 /** Fast clock for tests: a turn expires in a second. */
@@ -1265,4 +1265,201 @@ describe("TableRoom", () => {
     await waitForValue(async () => ((await storedRoom(tableId)) === null ? true : null), 20_000);
     expect(await scheduledAlarm(tableId)).toBeNull();
   }, 40_000);
+
+  // -------------------------------------------------------------------------
+  // The endgame: tallies, the filmstrip's raw material and the rematch
+  // -------------------------------------------------------------------------
+
+  it("keeps the endgame tallies out of every live snapshot and reveals them at the end", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const tableId = await createTableRow("Tally", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    await annaSocket.nextState((view) => view.state.players.length === 2);
+
+    annaSocket.send({ type: "start" });
+    const started = await annaSocket.nextState((view) => view.state.round === 1);
+    const starterId = started.state.turnPlayerId!;
+    const starterSocket = starterId === anna.id ? annaSocket : boSocket;
+    const otherSocket = starterId === anna.id ? boSocket : annaSocket;
+    const otherId = starterId === anna.id ? bo.id : anna.id;
+
+    await setLives(tableId, starterId, 1);
+    await waitFor(async () => (await readState(tableId))?.phase === "deciding");
+    starterSocket.send({ type: "roll" });
+    await starterSocket.nextState((view) => view.state.phase === "announcing");
+    await forceDice(tableId, starterId, [3, 1]);
+    starterSocket.send({ type: "announce", value: 65 });
+    const announced = await otherSocket.nextState((view) => view.state.lastAnnouncement?.value === 65);
+
+    // The counter has already moved on the server...
+    const serverState = await readState(tableId);
+    expect(serverState?.players.find((player) => player.id === starterId)?.record?.announcements).toBe(1);
+    // ...and the broadcast that announces the claim carries none of it.
+    expect(announced.state.players.map((player) => player.record)).toEqual([null, null]);
+    expect(announced.state.rematchId).toBeNull();
+
+    otherSocket.send({ type: "doubt" });
+    const finished = await otherSocket.nextState((view) => view.state.gameOver !== null, 6_000);
+    expect(finished.state.players.find((player) => player.id === starterId)?.record).toMatchObject({
+      announcements: 1,
+      truths: 0,
+      caught: 1,
+    });
+    expect(finished.state.players.find((player) => player.id === otherId)?.record).toMatchObject({
+      doubts: 1,
+      doubtsCorrect: 1,
+    });
+    // The filmstrip's material: the final round's claim, and the reveal.
+    expect(finished.state.events.filter((event) => event.kind === "announce" && event.value === 65)).toHaveLength(1);
+    expect(finished.state.lastReveal).toMatchObject({ announced: 65, actual: 31, verdict: "announcer" });
+
+    annaSocket.close();
+    boSocket.close();
+  }, 20_000);
+
+  it("opens one rematch table for two simultaneous presses, seeded with the roster", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const tableId = await createTableRow("Rematch", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    await annaSocket.nextState((view) => view.state.players.length === 2);
+
+    const gameId = await finishTwoPlayerGame(tableId, anna.id, [annaSocket, boSocket]);
+    const expectedId = rematchTableId(gameId);
+
+    // Both players press at once, from two sockets. The id comes from the game
+    // rather than from a mint, so the second press names the same table.
+    annaSocket.send({ type: "rematch" });
+    boSocket.send({ type: "rematch" });
+    const annaView = await annaSocket.nextState((view) => view.state.rematchId !== null, 6_000);
+    const boView = await boSocket.nextState((view) => view.state.rematchId !== null, 6_000);
+    expect(annaView.state.rematchId).toBe(expectedId);
+    expect(boView.state.rematchId).toBe(expectedId);
+    // Neither press was refused — the duplicate insert is a no-op, not an error.
+    expect(annaSocket.errors).toEqual([]);
+    expect(boSocket.errors).toEqual([]);
+
+    const rows = await env.DB.prepare(
+      `SELECT id, name, host_id, status, player_count FROM tables WHERE id = ?1`,
+    )
+      .bind(expectedId)
+      .all<{ id: string; name: string; host_id: string; status: string; player_count: number }>();
+    expect(rows.results).toHaveLength(1);
+    expect(rows.results?.[0]).toMatchObject({
+      name: "Rematch",
+      host_id: anna.id,
+      status: "waiting",
+      player_count: 2,
+    });
+    // The old table keeps its finished row; the rematch does not relabel it.
+    expect(await tableStatus(tableId)).toBe("finished");
+
+    const seats = await env.DB.prepare(
+      `SELECT player_id, name FROM table_seats WHERE table_id = ?1 ORDER BY seat ASC`,
+    )
+      .bind(expectedId)
+      .all<{ player_id: string; name: string }>();
+    expect(seats.results?.map((seat) => seat.player_id)).toEqual([anna.id, bo.id]);
+
+    // A derived id is only half of "two presses cannot make two tables"; the
+    // write has to be idempotent as well, or the second press throws a
+    // constraint error while the first is still in flight — a user-visible
+    // "try again" for a press that already worked. The two sockets above are
+    // serialised in whatever order the runtime picks, so their presses may not
+    // overlap at all; the second write is therefore driven directly here rather
+    // than hoped for.
+    await createRematchTable(env, {
+      id: expectedId,
+      name: "Rematch",
+      hostId: anna.id,
+      maxPlayers: MAX_PLAYERS,
+      players: [
+        { playerId: anna.id, name: anna.name },
+        { playerId: bo.id, name: bo.name },
+      ],
+      now: Date.now(),
+    });
+    const stillOne = await env.DB.prepare(`SELECT COUNT(*) AS n FROM tables WHERE id = ?1`)
+      .bind(expectedId)
+      .first<{ n: number }>();
+    expect(stillOne?.n).toBe(1);
+
+    // The new table's room starts from that roster, not from whoever clicks
+    // first: one socket is connected and both seats are already there. The wait
+    // is for any lobby snapshot, not for the roster to reach two, so a missing
+    // handoff fails on the diff below rather than as a bare timeout.
+    const boOnRematch = await connect(expectedId, bo);
+    const lobby = await boOnRematch.nextState((view) => view.state.round === 0, 6_000);
+    expect(lobby.state.round).toBe(0);
+    expect(lobby.state.hostId).toBe(anna.id);
+    expect(lobby.state.players.map((player) => player.id)).toEqual([anna.id, bo.id]);
+    expect(lobby.connected).toEqual([bo.id]);
+
+    // Starting that game ends the handoff.
+    const annaOnRematch = await connect(expectedId, anna);
+    await annaOnRematch.nextState((view) => view.connected.length === 2, 6_000);
+    annaOnRematch.send({ type: "start" });
+    await annaOnRematch.nextState((view) => view.state.round === 1, 6_000);
+    const leftover = await env.DB.prepare(`SELECT COUNT(*) AS n FROM table_seats WHERE table_id = ?1`)
+      .bind(expectedId)
+      .first<{ n: number }>();
+    expect(leftover?.n).toBe(0);
+
+    annaSocket.close();
+    boSocket.close();
+    annaOnRematch.close();
+    boOnRematch.close();
+  }, 25_000);
+
+  it("refuses a rematch before the game is over and from a spectator with no seat", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const watcher = await makePlayer("Watcher");
+    const tableId = await createTableRow("Not yours", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    await annaSocket.nextState((view) => view.state.players.length === 2);
+
+    annaSocket.send({ type: "start" });
+    await annaSocket.nextState((view) => view.state.round === 1);
+    annaSocket.send({ type: "rematch" });
+    // Wait for either outcome — the refusal, or the press that should not have
+    // happened — and then assert which one it was. Waiting only for the refusal
+    // would make a missing guard fail as a bare timeout, which says nothing
+    // about what the server did instead.
+    await waitFor(
+      async () =>
+        annaSocket.errors.includes("This table's game is not over yet.") ||
+        ((await readState(tableId))?.rematchId ?? null) !== null,
+      5_000,
+    );
+    expect(annaSocket.errors).toContain("This table's game is not over yet.");
+    expect((await readState(tableId))?.rematchId).toBeNull();
+
+    const gameId = await finishTwoPlayerGame(tableId, anna.id, [annaSocket, boSocket]);
+    // A late arrival watches this table; they have no seat, so they cannot open
+    // the next one for the people who played.
+    const watcherSocket = await connect(tableId, watcher);
+    await watcherSocket.nextState((view) => view.state.gameOver !== null, 6_000);
+    watcherSocket.send({ type: "rematch" });
+    await waitFor(
+      async () =>
+        watcherSocket.errors.includes("Only players at this table can open a rematch.") ||
+        ((await readState(tableId))?.rematchId ?? null) !== null,
+      5_000,
+    );
+    expect(watcherSocket.errors).toContain("Only players at this table can open a rematch.");
+    expect((await readState(tableId))?.rematchId).toBeNull();
+    const stray = await env.DB.prepare(`SELECT COUNT(*) AS n FROM tables WHERE id = ?1`)
+      .bind(rematchTableId(gameId))
+      .first<{ n: number }>();
+    expect(stray?.n).toBe(0);
+
+    annaSocket.close();
+    boSocket.close();
+    watcherSocket.close();
+  }, 25_000);
 });

@@ -71,6 +71,13 @@ export type ClientMessage =
   | ({ type: "announce"; value: number } & MoveStamp)
   | ({ type: "believe" } & MoveStamp)
   | ({ type: "doubt" } & MoveStamp)
+  /**
+   * Ask for a new table seeded with this one's players. It carries the stamp
+   * like every other message but the server does not compare it: a rematch is
+   * not a move, and a press replayed by a reconnecting socket asks for exactly
+   * what the first press already got.
+   */
+  | ({ type: "rematch" } & MoveStamp)
   | ({ type: "leave" } & MoveStamp)
   | ({ type: "ping" } & MoveStamp);
 

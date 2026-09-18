@@ -105,6 +105,47 @@ export type Phase =
   /** Somebody has 0 lives left and there is a winner. */
   | "finished";
 
+/**
+ * What one player did, counted as it happened, for the stats at the end.
+ *
+ * These are tallies rather than something the endgame screen can read back out
+ * of `events`, for two reasons. The log is a 60-entry ring buffer (`pushEvent`
+ * splices its head), so counting it undercounts any game longer than that; and
+ * the log only ever learns the dice behind an announcement that a doubt turned
+ * over, so an undoubted claim can never be scored true or false from it.
+ *
+ * `truths` counts announcements that named the roll in the cup exactly. Every
+ * other announcement — higher *or* lower than the real roll — is a bluff here:
+ * it is a claim about dice the player does not hold.
+ */
+export interface PlayerRecord {
+  /** Announcements made, truthful or not. */
+  announcements: number;
+  /** Announcements that named exactly the roll in the cup. */
+  truths: number;
+  /** Truthful announcements that were doubted anyway (the doubter paid). */
+  truthsDoubted: number;
+  /** Doubts this player called. */
+  doubts: number;
+  /** Of those, the ones that caught a bluff. */
+  doubtsCorrect: number;
+  /** This player's own claims that a doubt turned over as a bluff. */
+  caught: number;
+}
+
+export function emptyPlayerRecord(): PlayerRecord {
+  return { announcements: 0, truths: 0, truthsDoubted: 0, doubts: 0, doubtsCorrect: 0, caught: 0 };
+}
+
+/**
+ * The player's record, created on demand. A state persisted before the record
+ * existed has no field here, and `applyAction` must keep working on it — the
+ * backfill is the same courtesy `hostId ??=` extends to an old room.
+ */
+export function recordOf(player: MiaPlayer): PlayerRecord {
+  return (player.record ??= emptyPlayerRecord());
+}
+
 export interface MiaPlayer {
   id: string;
   name: string;
@@ -119,6 +160,13 @@ export interface MiaPlayer {
    * this in reverse: the last player eliminated finishes highest of the rest.
    */
   eliminationIndex: number | null;
+  /**
+   * This player's tallies, or null before the game is over: the counters move
+   * the moment a claim is made, so a live snapshot would leak the standing
+   * announcement's truth to everyone at the table. `redactState` clears them
+   * until `gameOver`, and only the endgame screen reads them.
+   */
+  record: PlayerRecord | null;
 }
 
 export interface Announcement {
@@ -207,6 +255,13 @@ export interface MiaState {
   /** Set once the round is over and the next one has been seeded. */
   roundEndsAt: number | null;
   gameOver: GameOver | null;
+  /**
+   * The table this finished game's rematch was created as, or null while nobody
+   * has asked for one. Persisted with the state rather than held in memory, so
+   * a second press after a hibernation reuses the table that already exists and
+   * a client that was mid-reconnect still finds the link in its next snapshot.
+   */
+  rematchId: string | null;
 }
 
 export interface Seat {
@@ -273,6 +328,7 @@ export function createGameState(
       roundsPlayed: 0,
       eliminated: false,
       eliminationIndex: null,
+      record: emptyPlayerRecord(),
     })),
     turnPlayerId: null,
     turnStartedAt: null,
@@ -287,6 +343,7 @@ export function createGameState(
     logSeq: 0,
     roundEndsAt: null,
     gameOver: null,
+    rematchId: null,
   };
   pushEvent(state, now, "start", `${tableName} — first to lose all ${STARTING_LIVES} lives is out.`);
   startRound(state, seats[0]?.id ?? null, timings, now);
@@ -535,6 +592,10 @@ function applyAnnounce(
   }
 
   const player = playerById(state, playerId)!;
+  const actual = player.dice ? rollValue(player.dice[0], player.dice[1]) : null;
+  const record = recordOf(player);
+  record.announcements += 1;
+  if (actual !== null && actual === value) record.truths += 1;
   state.lastAnnouncement = {
     playerId,
     playerName: player.name,
@@ -611,6 +672,18 @@ function applyDoubt(state: MiaState, playerId: string, timings: Timings, now: nu
   const loserId = bluffCaught ? owner.id : doubter.id;
   const loser = playerById(state, loserId)!;
   loser.lives = Math.max(0, loser.lives - livesLost);
+
+  // The endgame tallies. A truthful claim that still got doubted is the
+  // "nobody believed you" case; `caught` is the other side of the same doubt.
+  const doubterRecord = recordOf(doubter);
+  doubterRecord.doubts += 1;
+  const ownerRecord = recordOf(owner);
+  if (bluffCaught) {
+    doubterRecord.doubtsCorrect += 1;
+    ownerRecord.caught += 1;
+  } else if (actual === announced) {
+    ownerRecord.truthsDoubted += 1;
+  }
 
   const reveal: DoubtReveal = {
     doubterId: doubter.id,
@@ -819,6 +892,18 @@ export function cloneState(state: MiaState): MiaState {
   return structuredClone(state);
 }
 
+/**
+ * Backfill fields that were added to `MiaState` after this state was persisted.
+ * A Durable Object can be hibernating across a deploy, so the state it wakes up
+ * with is the previous version's: `unknown` at runtime, but typed as current.
+ * `hostId ??=` in `TableRoom.handleConnect` does the same for one field.
+ */
+export function normalizeState(state: MiaState): MiaState {
+  for (const player of state.players) player.record ??= emptyPlayerRecord();
+  state.rematchId ??= null;
+  return state;
+}
+
 // ---------------------------------------------------------------------------
 // Redaction
 // ---------------------------------------------------------------------------
@@ -851,6 +936,11 @@ export function visibilityFor(state: MiaState, viewerId: string): Visibility {
  * secret *per player*: seeing your own cup must never hand you anybody else's.
  * Exactly one pair of dice can ever be visible — your own while you hold the
  * cup, or the doubted player's once it is turned over.
+ *
+ * The endgame tallies are hidden the same way, but for a different reason: they
+ * are not secret from the game, they are simply *news*. A counter that moves the
+ * moment a claim is made would tell everyone at the table whether the standing
+ * announcement is true, so they stay null until the game is actually over.
  */
 export function redactState(state: MiaState, visibility: Visibility): MiaState {
   const view = cloneState(state);
@@ -858,6 +948,7 @@ export function redactState(state: MiaState, visibility: Visibility): MiaState {
     const isOwnCup = visibility.ownDice && player.id === visibility.viewerId;
     const isFaceUp = visibility.revealedDice && player.id === state.diceOwnerId;
     if (!isOwnCup && !isFaceUp) player.dice = null;
+    if (!visibility.winner) player.record = null;
   }
   if (!visibility.winner && view.gameOver) {
     // Keep the finished flag but hide who won until the reveal lands.

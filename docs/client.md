@@ -168,10 +168,47 @@ of operations inside one call, not a missing window. `resolveDoubt` sets
 `phase = "revealing"` and `deadlineAt = now + revealMs`, then its trailing
 `resolveEliminations` runs and, when the life loss leaves one player alive, flips
 `phase` to `finished` and clears `deadlineAt` before any snapshot can carry a
-revealing phase. That last reveal therefore falls back to a compact static recap
-card below the winner, keeping the same `.reveal` / `.reveal-dice` / `.verdict`
-contract. A doubt that eliminates a player while others remain alive stays in
-`revealing` and plays the full showdown.
+revealing phase. A doubt that eliminates a player while others remain alive stays
+in `revealing` and plays the full showdown. The one reveal that ends the game is
+told by the filmstrip instead, below.
+
+## The endgame screen
+
+The finished screen is the story, not a trophy: the last round as a filmstrip,
+the numbers behind it, and the way to play again.
+
+The **filmstrip** is one small cell per claim of the final round, in order, then
+the doubt in red and the truth at the end, with a caption naming what the doubt
+settled. Everything in it is derived — the claims from `MiaState.events`, the
+doubt and the dice from the engine's `lastReveal` — which is what makes it the
+same story for everyone at the table. It renders for eliminated players and for
+the spectator who opened the link after the game started; nothing in
+`renderFilmstrip` reads the viewer's own seat. The strip is its own horizontal
+scroll box, so a round that climbs the whole ranking scrolls sideways instead of
+widening the page.
+
+The **stats** are `statLines` from `src/shared/replay.ts`: at most two guarded
+sentences per player, in ranking order, with the viewer's row highlighted and
+their headline numbers above it. The lines are written where the edges can be
+unit-tested — a player who never announced gets the cup line rather than a "told
+the truth 0 times", and a liar rate is only shown when there is a claim to be a
+rate of. The viewer's own numbers come from the redacted-until-game-over
+`PlayerRecord` (see [game-engine.md](game-engine.md)).
+
+The **rematch** button asks the server for a new table. It becomes a real link on
+the same snapshot that carries `state.rematchId`, so a client that reconnects
+after the press finds the link waiting for it; the button is drawn from the
+snapshot, never from a local "I pressed it" flag. The button is offered only to a
+viewer with a seat: a spectator sees the finished screen and a line saying that a
+player can open a rematch, because the server refuses anyone without a seat and a
+button whose only outcome is an error is worse than none. Once a rematch exists
+its id is part of every snapshot, so the link itself is there for the spectator
+too — the new table is a lobby with seats in it.
+
+Above the breakpoint the filmstrip takes the centre column under the felt (the
+cell the mid-game reveal card used to occupy) and the stats list spans the whole
+width below the three columns; both cards exist only on the finished screen, so
+neither rule matches anything during play.
 
 ## The reconnecting socket
 

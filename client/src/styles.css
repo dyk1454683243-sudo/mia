@@ -651,10 +651,6 @@ ul {
 
 /* -------------------------------------------------------------- standings */
 
-.standing-card {
-  text-align: center;
-}
-
 .standing {
   display: flex;
   justify-content: center;
@@ -1141,16 +1137,6 @@ ul {
   .showdown-cup { display: none; }
 }
 
-/* The compact fallback on the finished screen reuses the stamp, static. */
-.showdown-stamp.compact {
-  display: block;
-  width: fit-content;
-  margin: 0.5rem auto 0;
-  padding: 0.12rem 0.6rem 0.18rem;
-  border-width: 3px;
-  font-size: 1.3rem;
-}
-
 /* ---------------------------------------------------------------- actions */
 
 .actions {
@@ -1167,6 +1153,14 @@ ul {
  * bottom edge made it cover the table it is played on, so that one flows
  * normally and the ladder scrolls inside its own box. */
 .actions-tall {
+  position: static;
+}
+
+/* The endgame bar is the same problem for a different reason: it carries the
+ * winner, the rematch and two ways out, so stuck to the bottom edge it covers
+ * the filmstrip's caption — the sentence that says how the game was won — and
+ * the top of the stats. It flows instead, one short scroll below the felt. */
+.actions-end {
   position: static;
 }
 
@@ -1320,6 +1314,157 @@ ul {
   color: #ffc9c4;
 }
 
+/* ---------------------------------------------------------------- endgame */
+/* The finished screen tells the story: the last round as a filmstrip, then the
+ * numbers behind it. A round can visit every rung of the ranking, so the strip
+ * is its own horizontal scroll box — the page itself never gets wider. */
+
+.filmstrip {
+  display: flex;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.15rem 0 0.4rem;
+  list-style: none;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.film-cell {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 3.1rem;
+  padding: 0.35rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.film-who {
+  max-width: 4.4rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.film-value {
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.film-cell.you {
+  border-color: rgba(232, 196, 106, 0.55);
+}
+
+.film-cell.doubt {
+  border-color: rgba(226, 104, 95, 0.55);
+}
+
+.film-cell.doubt .film-value {
+  color: var(--danger);
+}
+
+.film-cell.truth.believed .film-value {
+  color: var(--good);
+}
+
+.film-cell.truth.caught .film-value {
+  color: #ffc9c4;
+}
+
+.film-cell.truth.mia .film-value {
+  color: var(--gold);
+}
+
+.film-caption {
+  margin: 0.2rem 0 0;
+  font-size: 0.9rem;
+}
+
+/* The viewer's numbers, then one line per player in finishing order. */
+
+.stat-chips {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.stat-chip {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.3rem 0.2rem;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.stat-chip b {
+  font-size: 1.25rem;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-chip .label {
+  margin: 0;
+  font-size: 0.6rem;
+}
+
+.card .stats-table-head {
+  margin-top: 0.9rem;
+}
+
+/* A spectator has no numbers of their own, so the table heading leads the card. */
+.card .stats-table-head:first-child {
+  margin-top: 0;
+}
+
+.stats-table {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stat-row {
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr);
+  gap: 0.1rem 0.5rem;
+  padding: 0.5rem 0.35rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.stat-row:last-child {
+  border-bottom: none;
+}
+
+.stat-row.you {
+  margin-inline: -0.35rem;
+  border-radius: 10px;
+  background: rgba(232, 196, 106, 0.1);
+}
+
+.stat-row .name {
+  font-weight: 600;
+}
+
+.stat-row .outcome {
+  grid-column: 2;
+  font-size: 0.78rem;
+  color: var(--ink-dim);
+}
+
+.stat-row .stat-line {
+  grid-column: 2;
+  font-size: 0.86rem;
+}
+
 /* --------------------------------------------------------- desktop columns */
 /* Phone-first, and there is no width breakpoint anywhere above: the app column
  * is capped by `#app { max-width: 34rem }`. Above about 900px that leaves
@@ -1348,7 +1493,7 @@ ul {
       minmax(15rem, 1fr);
     grid-template-areas:
       "actions felt log"
-      "actions reveal log"
+      "actions film log"
       "actions footer log";
     align-items: start;
     gap: 1.25rem;
@@ -1369,8 +1514,16 @@ ul {
     grid-area: log;
   }
 
-  .page > .reveal-card {
-    grid-area: reveal;
+  /* The endgame cards. The filmstrip takes the centre column under the felt —
+   * the same cell the mid-game reveal card used — and the stats list spans the
+   * whole width below all three columns. Both exist only on the finished
+   * screen, so mid-game every rule here matches nothing. */
+  .page > .film-card {
+    grid-area: film;
+  }
+
+  .page > .stats-card {
+    grid-column: 1 / -1;
   }
 
   .page > .row.gap {
