@@ -137,10 +137,15 @@ describe("CueTracker", () => {
 
   it("fires nothing for a reconnect that replays the current snapshot", () => {
     const tracker = new CueTracker();
-    const state = playing("Ada", "Bea");
-    expect(tracker.observe(state, "ada")).toEqual([]);
+    let state = playing("Ada", "Bea");
+    expect(tracker.observe(state, "bea")).toEqual([]);
+    state = rollAs(state, "ada", [3, 1]);
+    state = must(applyAction(state, { type: "announce", playerId: "ada", value: 31 }, TIMINGS, T0));
+    expect(state.turnPlayerId).toBe("bea");
+    // Without reset this is exactly "the cup just reached you". A reconnect
+    // mid-game must not treat the replayed snapshot as that transition.
     tracker.reset();
-    expect(tracker.observe(state, "ada")).toEqual([]);
+    expect(tracker.observe(state, "bea")).toEqual([]);
   });
 
   it("reads a real caught bluff the way the table will", () => {
