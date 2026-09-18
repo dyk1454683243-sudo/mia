@@ -12,6 +12,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { formatValue, MAX_PLAYERS, MIA, MIN_PLAYERS, outranks, RANKING } from "../src/shared/mia.ts";
+import { SHIP_NAMES } from "../src/shared/ships.ts";
 import { api, BASE, createPlayer } from "./lib.ts";
 
 const OUT = process.env.MIA_UI_OUT ?? ".r1-screenshots";
@@ -38,6 +39,33 @@ if (!Number.isInteger(SEATS) || SEATS < MIN_PLAYERS || SEATS > MAX_PLAYERS) {
 }
 /** The browser holds one seat; bots take the rest. */
 const BOTS = SEATS - 1;
+
+/**
+ * The longest name the server can hand out. Names are assigned from the pool at
+ * first visit and the rename field caps at 40 characters, so the long names can
+ * only arrive as defaults — forcing one means drawing players until this exact
+ * string comes out of `pickShipName`, not typing it. It is the string the #48
+ * bug needs: a name that wraps to seven lines on the viewer's 84px chair.
+ */
+const LONG_VIEWER_NAME = SHIP_NAMES.reduce((longest, name) => (name.length > longest.length ? name : longest), "");
+
+/**
+ * Seat the browser as the player holding `LONG_VIEWER_NAME`, so the geometry
+ * test is not left to whether the random pool happened to hand the viewer a
+ * long name. `pickShipName` excludes names already taken, so on a clean pool the
+ * longest one is assigned within the first `SHIP_NAMES.length` draws; a dev
+ * database that already took it reaches it through the exhausted-pool fallback.
+ */
+async function forceLongViewer(context: BrowserContext): Promise<string> {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    const player = await createPlayer(`long-viewer-${attempt}`);
+    if (player.name === LONG_VIEWER_NAME) {
+      await context.addCookies([{ name: "mia_pid", value: player.cookie.replace(/^mia_pid=/, ""), url: BASE }]);
+      return player.name;
+    }
+  }
+  throw new Error(`never drew the long ship name "${LONG_VIEWER_NAME}" from the pool`);
+}
 
 interface Step {
   name: string;
@@ -544,6 +572,45 @@ async function playersActionsOverlap(page: Page): Promise<number> {
 }
 
 /**
+ * The felt's promise for #48: no seat's dice hang past the table card. The
+ * viewer's chair is at the foot of the ring and its dice are the last thing in
+ * the seat, so a name that wrapped to five or seven lines grew the seat
+ * downwards and carried them off the card. Measured against `.table-card`,
+ * which `desktopColumns` already calls the felt; the green `.table-stage` oval
+ * is the felt pattern inside that card.
+ *
+ * Every visible pair is checked, not only the viewer's: at a reveal the doubted
+ * player's dice are face up on their own chair. The dice are the last child, so
+ * a wrapped viewer name is the binding case and the one the check exists for.
+ */
+async function diceOffFelt(page: Page): Promise<{ violations: string[]; detail: string }> {
+  return await page.evaluate(() => {
+    const felt = document.querySelector<HTMLElement>(".table-card")?.getBoundingClientRect() ?? null;
+    if (!felt) return { violations: ["no .table-card"], detail: "no felt" };
+    const violations: string[] = [];
+    for (const row of [...document.querySelectorAll<HTMLElement>(".player")]) {
+      const dice = row.querySelector<HTMLElement>(".player-dice");
+      if (!dice) continue;
+      const box = dice.getBoundingClientRect();
+      const you = row.querySelector(".name em") !== null;
+      const name = (row.querySelector(".name")?.textContent ?? "").trim();
+      const below = Math.round(box.bottom - felt.bottom);
+      const above = Math.round(felt.top - box.top);
+      const offSide = Math.round(felt.left - box.left) > 0 || Math.round(box.right - felt.right) > 0;
+      if (below > 0 || above > 0 || offSide) {
+        const why = below > 0 ? `${below}px below` : above > 0 ? `${above}px above` : "off the side";
+        violations.push(
+          `${you ? "your" : name || "a seat"} dice ${Math.round(box.top)}-${Math.round(box.bottom)} vs felt ${Math.round(
+            felt.top,
+          )}-${Math.round(felt.bottom)} (${why})`,
+        );
+      }
+    }
+    return { violations, detail: violations.length === 0 ? "all dice within .table-card" : violations.join("; ") };
+  });
+}
+
+/**
  * The seat geometry the round table promises: the viewer's chair is the
  * bottom-most on the ring, whatever the seat count. Measuring centre points
  * rather than tops keeps it about position, not how tall a name wrapped.
@@ -737,11 +804,13 @@ async function act(page: Page): Promise<string> {
   });
 }
 
-async function playGame(page: Page, bots: ChildProcess, tableId: string): Promise<{ saw: Set<string>; secrecyViolations: string[]; claimBubbleViolations: string[]; countdownTicks: string[]; rerenderSurvived: boolean | null }> {
+async function playGame(page: Page, bots: ChildProcess, tableId: string): Promise<{ saw: Set<string>; secrecyViolations: string[]; claimBubbleViolations: string[]; diceSpill: string[]; viewerDiceSeen: boolean; countdownTicks: string[]; rerenderSurvived: boolean | null }> {
   section("A full game with bots");
   const saw = new Set<string>();
   const secrecyViolations: string[] = [];
   const claimBubbleViolations: string[] = [];
+  const diceSpill: string[] = [];
+  let viewerDiceSeen = false;
   const countdownTicks: string[] = [];
   let rerenderSurvived: boolean | null = null;
   let reconnected = false;
@@ -841,12 +910,29 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
       check("the announce ladder keeps Mia distinct", snap.announce.values.includes(MIA) ? snap.announce.mia : true, `${rendered.length} rungs`);
       const ownCup = snap.players.some((player) => player.you && player.cup);
       check("the announce ladder marks your own roll", ownCup ? snap.announce.mine : true, ownCup ? `mine=${snap.announce.mine}` : "not holding the cup");
-      const nameClipped = await page.evaluate(() => {
+      const nameProbe = await page.evaluate(() => {
         const row = [...document.querySelectorAll<HTMLElement>(".player")].find((li) => li.querySelector(".name em"));
         const name = row?.querySelector<HTMLElement>(".name");
-        return name ? name.scrollWidth > name.clientWidth + 1 : false;
+        if (!name) return null;
+        return {
+          text: name.textContent?.trim() ?? "",
+          title: name.getAttribute("title") ?? "",
+          // The viewer's name is deliberately clamped *vertically* to two lines
+          // (#48); this probe is about the badges pushing it out sideways. The
+          // two-pixel allowance absorbs the clamp's sub-pixel rounding.
+          horizontalOverflow: name.scrollWidth - name.clientWidth,
+        };
       });
-      check("your own name survives the cup, turn and countdown badges", nameClipped === false, String(nameClipped));
+      check(
+        "your own name survives the cup, turn and countdown badges",
+        nameProbe !== null &&
+          nameProbe.horizontalOverflow <= 2 &&
+          nameProbe.title.length > 0 &&
+          nameProbe.text.includes(nameProbe.title),
+        nameProbe
+          ? `overflow ${nameProbe.horizontalOverflow}px · title ${nameProbe.title.length} chars · "${nameProbe.text.slice(0, 40)}"`
+          : "no viewer seat",
+      );
       const overlap = await playersActionsOverlap(page);
       check("the announce ladder does not cover the table", overlap === 0, `${overlap}px overlap`);
       // The cut has to be reachable without scrolling the page at all: a box
@@ -964,6 +1050,16 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
         if (!player.you) secrecyViolations.push(`${player.name} showed dice to the browser in ${snap.phase}`);
       }
       if (withDice.filter((player) => player.you).length > 1) secrecyViolations.push("more than one own dice row");
+    }
+
+    // The felt's promise for #48, sampled on every snapshot that shows a pair.
+    // The viewer's own cup in round 1 is enough to put a long name and its dice
+    // on the foot of the ring at once. Mismatches aggregate like the secrecy
+    // samples so a green later frame cannot bury the first failure.
+    if (snap.players.some((player) => player.dice)) {
+      if (snap.players.some((player) => player.you && player.dice)) viewerDiceSeen = true;
+      const spill = await diceOffFelt(page);
+      for (const violation of spill.violations) if (!diceSpill.includes(violation)) diceSpill.push(violation);
     }
 
     if (snap.phase === "finished") {
@@ -1106,7 +1202,7 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
   }
 
   if (!saw.has("finished")) note("the game did not finish inside the time box");
-  return { saw, secrecyViolations, claimBubbleViolations, countdownTicks, rerenderSurvived };
+  return { saw, secrecyViolations, claimBubbleViolations, diceSpill, viewerDiceSeen, countdownTicks, rerenderSurvived };
 }
 
 // ---------------------------------------------------------------------------
@@ -1123,6 +1219,22 @@ async function main(): Promise<void> {
   watch(page);
 
   await verifyLobby(page);
+
+  // The #48 geometry only shows with a long name on the viewer's own chair, and
+  // the pool is random — draw until the longest name is handed out rather than
+  // hope for it. (The rename field caps at 40, so the long default names cannot
+  // be typed onto the seat.)
+  section(`Force a long viewer name: "${LONG_VIEWER_NAME}"`);
+  const viewerName = await forceLongViewer(context);
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForSelector(".me-card .name");
+  const shownName = (await page.textContent(".me-card .name"))?.trim() ?? "";
+  check(
+    "the viewer is seated under the longest ship name",
+    shownName === viewerName,
+    `"${shownName}" (${shownName.length} chars)`,
+  );
+
   const tableId = await createTableThroughUi(page);
 
   section("Table (waiting for players)");
@@ -1147,6 +1259,17 @@ async function main(): Promise<void> {
   check("every table phase rendered", ["roundStart", "deciding", "announcing", "revealing", "finished"].every((phase) => game.saw.has(phase)), [...game.saw].join(", "));
   check("no other player's dice were ever on screen before a reveal", game.secrecyViolations.length === 0, game.secrecyViolations.slice(0, 3).join("; "));
   check("the claim bubble hangs on the seat that made the claim", game.claimBubbleViolations.length === 0, game.claimBubbleViolations.slice(0, 3).join("; "));
+  // The #48 regression: a long name on the viewer's chair must not carry its
+  // dice (or a revealed pair) past the felt card. The viewer's own dice are
+  // asserted to have been seen, so a run that never put them on screen fails
+  // rather than passing on a sample that never reached the regime.
+  check(
+    "every visible pair of dice stays on the felt",
+    game.viewerDiceSeen && game.diceSpill.length === 0,
+    game.viewerDiceSeen
+      ? game.diceSpill.slice(0, 3).join("; ") || "all dice within .table-card"
+      : "the viewer's own dice were never on screen",
+  );
   check("the countdown ticks down", game.countdownTicks.length >= 3, game.countdownTicks.join(" -> "));
   check("the page is not re-rendered every second", game.rerenderSurvived === true, game.rerenderSurvived === null ? "no countdown observed" : String(game.rerenderSurvived));
 

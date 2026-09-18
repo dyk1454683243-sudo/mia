@@ -435,8 +435,14 @@ ul {
 }
 
 /* Names are the full string in the DOM so assistive tech and the harness keep
- * reading who someone is; at seat size they ellipsize for everyone but the
- * viewer, whose own name wraps instead of clipping. */
+ * reading who someone is. Other seats ellipsize to one line; the viewer's own
+ * chair is at the foot of the ring, where the felt leaves only ~60px below the
+ * seat's centre, so an unclamped wrap carried the dice (the last child) off the
+ * card — the #48 bug. The viewer's name is clamped to two lines instead, and
+ * the full string rides in the seat's `title` so it is never lost. It still
+ * wraps rather than ellipsizing on one line: two lines of a long name are
+ * readable where the full string would not fit, and the untruncated text is a
+ * hover or screen-reader read away. */
 .player .name {
   display: block;
   max-width: 100%;
@@ -450,6 +456,10 @@ ul {
 .player.you .name {
   color: var(--ink);
   font-size: 0.7rem;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
 .player:not(.you) .name {
@@ -483,6 +493,11 @@ ul {
 
 .player .player-dice {
   margin-top: 0.15rem;
+  /* The dice are an inline run, so the inherited line box leaves ~10px of
+   * descender below them. At the foot of the ring that is 10px of dice below
+   * the felt, so lay them out as a flex row: no line box, no slack. */
+  display: flex;
+  justify-content: center;
 }
 
 .player .die.sm {

@@ -331,7 +331,9 @@ function renderPlayers(game: MiaState, view: StateView): string {
         isYou ? " you" : ""
       }" data-player-id="${escapeHtml(player.id)}" style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%">
         <span class="avatar" aria-hidden="true">${escapeHtml(initialsOf(player.name))}</span>
-        <span class="name">${escapeHtml(player.name)}${isYou ? " <em>(you)</em>" : ""}</span>
+        <span class="name"${isYou ? ` title="${escapeHtml(player.name)}"` : ""}>${escapeHtml(player.name)}${
+          isYou ? " <em>(you)</em>" : ""
+        }</span>
         <span class="tag-row">
           ${player.eliminated ? '<span class="badge out">out</span>' : ""}
           ${cup ? '<span class="badge cup">cup</span>' : ""}

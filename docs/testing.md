@@ -106,7 +106,11 @@ cover the assembled system, and they need a running `wrangler dev` (or a deploye
   seats (`seatPositions` uses `ry = 0.8` rather than `0.76`), which puts the
   viewer's chair at 90% of the felt instead of 88% and makes *three* seats the
   tightest case for the seat-versus-controls overlap — the opposite of the
-  ladder. A change that passes at eight can fail at three, and did.
+  ladder. A change that passes at eight can fail at three, and did. The viewer's
+  dice obey the same "run both" rule for their own reason: `ui-check` forces the
+  longest pool name onto the viewer's seat and measures the dice against the felt
+  card, which leaves the least room below the chair at three seats (90%) even
+  though the ring itself is tightest at eight.
   Its showdown-suspense check mounts an off-screen clone of the live showdown
   with `--showdown-elapsed` scrubbed, so it can read the first and last beat for
   all three verdict tones rather than only whichever tone the random dice

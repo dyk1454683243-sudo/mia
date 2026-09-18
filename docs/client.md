@@ -48,11 +48,17 @@ than a row in a list. The bubble is never a die, so the secrecy invariant is
 untouched.
 
 Names are the full string in the DOM, so assistive tech and the harness keep
-reading who someone is. At seat size they ellipsize for other players, while the
-viewer's own name wraps inside a slightly wider chair instead of clipping — the
-`ui-check` scrollWidth probe is what the wrap exists to satisfy. The avatar circle
-is initials, `aria-hidden`, and deliberately duplicates the name rather than
-replacing it.
+reading who someone is. At seat size other players ellipsize to one line, while
+the viewer's own name wraps to at most two lines inside a slightly wider chair
+and carries the full string in its `title`; the avatar circle is initials,
+`aria-hidden`, and deliberately duplicates the name rather than replacing it.
+The two-line clamp is the #48 fix. The viewer's chair is centred on the foot of
+the ring, where the felt card leaves only ~60px below the seat centre, so an
+unclamped four-to-seven-line name grew the seat downwards and carried its dice
+off the felt. The dice are also laid out as a flex row rather than an inline
+run, which removes the ~10px line-box slack that sat below them. `ui-check`
+forces the longest pool name onto the viewer's seat and asserts the dice stay
+inside `.table-card` at both three and eight seats.
 
 Eliminated players keep their chair and are greyed; the roster is every seat, not
 the survivors. Turn, cup and elimination are carried by words on badges as well as
