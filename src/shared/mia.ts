@@ -210,8 +210,11 @@ export interface MiaEvent {
     | "eliminated"
     | "round"
     | "gameover"
-    | "left";
+    | "left"
+    | "timeout";
   text: string;
+  /** Set when the turn clock acted for an idle/disconnected seat. */
+  reason?: "timeout";
   playerId?: string;
   value?: number;
   actual?: number;
