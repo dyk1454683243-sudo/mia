@@ -204,6 +204,8 @@ const clock = new TurnClock();
 let socket: TableSocket | null = null;
 /** Epoch ms until which the waiting-room reroll shows tumbling dice, not the new name. */
 let rerollUntil = 0;
+/** The name on the felt when the press happened, held until the dice settle. */
+let rerollHeldName: string | null = null;
 const REROLL_MS = 400;
 
 function rerollDiceHtml(): string {
@@ -265,14 +267,18 @@ function renderWaiting(view: StateView): string {
   const you = players.find((player) => player.id === view.you);
   const rolling = you !== undefined && performance.now() < rerollUntil;
   const rows = players
-    .map(
-      (player, index) => `<li class="roster-row">
+    .map((player, index) => {
+      const mine = player.id === view.you;
+      // Hold the pre-press name on our own row so a snapshot cannot print the
+      // new ship while the dice are still in the air.
+      const name = mine && rolling && rerollHeldName !== null ? rerollHeldName : player.name;
+      return `<li class="roster-row">
         <span class="seat">${index + 1}</span>
-        <span class="name">${escapeHtml(player.name)}${player.id === view.you ? " <em>(you)</em>" : ""}</span>
+        <span class="name">${escapeHtml(name)}${mine ? " <em>(you)</em>" : ""}</span>
         ${player.id === hostId ? '<span class="badge">opened</span>' : ""}
         ${view.connected.includes(player.id) ? "" : '<span class="badge muted">offline</span>'}
-      </li>`,
-    )
+      </li>`;
+    })
     .join("");
 
   const controls = canStart
@@ -822,12 +828,18 @@ function rerollName(): void {
   const view = state.view;
   if (!view || view.state.round > 0) return;
   if (performance.now() < rerollUntil) return;
+  const you = view.state.players.find((player) => player.id === view.you);
+  rerollHeldName = you?.name ?? null;
   send({ type: "reroll-name" });
-  if (prefersReducedMotion()) return;
+  if (prefersReducedMotion()) {
+    rerollHeldName = null;
+    return;
+  }
   rerollUntil = performance.now() + REROLL_MS;
   render();
   window.setTimeout(() => {
     rerollUntil = 0;
+    rerollHeldName = null;
     render();
   }, REROLL_MS);
 }
