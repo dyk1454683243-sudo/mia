@@ -12,6 +12,7 @@ import {
   MIN_PLAYERS,
   playerById,
   RANKING,
+  rollDice,
   rollValue,
   STARTING_LIVES,
   type Announcement,
@@ -40,6 +41,8 @@ import {
   showdownTone,
   showdownValue,
 } from "../../src/shared/showdown";
+import { joinLink } from "../../src/shared/join-link";
+import { PRACTICE_ROLL_MS, practiceIsRolling } from "../../src/shared/practice";
 import { api, escapeHtml, TableSocket } from "./net";
 
 const PIPS: Record<number, string[]> = {
@@ -211,18 +214,22 @@ function send(message: ClientMessage): void {
   socket?.send(logSeq === undefined ? message : { ...message, logSeq });
 }
 
+function tableJoinLink(): ReturnType<typeof joinLink> {
+  return joinLink(location.origin, tableId);
+}
+
 async function share(): Promise<void> {
-  const url = `${location.origin}/t/${tableId}`;
+  const { href } = tableJoinLink();
   const title = state.table ? `Mia at ${state.table.name}` : "Mia";
   try {
     if (navigator.share) {
-      await navigator.share({ title, url, text: `Join my Mia table: ${title}` });
+      await navigator.share({ title, url: href, text: `Join my Mia table: ${title}` });
       return;
     }
-    await navigator.clipboard.writeText(url);
+    await navigator.clipboard.writeText(href);
     toast("Join link copied.");
   } catch {
-    toast(url);
+    toast(href);
   }
 }
 
@@ -240,6 +247,113 @@ function toast(message: string): void {
 // ---------------------------------------------------------------------------
 // Render
 // ---------------------------------------------------------------------------
+
+/**
+ * A practice shake is local state, not a seat and not a move. `paint()`
+ * rebuilds the waiting room on every snapshot (a friend joining, a presence
+ * flicker), so the last roll and the tumble clock live here — in the module —
+ * and the rebuilt markup asks `practiceIsRolling` whether the value may show.
+ */
+interface PracticeShake {
+  dice: [Die, Die];
+  startedAt: number;
+  timer: number | null;
+}
+
+let practice: PracticeShake | null = null;
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function practiceRolling(): boolean {
+  if (!practice) return false;
+  return practiceIsRolling(practice.startedAt, Date.now(), prefersReducedMotion());
+}
+
+/** Keep a mid-tumble shake on the clock across a `paint()` so it can settle. */
+function armPracticeTimer(): void {
+  if (!practice || practice.timer !== null) return;
+  const left = PRACTICE_ROLL_MS - (Date.now() - practice.startedAt);
+  if (left <= 0) return;
+  practice.timer = window.setTimeout(() => {
+    if (practice) practice.timer = null;
+    render();
+  }, left);
+}
+
+function shakePractice(): void {
+  if (practiceRolling()) return;
+  if (practice?.timer !== null && practice?.timer !== undefined) {
+    window.clearTimeout(practice.timer);
+  }
+  const reduced = prefersReducedMotion();
+  practice = {
+    dice: rollDice(),
+    startedAt: reduced ? Date.now() - PRACTICE_ROLL_MS : Date.now(),
+    timer: null,
+  };
+  armPracticeTimer();
+  render();
+}
+
+/**
+ * Two hidden faces while the cup is in the air, so the accessible name cannot
+ * leak the value mid-tumble — the same contract #55 asks of real dice. A
+ * shake that has not happened yet is blank, not "rolling".
+ */
+function practiceFaces(): string {
+  const rolling = practiceRolling();
+  const dice = practice?.dice ?? null;
+  if (rolling || !dice) {
+    const label = rolling ? "rolling" : "blank";
+    return `<span class="dice" data-practice-dice><span class="die lg hidden" role="img" aria-label="${label}">?</span><span class="die lg hidden" role="img" aria-label="${label}">?</span></span>`;
+  }
+  return `<span class="dice" data-practice-dice>${dieFace(dice[0], "lg")}${dieFace(dice[1], "lg")}</span>`;
+}
+
+function renderPracticeCup(): string {
+  armPracticeTimer();
+  const rolling = practiceRolling();
+  const settled = practice !== null && !rolling;
+  const value = settled && practice ? rollValue(practice.dice[0], practice.dice[1]) : null;
+  const elapsed = practice ? Math.min(PRACTICE_ROLL_MS, Math.max(0, Date.now() - practice.startedAt)) : 0;
+  const cta = rolling ? "Rolling…" : settled ? "Shake again" : "Shake the cup";
+  return `<section class="practice-cup${rolling ? " rolling" : ""}"${
+    rolling ? ` style="--practice-elapsed:${elapsed}ms" data-practice-rolling` : ""
+  }>
+    <p class="label">Practice cup</p>
+    <button type="button" class="practice-shake" data-action="practice-roll"${rolling ? " disabled" : ""}>
+      <span class="practice-cup-shape" aria-hidden="true"></span>
+      <span class="practice-result">
+        ${practiceFaces()}
+        ${value !== null ? `<span class="practice-value" data-practice-value>${valueChip(value)}</span>` : ""}
+      </span>
+      <span class="practice-cta">${cta}</span>
+    </button>
+    <p class="muted small practice-note">Just for your thumb. Nobody else can see this, and it is not a real roll.</p>
+  </section>`;
+}
+
+/**
+ * The URL itself, large, selectable, next to the share button rather than
+ * behind it. Host and path sit on two lines so a person on a phone call can
+ * read the workers.dev hostname, then spell the `/t/…` id.
+ */
+function renderJoinLink(): string {
+  const { host, path } = tableJoinLink();
+  return `<div class="join-block">
+    <p class="label">Read this out</p>
+    <p class="join-url" data-join-url>
+      <span class="join-host">${escapeHtml(host)}</span>
+      <span class="join-path">${escapeHtml(path)}</span>
+    </p>
+    <div class="row gap">
+      <button class="ghost" data-action="share">Share join link</button>
+      <a class="ghost link" href="/">Back to lobby</a>
+    </div>
+  </div>`;
+}
 
 function renderWaiting(view: StateView): string {
   const players = view.state.players;
@@ -264,7 +378,7 @@ function renderWaiting(view: StateView): string {
 
   const controls = canStart
     ? `<button class="primary big" data-action="start" ${enough ? "" : "disabled"}>
-         ${enough ? "Start the game" : `Waiting for at least ${MIN_PLAYERS} players…`}
+         ${enough ? "Start the game" : "Waiting for one more"}
        </button>`
     : `<p class="waiting-line">Waiting for ${escapeHtml(host?.name ?? "the table's creator")} to start…</p>`;
   const hostAway =
@@ -272,17 +386,19 @@ function renderWaiting(view: StateView): string {
       ? `<p class="muted small">The table's creator is away — anyone here can start it.</p>`
       : "";
 
+  // One player and five players both read as waiting: the status line always
+  // says so, the start button is the way out of waiting, and the cup and the
+  // printed link stay on the card either way. Sitting alone used to look like
+  // an error because the only control was a disabled button.
   return `
     <section class="card room-card">
       <h2>${escapeHtml(state.table?.name ?? view.state.tableName)}</h2>
-      <p class="muted">${players.length} of ${MAX_PLAYERS} seats taken · ${STARTING_LIVES} lives each</p>
+      <p class="muted waiting-status">${players.length} of ${MAX_PLAYERS} seats taken · waiting · ${STARTING_LIVES} lives each</p>
       <ul class="roster">${rows}</ul>
       ${controls}
       ${hostAway}
-      <div class="row gap">
-        <button class="ghost" data-action="share">Share join link</button>
-        <a class="ghost link" href="/">Back to lobby</a>
-      </div>
+      ${renderJoinLink()}
+      ${renderPracticeCup()}
     </section>`;
 }
 
@@ -814,6 +930,11 @@ app.addEventListener("click", (event) => {
     }
     case "share":
       void share();
+      break;
+    case "practice-roll":
+      // Local only: do not `send()`. A real `roll` in the lobby would be a
+      // move against a game that has not started.
+      shakePractice();
       break;
     case "rematch":
       send({ type: "rematch" });

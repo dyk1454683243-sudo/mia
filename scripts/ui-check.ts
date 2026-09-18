@@ -225,6 +225,110 @@ async function createTableThroughUi(page: Page): Promise<string> {
   return tableId;
 }
 
+async function hookOutgoing(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const held = window as unknown as { __miaSent?: string[] };
+    if (held.__miaSent) {
+      held.__miaSent.length = 0;
+      return;
+    }
+    held.__miaSent = [];
+    const original = WebSocket.prototype.send;
+    WebSocket.prototype.send = function (
+      this: WebSocket,
+      data: string | ArrayBufferLike | Blob | ArrayBufferView,
+    ) {
+      held.__miaSent!.push(typeof data === "string" ? data : "[binary]");
+      return original.call(this, data);
+    };
+  });
+}
+
+async function sentFrames(page: Page): Promise<string[]> {
+  return await page.evaluate(() => (window as unknown as { __miaSent?: string[] }).__miaSent ?? []);
+}
+
+/**
+ * The empty-table screen: a printed join URL and a practice cup that must not
+ * talk to the server. The mid-tumble shot is the one that matters — settled
+ * dice would hide whether the value leaked while they were in the air.
+ */
+async function verifyWaitingRoom(page: Page, browser: Browser, tableId: string): Promise<void> {
+  section("Empty table (practice cup and join link)");
+  await page.waitForSelector(".room-card");
+
+  const status = ((await page.textContent(".waiting-status")) ?? "").replace(/\s+/g, " ").trim();
+  check("a solo table reads as waiting, not broken", /1 of \d+ seats taken · waiting/.test(status), status);
+  check("the waiting room has a practice cup", (await page.$('[data-action="practice-roll"]')) !== null);
+  check("the waiting room has no real roll button", (await page.$('[data-action="roll"]')) === null);
+
+  const join = await page.evaluate(() => {
+    const block = document.querySelector<HTMLElement>("[data-join-url]");
+    const path = document.querySelector<HTMLElement>(".join-path");
+    if (!block || !path) return null;
+    const style = getComputedStyle(block);
+    return {
+      tag: block.tagName,
+      text: (block.textContent ?? "").replace(/\s+/g, " ").trim(),
+      userSelect: style.userSelect,
+      pathSize: parseFloat(getComputedStyle(path).fontSize),
+    };
+  });
+  check("the join url is on the page as text", join !== null && join.tag === "P" && join.text.includes(`/t/${tableId}`), join?.text ?? "missing");
+  check("the join url is selectable text, not only a button", join?.userSelect === "all" || join?.userSelect === "text", join?.userSelect ?? "missing");
+  check("the join path is large enough to read aloud", (join?.pathSize ?? 0) >= 20, join ? `${join.pathSize}px` : "missing");
+  check("the share control sits next to the printed link", (await page.$(".join-block [data-action='share']")) !== null);
+  check("the waiting room does not overflow at 375px", (await overflow(page)) === 0, `${await overflow(page)}px overflow`);
+
+  await shot(page, "02-table-waiting");
+
+  await hookOutgoing(page);
+  await page.click('[data-action="practice-roll"]');
+  const mid = await page.evaluate(() => {
+    const dice = document.querySelector("[data-practice-dice]");
+    const value = document.querySelector("[data-practice-value]");
+    const labels = [...(dice?.querySelectorAll(".die") ?? [])].map((node) => node.getAttribute("aria-label"));
+    return {
+      rolling: document.querySelector("[data-practice-rolling]") !== null,
+      hasValue: value !== null,
+      labels,
+    };
+  });
+  const sent = await sentFrames(page);
+  check("shaking the practice cup sends nothing to the server", sent.length === 0, sent.join(" | "));
+  check(
+    "practice dice do not name the value mid-tumble",
+    mid.rolling && !mid.hasValue && mid.labels.every((label) => label === "rolling"),
+    JSON.stringify(mid),
+  );
+  await shot(page, "02a-practice-mid-tumble");
+
+  await page.waitForSelector("[data-practice-value]", { timeout: 2_000 });
+  const practiceValue = ((await page.textContent("[data-practice-value]")) ?? "").trim();
+  check("the practice value appears once the dice settle", practiceValue.length > 0, practiceValue);
+
+  const rosterBefore = await page.evaluate(() => document.querySelectorAll(".roster-row").length);
+  const friend = await browser.newContext({ viewport: PHONE });
+  const friendPage = await friend.newPage();
+  watch(friendPage);
+  await friendPage.goto(`${BASE}/t/${tableId}`, { waitUntil: "networkidle" });
+  await friendPage.waitForSelector(".room-card", { timeout: 10_000 });
+  await page.waitForFunction((expected) => document.querySelectorAll(".roster-row").length === expected, rosterBefore + 1, {
+    timeout: 15_000,
+  });
+  const afterJoin = ((await page.textContent("[data-practice-value]")) ?? "").trim();
+  check("a friend joining does not replace the local practice roll", afterJoin === practiceValue, `${afterJoin} (was ${practiceValue})`);
+  const friendStatus = ((await friendPage.textContent(".waiting-status")) ?? "").replace(/\s+/g, " ").trim();
+  check("a two-seat table still reads as waiting", friendStatus.includes("waiting"), friendStatus);
+  check("the friend also sees the printed join link", ((await friendPage.textContent("[data-join-url]")) ?? "").includes(`/t/${tableId}`));
+  await friend.close();
+  await page.waitForFunction((expected) => document.querySelectorAll(".roster-row").length === expected, rosterBefore, {
+    timeout: 15_000,
+  });
+  const afterLeave = ((await page.textContent("[data-practice-value]")) ?? "").trim();
+  check("the practice roll is still there after the friend leaves", afterLeave === practiceValue, afterLeave);
+}
+
 async function verifyShare(page: Page, context: BrowserContext, browser: Browser, tableId: string): Promise<void> {
   section("Share link");
   await page.waitForSelector(".room-card");
@@ -1127,7 +1231,7 @@ async function main(): Promise<void> {
 
   section("Table (waiting for players)");
   await page.waitForSelector(".room-card");
-  await shot(page, "02-table-waiting");
+  await verifyWaitingRoom(page, browser, tableId);
   check("the waiting room shows the share control", (await page.$('[data-action="share"]')) !== null);
 
   await verifyShare(page, context, browser, tableId);
@@ -1141,6 +1245,14 @@ async function main(): Promise<void> {
   const bots: ChildProcess = spawn("node", ["scripts/bots.ts", tableId, String(BOTS)], { stdio: "inherit", env: process.env });
   await page.waitForFunction((expected) => document.querySelectorAll(".roster-row").length === expected, SEATS, { timeout: 30_000 });
   check(`${BOTS} bots appear in the roster`, true, `${SEATS} seats`);
+  const filledStatus = ((await page.textContent(".waiting-status")) ?? "").replace(/\s+/g, " ").trim();
+  check(
+    "a filled waiting table still reads as waiting",
+    filledStatus.includes("waiting") && filledStatus.includes(`${SEATS} of ${MAX_PLAYERS}`),
+    filledStatus,
+  );
+  check("the practice cup stays once friends arrive", (await page.$('[data-action="practice-roll"]')) !== null);
+  check("the printed join link stays once friends arrive", ((await page.textContent("[data-join-url]")) ?? "").includes(`/t/${tableId}`));
   await shot(page, "02b-table-with-bots");
 
   const game = await playGame(page, bots, tableId);
