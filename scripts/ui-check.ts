@@ -370,7 +370,7 @@ interface Snapshot {
     hasCut: boolean;
     standingRung: number | null;
   };
-  players: { name: string; you: boolean; dice: boolean; cup: boolean; out: boolean; turn: boolean; lives: number }[];
+  players: { name: string; you: boolean; dice: boolean; cup: boolean; out: boolean; turn: boolean; thinking: boolean; lives: number }[];
   /** How many `.player` seats the table drew — eliminated players included. */
   seatCount: number;
   /** The player id on the centre `.standing` chip, so the claim is tied to a seat. */
@@ -418,6 +418,7 @@ async function snapshot(page: Page): Promise<Snapshot> {
       cup: row.querySelector(".badge.cup") !== null,
       out: row.classList.contains("out"),
       turn: row.classList.contains("turn"),
+      thinking: row.querySelector(".thinking") !== null,
       lives: row.querySelectorAll(".pip.on").length,
     }));
     const claimNodes = [...document.querySelectorAll<HTMLElement>(".player .claim")];
@@ -737,13 +738,15 @@ async function act(page: Page): Promise<string> {
   });
 }
 
-async function playGame(page: Page, bots: ChildProcess, tableId: string): Promise<{ saw: Set<string>; secrecyViolations: string[]; claimBubbleViolations: string[]; countdownTicks: string[]; rerenderSurvived: boolean | null }> {
+async function playGame(page: Page, bots: ChildProcess, tableId: string): Promise<{ saw: Set<string>; secrecyViolations: string[]; claimBubbleViolations: string[]; thinkingViolations: string[]; countdownTicks: string[]; rerenderSurvived: boolean | null }> {
   section("A full game with bots");
   const saw = new Set<string>();
   const secrecyViolations: string[] = [];
   const claimBubbleViolations: string[] = [];
+  const thinkingViolations: string[] = [];
   const countdownTicks: string[] = [];
   let rerenderSurvived: boolean | null = null;
+  let sawThinking = false;
   let reconnected = false;
   let sawAnnounceCut = false;
   let midGameDesktopChecked = false;
@@ -790,6 +793,24 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
       claimBubbleViolations.push(
         `bubble ${snap.claim.count} on ${snap.claim.by ?? "none"} · claimer ${snap.standingClaimerId ?? "none"}`,
       );
+    }
+    // The ellipsis is the inhabited-table tell: it belongs on the active seat
+    // only, and it must vanish the moment the turn leaves that player. The
+    // harness never drops a bot mid-turn, so the offline exclusion is pinned
+    // in `test/thinking.test.ts` rather than here. Sampling every in-play
+    // snapshot (like the claim bubble) is what catches an ellipsis that
+    // sticks after the turn moves.
+    if (snap.seatCount > 0 && snap.phase !== "unknown") {
+      const thinkers = snap.players.filter((player) => player.thinking);
+      const shouldThink = snap.players.filter((player) => player.turn && !player.out);
+      if (
+        thinkers.length !== shouldThink.length ||
+        thinkers.some((player) => !player.turn || player.out)
+      ) {
+        thinkingViolations.push(
+          `${snap.phase} · thinking [${thinkers.map((player) => player.name).join(", ") || "none"}] · turn [${shouldThink.map((player) => player.name).join(", ") || "none"}]`,
+        );
+      }
     }
     // The ladder is rebuilt every turn and the standing claim moves, so the
     // legality check runs on every announcing snapshot, not only the first.
@@ -1071,6 +1092,10 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
     // Countdown + re-render evidence: freeze the bots so no snapshots arrive,
     // then prove the clock ticks without the page being rebuilt beneath it.
     const waitingOnBot = snap.players.some((player) => player.turn && !player.you);
+    if (!sawThinking && waitingOnBot && snap.players.some((player) => player.thinking && player.turn && !player.you)) {
+      sawThinking = true;
+      await shot(page, "05b-thinking");
+    }
     if (rerenderSurvived === null && snap.countdown !== null && waitingOnBot) {
       bots.kill("SIGSTOP");
       await sleep(600); // let any in-flight broadcast land first
@@ -1106,7 +1131,7 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
   }
 
   if (!saw.has("finished")) note("the game did not finish inside the time box");
-  return { saw, secrecyViolations, claimBubbleViolations, countdownTicks, rerenderSurvived };
+  return { saw, secrecyViolations, claimBubbleViolations, thinkingViolations, countdownTicks, rerenderSurvived };
 }
 
 // ---------------------------------------------------------------------------
@@ -1147,6 +1172,7 @@ async function main(): Promise<void> {
   check("every table phase rendered", ["roundStart", "deciding", "announcing", "revealing", "finished"].every((phase) => game.saw.has(phase)), [...game.saw].join(", "));
   check("no other player's dice were ever on screen before a reveal", game.secrecyViolations.length === 0, game.secrecyViolations.slice(0, 3).join("; "));
   check("the claim bubble hangs on the seat that made the claim", game.claimBubbleViolations.length === 0, game.claimBubbleViolations.slice(0, 3).join("; "));
+  check("the thinking ellipsis sits on the active seat only", game.thinkingViolations.length === 0, game.thinkingViolations.slice(0, 3).join("; "));
   check("the countdown ticks down", game.countdownTicks.length >= 3, game.countdownTicks.join(" -> "));
   check("the page is not re-rendered every second", game.rerenderSurvived === true, game.rerenderSurvived === null ? "no countdown observed" : String(game.rerenderSurvived));
 

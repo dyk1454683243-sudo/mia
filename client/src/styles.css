@@ -458,6 +458,54 @@ ul {
   text-overflow: ellipsis;
 }
 
+/* The inhabited-table tell: someone is on the clock. Three cream middots
+ * under the name — cream, not gold, so they do not vanish into the turn
+ * highlight. They are not a badge: the offline badge has to stay the only
+ * word when a phone has dropped. The rest opacity stays high enough that
+ * a still frame is still an ellipsis. Under reduce the dots just sit
+ * there, which the issue called fine. */
+.player .thinking {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.05rem;
+  height: 0.7rem;
+  color: var(--ink);
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 0.5;
+  letter-spacing: 0.02em;
+}
+
+.player .thinking i {
+  font-style: normal;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.player .thinking i::before {
+  content: "·";
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .player .thinking i {
+    animation: thinking 1.25s ease-in-out infinite;
+  }
+
+  .player .thinking i:nth-child(2) {
+    animation-delay: 0.18s;
+  }
+
+  .player .thinking i:nth-child(3) {
+    animation-delay: 0.36s;
+  }
+}
+
+@keyframes thinking {
+  0%, 70%, 100% { opacity: 0.4; transform: translateY(0); }
+  35% { opacity: 1; transform: translateY(-2px); }
+}
+
 .player .tag-row {
   display: flex;
   flex-wrap: wrap;
