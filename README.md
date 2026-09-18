@@ -242,6 +242,8 @@ src/shared/     pure TypeScript, no Cloudflare imports
   clock.ts        turn-countdown arithmetic (clock drift captured per snapshot)
   seat-positions.ts  round-table seat geometry (pure, no DOM)
   replay.ts       the endgame filmstrip and the per-player stat lines (pure)
+  showdown.ts     reveal verdict, stamp and beat arithmetic (pure)
+  tumble.ts       400ms die-land clock and the withheld accessible name (pure)
   ships.ts        Culture ship-name pool for new players
 src/worker/
   index.ts        routes: assets, /t/:id, JSON API, WebSocket upgrade proxy
@@ -256,6 +258,8 @@ test/
   mia.test.ts     rules engine (node)
   clock.test.ts   countdown arithmetic (node)
   seat-positions.test.ts  round-table rotation (node)
+  showdown.test.ts  reveal verdict and beat arithmetic (node)
+  tumble.test.ts  die-land clock and withheld accessible name (node)
   replay.test.ts  endgame filmstrip, stat lines and per-player tallies (node)
   room.test.ts    Durable Object + D1 + WebSockets (workerd)
 scripts/

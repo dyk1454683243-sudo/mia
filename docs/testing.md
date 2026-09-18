@@ -6,10 +6,10 @@ The suite runs in two different runtimes, and the split is the point.
 
 - **`unit`** runs in plain Node with no Workers runtime. It covers the pure rules
   engine, the clock arithmetic, the seat-limit constants, the round table's
-  seat geometry, the showdown's verdict and beat arithmetic and the endgame
-  replay's filmstrip and stat lines. These are the tests that can be reasoned
-  about from the code alone, and they run fast because there is no platform
-  underneath them.
+  seat geometry, the showdown's verdict and beat arithmetic, the die tumble's
+  400ms clock and accessible name, and the endgame replay's filmstrip and stat
+  lines. These are the tests that can be reasoned about from the code alone, and
+  they run fast because there is no platform underneath them.
 - **`workers`** runs inside `workerd` with a real D1 database and a real Durable
   Object. It covers the Durable Object and the HTTP API. These are the tests that
   need the actual storage and socket behavior, because a mock of a Durable Object
@@ -110,7 +110,10 @@ cover the assembled system, and they need a running `wrangler dev` (or a deploye
   Its showdown-suspense check mounts an off-screen clone of the live showdown
   with `--showdown-elapsed` scrubbed, so it can read the first and last beat for
   all three verdict tones rather than only whichever tone the random dice
-  produced. At the end it checks the finished screen's filmstrip, stats and
+  produced. The die-tumble check does the same with `--tumble-elapsed` on a
+  fixture `.die`, so it can read the first frame (pips hidden) and the land
+  (pips visible) without racing the live 400ms, and then waits for the real
+  seats to settle rather than shortening the animation. At the end it checks the finished screen's filmstrip, stats and
   rematch against the snapshot, and opens the rematch link in a second page to
   see the seeded lobby — the one place the rematch handoff is exercised with a
   real browser and a real cookie.

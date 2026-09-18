@@ -371,6 +371,8 @@ interface Snapshot {
     standingRung: number | null;
   };
   players: { name: string; you: boolean; dice: boolean; cup: boolean; out: boolean; turn: boolean; lives: number }[];
+  /** Own-seat faces: `data-face` vs `aria-label`, and whether they are still in the air. */
+  diceFaces: { face: string; label: string; tumbling: boolean }[];
   /** How many `.player` seats the table drew — eliminated players included. */
   seatCount: number;
   /** The player id on the centre `.standing` chip, so the claim is tied to a seat. */
@@ -419,6 +421,11 @@ async function snapshot(page: Page): Promise<Snapshot> {
       out: row.classList.contains("out"),
       turn: row.classList.contains("turn"),
       lives: row.querySelectorAll(".pip.on").length,
+    }));
+    const diceFaces = [...document.querySelectorAll<HTMLElement>(".player-dice .die[data-face]")].map((die) => ({
+      face: die.dataset.face ?? "",
+      label: die.getAttribute("aria-label") ?? "",
+      tumbling: die.classList.contains("tumbling"),
     }));
     const claimNodes = [...document.querySelectorAll<HTMLElement>(".player .claim")];
     const claim = {
@@ -501,6 +508,7 @@ async function snapshot(page: Page): Promise<Snapshot> {
         standingRung: standingButton ? Number(standingButton.dataset.value) : null,
       },
       players,
+      diceFaces,
       seatCount: players.length,
       standingClaimerId: standingNode?.dataset.claimerId ?? null,
       claim,
@@ -702,6 +710,52 @@ async function showdownFrame(
   );
 }
 
+/**
+ * The land's CSS at `fraction` of its 400ms window.
+ *
+ * Same trick as the showdown: an off-screen fixture with `--tumble-elapsed`
+ * scrubbed, so the check does not race the live roll and does not shorten
+ * the animation to suit the harness. At 0 the pips are hidden; at 1 they
+ * are on. Under `prefers-reduced-motion: reduce` the hide animation is not
+ * declared, so even a `.tumbling` fixture shows the face.
+ */
+async function tumbleFrame(
+  page: Page,
+  fraction: number,
+): Promise<{ pipOpacity: number; transform: string }> {
+  return await page.evaluate((fraction) => {
+    const host = document.createElement("div");
+    host.setAttribute("data-tumble-fixture", "1");
+    host.style.position = "fixed";
+    host.style.left = "-2000px";
+    host.style.visibility = "hidden";
+    host.innerHTML = `<span class="dice"><span class="die lg tumbling" data-face="5" style="--tumble-span:400ms;--tumble-elapsed:${Math.round(400 * fraction)}ms"><i class="tl"></i><i class="tr"></i><i class="c"></i><i class="bl"></i><i class="br"></i></span></span>`;
+    document.body.appendChild(host);
+    void host.offsetWidth;
+    const die = host.querySelector<HTMLElement>(".die");
+    const pip = host.querySelector("i");
+    const frame = {
+      pipOpacity: pip ? Number(getComputedStyle(pip).opacity) : -1,
+      transform: die ? getComputedStyle(die).transform : "",
+    };
+    host.remove();
+    return frame;
+  }, fraction);
+}
+
+/** Wait for live seat/showdown dice to land rather than shortening the beat. */
+async function waitForDiceSettle(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const dice = [
+      ...document.querySelectorAll<HTMLElement>(".player-dice .die[data-face], .showdown-actual .die[data-face]"),
+    ];
+    if (dice.length === 0) return true;
+    return dice.every(
+      (die) => !die.classList.contains("tumbling") && die.getAttribute("aria-label") === (die.dataset.face ?? ""),
+    );
+  }, { timeout: 2_000 });
+}
+
 /** One browser move, chosen from what is actually on screen. */
 async function act(page: Page): Promise<string> {
   return await page.evaluate(() => {
@@ -764,6 +818,41 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
         revealing: "07-revealing",
         finished: "08-finished",
       };
+      // The land is about *when* the face appears. Sample the first and last
+      // frame from an off-screen fixture so the check does not race the live
+      // 400ms, then wait for the real dice to settle before the announcing
+      // shot — the harness waits, the animation is not shortened to suit it.
+      if (snap.phase === "announcing" && snap.players.some((player) => player.dice)) {
+        const start = await tumbleFrame(page, 0);
+        const land = await tumbleFrame(page, 1);
+        check(
+          "the tumble withholds the face at the first frame",
+          start.pipOpacity < 0.05,
+          `opacity ${start.pipOpacity} · ${start.transform}`,
+        );
+        check(
+          "the tumble shows the face once it has landed",
+          land.pipOpacity > 0.95,
+          `opacity ${land.pipOpacity}`,
+        );
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        const reduced = await tumbleFrame(page, 0);
+        check(
+          "reduced motion shows the face at once",
+          reduced.pipOpacity > 0.95,
+          `opacity ${reduced.pipOpacity}`,
+        );
+        await page.emulateMedia({ reducedMotion: "no-preference" });
+        if ((await page.$(".die.tumbling")) !== null) await shot(page, "06a-dice-tumble");
+        await waitForDiceSettle(page);
+        const settled = await snapshot(page);
+        check(
+          "settled dice name the face they show",
+          settled.diceFaces.length > 0 &&
+            settled.diceFaces.every((die) => die.label === die.face && !die.tumbling && /^[1-6]$/.test(die.face)),
+          JSON.stringify(settled.diceFaces),
+        );
+      }
       if (names[snap.phase]) await shot(page, names[snap.phase]);
       if (snap.phase === "revealing") {
         note(

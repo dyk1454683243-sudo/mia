@@ -20,6 +20,7 @@ export default defineConfig({
             "test/seat-limits.test.ts",
             "test/seat-positions.test.ts",
             "test/showdown.test.ts",
+            "test/tumble.test.ts",
             "test/replay.test.ts",
           ],
         },
