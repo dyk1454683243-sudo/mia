@@ -22,11 +22,13 @@ import {
   normalizeState,
   playerById,
   type MiaPlayer,
+  pushEvent,
   resolveReveal,
   type Seat,
   STARTING_LIVES,
   type Timings,
 } from "../shared/mia";
+import { timeoutSentence } from "../shared/showdown";
 import type { ClientMessage, ErrorCode, ServerMessage, StateView } from "../shared/protocol";
 import {
   clearTableSeats,
@@ -561,6 +563,14 @@ export class TableRoom extends DurableObject<Env> {
       await this.ensureAlarm();
       return;
     }
+    // Fiction first: the clock decides, not a sterile "timed out" (#62).
+    const idle = playerById(state, playerId);
+    if (idle) {
+      pushEvent(state, now, "timeout", timeoutSentence(idle.name), {
+        playerId,
+        reason: "timeout",
+      });
+    }
     for (const action of queue) {
       const current = this.state;
       if (current === null) return;
@@ -588,6 +598,13 @@ export class TableRoom extends DurableObject<Env> {
       if (player && !player.eliminated && this.isConnected(turn)) return;
       const queue = autoPlaySequence(state, turn);
       if (queue.length === 0) return;
+      const absent = playerById(state, turn);
+      if (absent) {
+        pushEvent(state, now, "timeout", timeoutSentence(absent.name), {
+          playerId: turn,
+          reason: "timeout",
+        });
+      }
       let advanced = false;
       for (const action of queue) {
         const current = this.state;
