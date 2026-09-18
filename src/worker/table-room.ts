@@ -28,11 +28,14 @@ import {
   type Timings,
 } from "../shared/mia";
 import type { ClientMessage, ErrorCode, ServerMessage, StateView } from "../shared/protocol";
+import { pickShipName } from "../shared/ships";
 import {
   clearTableSeats,
   createRematchTable,
+  listPlayerNames,
   recordGame,
   readTableSeats,
+  renamePlayer,
   type FinalPlayer,
   type SeededPlayer,
   updateTable,
@@ -693,9 +696,73 @@ export class TableRoom extends DurableObject<Env> {
       case "rematch":
         await this.handleRematch(playerId);
         return;
+      case "reroll-name":
+        await this.handleRerollName(playerId);
+        return;
       default:
         await this.reportError(playerId, "Unknown message.");
     }
+  }
+
+  /**
+   * Draw another Culture ship name for a seated player. The name lives on the
+   * session (D1) and the room only caches it, so both have to change or a
+   * reconnect restores the old one and the other seats never see the new one.
+   *
+   * Only before the first deal: once `round > 0` the roster that will be
+   * written into the result is the one that sat down. A collision with
+   * another seat is a redraw — `pickShipName`'s reserved set — not two
+   * identical names at the same table.
+   *
+   * The stamp is ignored, like rematch: a reroll is not a move, and bumping
+   * `logSeq` here would start refusing a `start` that was decided against the
+   * previous snapshot.
+   */
+  private async handleRerollName(playerId: string): Promise<void> {
+    const state = this.state;
+    if (state === null) {
+      await this.reportError(playerId, "Nobody is at this table yet.");
+      return;
+    }
+    if (state.round > 0) {
+      await this.reportError(playerId, "Names are locked once the game starts.");
+      return;
+    }
+    const seated = playerById(state, playerId);
+    if (!seated) {
+      await this.reportError(playerId, "You are watching this table, not sitting at it.");
+      return;
+    }
+
+    const reserved = state.players.filter((player) => player.id !== playerId).map((player) => player.name);
+    reserved.push(seated.name);
+
+    let recent: string[] = [];
+    try {
+      recent = await listPlayerNames(this.env);
+    } catch {
+      /* a D1 hiccup must not block a reroll; the table names are enough */
+    }
+
+    const name = pickShipName(recent, { reserved });
+    if (name === seated.name) return;
+
+    try {
+      await renamePlayer(this.env, playerId, name);
+    } catch (error) {
+      console.error("failed to persist a rerolled name", describe(error));
+      await this.reportError(playerId, "Could not reroll that name. Try again.");
+      return;
+    }
+
+    const next = structuredClone(state);
+    const player = playerById(next, playerId);
+    if (player) player.name = name;
+    for (const socket of this.ctx.getWebSockets(playerId)) {
+      const attachment = socket.deserializeAttachment() as SocketAttachment | null;
+      if (attachment) socket.serializeAttachment({ playerId, name } satisfies SocketAttachment);
+    }
+    await this.commit(next);
   }
 
   private async handleStart(playerId: string): Promise<void> {

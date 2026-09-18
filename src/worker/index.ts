@@ -7,7 +7,8 @@
  */
 import { MAX_PLAYERS } from "../shared/mia";
 import type { CreateTableResponse, HistoryEntry, TableSummary } from "../shared/protocol";
-import { createTable, ensureSchema, getTable, listHistory, listOpenTables, renamePlayer } from "./db";
+import { pickShipName } from "../shared/ships";
+import { createTable, ensureSchema, getTable, listHistory, listOpenTables, listPlayerNames, renamePlayer } from "./db";
 import { attachSession, ensurePlayer, isLocalRequest, validateName, validateTableName, type SessionPlayer } from "./session";
 
 export { TableRoom } from "./table-room";
@@ -102,6 +103,14 @@ async function handleApi(request: Request, env: Env, url: URL, secure: boolean):
   if (resource === "me") {
     if (id !== undefined) return respond(apiError("Unknown route.", 404));
     if (request.method === "GET") return respond(json({ id: session.id, name: session.name }));
+    if (request.method === "POST") {
+      // Another draw from the ship pool, not a submitted name. PATCH is the
+      // path that types one. The current name is reserved so a reroll always
+      // lands on a different ship while any other one exists.
+      const name = pickShipName(await listPlayerNames(env), { reserved: [session.name] });
+      await renamePlayer(env, session.id, name);
+      return respond(json({ id: session.id, name }));
+    }
     if (request.method === "PATCH") {
       const body = await readJson(request);
       if (body === null) return respond(apiError("Expected a JSON object body.", 400));
@@ -110,7 +119,7 @@ async function handleApi(request: Request, env: Env, url: URL, secure: boolean):
       await renamePlayer(env, session.id, name.value);
       return respond(json({ id: session.id, name: name.value }));
     }
-    return respond(methodNotAllowed(["GET", "PATCH"]));
+    return respond(methodNotAllowed(["GET", "POST", "PATCH"]));
   }
 
   if (resource === "tables") {

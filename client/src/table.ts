@@ -202,6 +202,19 @@ const state: PageState = { table: null, view: null, error: null, fatal: null, la
 /** Drift is captured when a snapshot lands, then reused for every tick. */
 const clock = new TurnClock();
 let socket: TableSocket | null = null;
+/** Epoch ms until which the waiting-room reroll shows tumbling dice, not the new name. */
+let rerollUntil = 0;
+/** The name on the felt when the press happened, held until the dice settle. */
+let rerollHeldName: string | null = null;
+const REROLL_MS = 400;
+
+function rerollDiceHtml(): string {
+  return `<span class="dice reroll-dice" aria-hidden="true">${dieFace(5, "sm")}${dieFace(2, "sm")}</span>`;
+}
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 
 function send(message: ClientMessage): void {
   // Stamp the snapshot this move was decided against. A move queued during a
@@ -251,15 +264,21 @@ function renderWaiting(view: StateView): string {
   // If the creator is not around, anyone seated may start (B5's case).
   const canStart = isHost || !hostHere;
   const enough = players.length >= MIN_PLAYERS;
+  const you = players.find((player) => player.id === view.you);
+  const rolling = you !== undefined && performance.now() < rerollUntil;
   const rows = players
-    .map(
-      (player, index) => `<li class="roster-row">
+    .map((player, index) => {
+      const mine = player.id === view.you;
+      // Hold the pre-press name on our own row so a snapshot cannot print the
+      // new ship while the dice are still in the air.
+      const name = mine && rolling && rerollHeldName !== null ? rerollHeldName : player.name;
+      return `<li class="roster-row">
         <span class="seat">${index + 1}</span>
-        <span class="name">${escapeHtml(player.name)}${player.id === view.you ? " <em>(you)</em>" : ""}</span>
+        <span class="name">${escapeHtml(name)}${mine ? " <em>(you)</em>" : ""}</span>
         ${player.id === hostId ? '<span class="badge">opened</span>' : ""}
         ${view.connected.includes(player.id) ? "" : '<span class="badge muted">offline</span>'}
-      </li>`,
-    )
+      </li>`;
+    })
     .join("");
 
   const controls = canStart
@@ -272,10 +291,24 @@ function renderWaiting(view: StateView): string {
       ? `<p class="muted small">The table's creator is away — anyone here can start it.</p>`
       : "";
 
+  const youAre =
+    you !== undefined
+      ? `<div class="you-are">
+        <p class="label">You are</p>
+        <div class="reroll-line">
+          <span class="you-name${rolling ? " rolling" : ""}" data-you-name>${
+            rolling ? rerollDiceHtml() : escapeHtml(you.name)
+          }</span>
+          <button class="ghost" data-action="reroll-name"${rolling ? " disabled" : ""}>Reroll name</button>
+        </div>
+      </div>`
+      : "";
+
   return `
     <section class="card room-card">
       <h2>${escapeHtml(state.table?.name ?? view.state.tableName)}</h2>
       <p class="muted">${players.length} of ${MAX_PLAYERS} seats taken · ${STARTING_LIVES} lives each</p>
+      ${youAre}
       <ul class="roster">${rows}</ul>
       ${controls}
       ${hostAway}
@@ -791,6 +824,26 @@ function render(): void {
 // Wiring
 // ---------------------------------------------------------------------------
 
+function rerollName(): void {
+  const view = state.view;
+  if (!view || view.state.round > 0) return;
+  if (performance.now() < rerollUntil) return;
+  const you = view.state.players.find((player) => player.id === view.you);
+  rerollHeldName = you?.name ?? null;
+  send({ type: "reroll-name" });
+  if (prefersReducedMotion()) {
+    rerollHeldName = null;
+    return;
+  }
+  rerollUntil = performance.now() + REROLL_MS;
+  render();
+  window.setTimeout(() => {
+    rerollUntil = 0;
+    rerollHeldName = null;
+    render();
+  }, REROLL_MS);
+}
+
 app.addEventListener("click", (event) => {
   const target = (event.target as HTMLElement).closest<HTMLElement>("[data-action]");
   if (!target) return;
@@ -817,6 +870,9 @@ app.addEventListener("click", (event) => {
       break;
     case "rematch":
       send({ type: "rematch" });
+      break;
+    case "reroll-name":
+      rerollName();
       break;
     default:
       break;

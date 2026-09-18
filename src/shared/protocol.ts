@@ -79,7 +79,14 @@ export type ClientMessage =
    */
   | ({ type: "rematch" } & MoveStamp)
   | ({ type: "leave" } & MoveStamp)
-  | ({ type: "ping" } & MoveStamp);
+  | ({ type: "ping" } & MoveStamp)
+  /**
+   * Draw another Culture ship name. Only legal before the first deal. It
+   * carries the stamp like every other message but the server does not
+   * compare it: a reroll is not a move, and a press replayed after a
+   * reconnect asks for exactly another name.
+   */
+  | ({ type: "reroll-name" } & MoveStamp);
 
 export interface StateView {
   type: "state";

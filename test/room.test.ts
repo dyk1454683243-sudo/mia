@@ -1540,4 +1540,62 @@ describe("TableRoom", () => {
 
     hostSocket.close();
   }, 20_000);
+
+  it("broadcasts a rerolled name to the other seat before the game starts", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const tableId = await createTableRow("Name draw", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    await annaSocket.nextState((view) => view.state.players.length === 2);
+
+    annaSocket.send({ type: "reroll-name" });
+    const annaView = await annaSocket.nextState(
+      (view) => view.state.players.find((player) => player.id === anna.id)?.name !== "Anna",
+    );
+    const boView = await boSocket.nextState(
+      (view) => view.state.players.find((player) => player.id === anna.id)?.name !== "Anna",
+    );
+
+    const newName = annaView.state.players.find((player) => player.id === anna.id)!.name;
+    expect(newName).not.toBe("Anna");
+    expect(newName).not.toBe("Bo");
+    expect(boView.state.players.find((player) => player.id === anna.id)!.name).toBe(newName);
+
+    const row = await env.DB.prepare(`SELECT name FROM players WHERE id = ?1`)
+      .bind(anna.id)
+      .first<{ name: string }>();
+    expect(row?.name).toBe(newName);
+
+    annaSocket.close();
+    boSocket.close();
+  }, 10_000);
+
+  it("refuses a name reroll once the first deal has happened", async () => {
+    const anna = await makePlayer("Anna");
+    const bo = await makePlayer("Bo");
+    const tableId = await createTableRow("Locked names", anna.id);
+    const annaSocket = await connect(tableId, anna);
+    const boSocket = await connect(tableId, bo);
+    await annaSocket.nextState((view) => view.state.players.length === 2);
+
+    annaSocket.send({ type: "start" });
+    await annaSocket.nextState((view) => view.state.round === 1);
+    const before = (await readState(tableId))!.players.find((player) => player.id === anna.id)!.name;
+
+    annaSocket.send({ type: "reroll-name" });
+    // A success path produces no error, so wait-for-error would time out and
+    // never reach the assertion that the name stayed put.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(annaSocket.errors).toContain("Names are locked once the game starts.");
+    expect((await readState(tableId))!.players.find((player) => player.id === anna.id)!.name).toBe(before);
+
+    const row = await env.DB.prepare(`SELECT name FROM players WHERE id = ?1`)
+      .bind(anna.id)
+      .first<{ name: string }>();
+    expect(row?.name).toBe("Anna");
+
+    annaSocket.close();
+    boSocket.close();
+  }, 10_000);
 });

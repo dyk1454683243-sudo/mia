@@ -6,8 +6,10 @@ The suite runs in two different runtimes, and the split is the point.
 
 - **`unit`** runs in plain Node with no Workers runtime. It covers the pure rules
   engine, the clock arithmetic, the seat-limit constants, the round table's
-  seat geometry, the showdown's verdict and beat arithmetic and the endgame
-  replay's filmstrip and stat lines. These are the tests that can be reasoned
+  seat geometry, the showdown's verdict and beat arithmetic, the endgame
+  replay's filmstrip and stat lines, and the Culture ship-name draw (including
+  the reserved-name fallback a table reroll relies on). These are the tests that
+  can be reasoned
   about from the code alone, and they run fast because there is no platform
   underneath them.
 - **`workers`** runs inside `workerd` with a real D1 database and a real Durable

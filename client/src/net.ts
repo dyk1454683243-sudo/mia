@@ -37,6 +37,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const api = {
   me: () => request<Me>("/api/me"),
   rename: (name: string) => request<Me>("/api/me", { method: "PATCH", body: JSON.stringify({ name }) }),
+  reroll: () => request<Me>("/api/me", { method: "POST" }),
   tables: () => request<{ tables: TableSummary[] }>("/api/tables").then((r) => r.tables ?? []),
   table: (id: string) => request<TableSummary>(`/api/tables/${encodeURIComponent(id)}`),
   createTable: (name: string) =>

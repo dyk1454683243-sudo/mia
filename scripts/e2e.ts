@@ -263,6 +263,14 @@ async function main(): Promise<void> {
   const renamed = await api("/api/me", { method: "PATCH", player: me, body: JSON.stringify({ name: "  Ada  " }) });
   check("PATCH /api/me renames and trims", renamed.status === 200 && (renamed.body as { name: string }).name === "Ada", JSON.stringify(renamed.body));
 
+  const rerolled = await api("/api/me", { method: "POST", player: me });
+  const rerolledName = (rerolled.body as { name?: string }).name ?? "";
+  check(
+    "POST /api/me draws a different ship name",
+    rerolled.status === 200 && rerolledName.length > 3 && rerolledName !== "Ada",
+    JSON.stringify(rerolled.body),
+  );
+
   section("Lobby and table creation");
   const players = [await createPlayer("p1"), await createPlayer("p2"), await createPlayer("p3")];
 
