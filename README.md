@@ -242,6 +242,8 @@ src/shared/     pure TypeScript, no Cloudflare imports
   clock.ts        turn-countdown arithmetic (clock drift captured per snapshot)
   seat-positions.ts  round-table seat geometry (pure, no DOM)
   replay.ts       the endgame filmstrip and the per-player stat lines (pure)
+  table-cues.ts   snapshot transitions for haptics (and later sound)
+  haptics.ts      vibration patterns and the default-on / reduced-motion gate
   ships.ts        Culture ship-name pool for new players
 src/worker/
   index.ts        routes: assets, /t/:id, JSON API, WebSocket upgrade proxy
@@ -251,12 +253,14 @@ src/worker/
 client/
   index.html      lobby page
   table.html      table page (/t/:id serves this)
-  src/            lobby.ts, table.ts, net.ts, styles.css
+  src/            lobby.ts, table.ts, net.ts, styles.css, haptics.ts
 test/
   mia.test.ts     rules engine (node)
   clock.test.ts   countdown arithmetic (node)
   seat-positions.test.ts  round-table rotation (node)
   replay.test.ts  endgame filmstrip, stat lines and per-player tallies (node)
+  table-cues.test.ts  delight transitions, including reconnect silence (node)
+  haptics.test.ts haptic patterns, reduced-motion and the default-on parse (node)
   room.test.ts    Durable Object + D1 + WebSockets (workerd)
 scripts/
   lib.ts          shared harness internals (client, strategy, HTTP)
