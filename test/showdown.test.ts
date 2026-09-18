@@ -25,6 +25,7 @@ import {
   showdownTiming,
   showdownTone,
   showdownValue,
+  timeoutSentence,
 } from "../src/shared/showdown";
 
 /** A bluff that got caught: claimed Mia while holding 5·3. */
@@ -155,5 +156,14 @@ describe("showdownValue / showdownSentence", () => {
     expect(showdownSentence(HONEST_CLAIM)).toContain("Damp Ferret doubted — loses 1 life.");
     // A real Mia: the doubter pays two, and the doubling is named.
     expect(showdownSentence(REAL_MIA)).toContain("Damp Ferret doubted — loses 2 lives.");
+  });
+});
+
+describe("timeoutSentence", () => {
+  it("names the idle player without saying timed out", () => {
+    expect(timeoutSentence("Mild Peril")).toBe(
+      "Mild Peril says nothing, so the cup decides for them.",
+    );
+    expect(timeoutSentence("Mild Peril").toLowerCase()).not.toContain("timed out");
   });
 });
