@@ -389,6 +389,9 @@ interface Snapshot {
   };
   stats: { rows: number; you: boolean; lines: string[]; chips: string[] };
   rematch: { button: boolean; link: string | null };
+  /** The honest-player stamp, if the winner never bluffed. Rare, and not required. */
+  honestBadge: string;
+  honestOnResultCard: boolean;
 }
 
 async function snapshot(page: Page): Promise<Snapshot> {
@@ -452,6 +455,8 @@ async function snapshot(page: Page): Promise<Snapshot> {
       button: document.querySelector('[data-action="rematch"]') !== null,
       link: document.querySelector<HTMLAnchorElement>('[data-action="join-rematch"]')?.getAttribute("href") ?? null,
     };
+    const honestBadge = text(".honest-badge");
+    const honestOnResultCard = document.querySelector(".actions-end .honest-badge") !== null;
     const actions = text(".actions");
     const verdictNode = document.querySelector<HTMLElement>(".verdict");
     const showdownNode = document.querySelector<HTMLElement>(".showdown");
@@ -507,6 +512,8 @@ async function snapshot(page: Page): Promise<Snapshot> {
       film,
       stats,
       rematch,
+      honestBadge,
+      honestOnResultCard,
     } as Snapshot;
   }, MIA);
 }
@@ -957,6 +964,14 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
       );
     }
 
+    // The honest-player tally is news: a live stamp would tell the table
+    // whether the standing claim (and every earlier one) was true. The
+    // record is redacted until game over; this pins that the client does
+    // not draw the shout from something else.
+    if (snap.phase !== "finished" && (snap.honestBadge || snap.honestOnResultCard)) {
+      check("the honest badge is not drawn mid-game", false, `${snap.phase}: ${snap.honestBadge}`);
+    }
+
     // Secrecy: before a reveal, only "(you)" may have dice on screen.
     if (snap.phase === "deciding" || snap.phase === "announcing" || snap.phase === "roundStart") {
       const withDice = snap.players.filter((player) => player.dice);
@@ -968,6 +983,20 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
 
     if (snap.phase === "finished") {
       check("the game ends with a winner on screen", snap.winner.length > 0, snap.winner);
+      // The honest-player stamp is rare (an all-truth win) and must not be
+      // required: a random game almost never produces one, and requiring it
+      // would be an assertion that cannot fail the other way. What we pin is
+      // that it never appears off the result card, and that when luck does
+      // produce it the sentence is the lookbook's.
+      if (snap.honestBadge) {
+        check(
+          "the honest badge is the lookbook sentence on the result card",
+          snap.honestBadge === "Never once bluffed" && snap.honestOnResultCard,
+          `${snap.honestBadge} · on card: ${snap.honestOnResultCard}`,
+        );
+      } else {
+        check("the honest badge is absent unless the winner never bluffed", !snap.honestOnResultCard);
+      }
       // Eliminated players keep their chair: the count is every seat, not the
       // survivors, so an "only show the living" regression fails here.
       check(

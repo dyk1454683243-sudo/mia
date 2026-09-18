@@ -19,7 +19,11 @@ import {
   type PlayerRecord,
 } from "../src/shared/mia";
 import {
+  bluffsOf,
+  HONEST_BADGE_LABEL,
+  honestWinner,
   lastRoundFilmstrip,
+  neverBluffed,
   playerChips,
   playerOutcome,
   statLines,
@@ -319,5 +323,102 @@ describe("the endgame numbers", () => {
     const loser = playerById(finished, "bob")!;
     expect(playerOutcome(winner)).toBe("6 lives left");
     expect(playerOutcome(loser)).toBe("out in round 1");
+  });
+});
+
+describe("the honest-player badge", () => {
+  /** Ann names 65 on a 65; Bob doubts, is on one life, and is out. */
+  function honestWin(): MiaState {
+    const state = newGame("Ann", "Bob");
+    setLives(state, "bob", 1);
+    return playRound(state, "ann", [6, 5], 65);
+  }
+
+  it("names a winner who announced and never bluffed", () => {
+    const finished = honestWin();
+    expect(finished.gameOver?.winnerId).toBe("ann");
+    expect(record(finished, "ann")).toMatchObject({ announcements: 1, truths: 1 });
+    expect(honestWinner(finished)?.id).toBe("ann");
+    expect(HONEST_BADGE_LABEL).toBe("Never once bluffed");
+  });
+
+  it("does not name a winner who bluffed even once", () => {
+    const finished = honestWin();
+    playerById(finished, "ann")!.record = { ...emptyPlayerRecord(), announcements: 3, truths: 2 };
+    expect(honestWinner(finished)).toBeNull();
+  });
+
+  it("does not name a winner who never announced", () => {
+    const finished = honestWin();
+    playerById(finished, "ann")!.record = { ...emptyPlayerRecord(), doubts: 4, doubtsCorrect: 4 };
+    expect(neverBluffed(record(finished, "ann"))).toBe(false);
+    expect(honestWinner(finished)).toBeNull();
+  });
+
+  it("does not name a loser who never bluffed", () => {
+    const finished = honestWin();
+    playerById(finished, "bob")!.record = { ...emptyPlayerRecord(), announcements: 2, truths: 2 };
+    expect(neverBluffed(record(finished, "bob"))).toBe(true);
+    expect(honestWinner(finished)?.id).toBe("ann");
+
+    playerById(finished, "ann")!.record = { ...emptyPlayerRecord(), announcements: 1 };
+    expect(honestWinner(finished)).toBeNull();
+  });
+
+  it("looks at the whole game, not only the last round", () => {
+    const finished = honestWin();
+    // Last claim was true; three earlier ones were not. A lastReveal-only
+    // check would still name Ann, because the finishing doubt was on a truth.
+    playerById(finished, "ann")!.record = { ...emptyPlayerRecord(), announcements: 4, truths: 1 };
+    expect(finished.lastReveal?.verdict).toBe("doubter");
+    expect(honestWinner(finished)).toBeNull();
+  });
+
+  it("counts an earlier bluff against a later honest finishing claim", () => {
+    // Round 1: Ann bluffs, Bob catches her. She loses a life and starts again.
+    let state = playRound(newGame("Ann", "Bob"), "ann", [3, 1], 65);
+    expect(record(state, "ann")).toMatchObject({ announcements: 1, truths: 0 });
+    state = beginRound(nextRound(state));
+    setLives(state, "bob", 1);
+    const finished = playRound(state, "ann", [6, 5], 65);
+    expect(finished.gameOver?.winnerId).toBe("ann");
+    expect(record(finished, "ann")).toMatchObject({ announcements: 2, truths: 1 });
+    expect(honestWinner(finished)).toBeNull();
+  });
+
+  it("does not name a winner who never picked up the cup", () => {
+    // Cid only ever doubts. Ann and Bob knock each other out.
+    let state = newGame("Ann", "Bob", "Cid");
+    setLives(state, "ann", 1);
+    setLives(state, "bob", 1);
+    state = playRound(state, "ann", [3, 1], 65);
+    state = beginRound(nextRound(state));
+    const finished = playRound(state, "bob", [3, 1], 65);
+    expect(finished.gameOver?.winnerId).toBe("cid");
+    expect(record(finished, "cid").announcements).toBe(0);
+    expect(honestWinner(finished)).toBeNull();
+  });
+
+  it("is silent before the game is over, including on a redacted mid-game view", () => {
+    const midGame = playRound(newGame("Ann", "Bob"), "ann", [6, 5], 65);
+    expect(midGame.gameOver).toBeNull();
+    expect(honestWinner(midGame)).toBeNull();
+    expect(honestWinner(buildView(midGame, "ann"))).toBeNull();
+    expect(buildView(midGame, "ann").players.every((player) => player.record === null)).toBe(true);
+  });
+
+  it("still names the honest winner from a finished snapshot", () => {
+    const view = buildView(honestWin(), "bob");
+    expect(view.players.map((player) => player.record !== null)).toEqual([true, true]);
+    expect(honestWinner(view)?.id).toBe("ann");
+  });
+
+  it("treats a claim below the real roll as a bluff, matching the chips", () => {
+    // Same definition as `playerChips`: the claim is not the dice they hold.
+    const understated = { ...emptyPlayerRecord(), announcements: 2, truths: 1 };
+    expect(bluffsOf(understated)).toBe(1);
+    expect(neverBluffed(understated)).toBe(false);
+    expect(neverBluffed({ ...emptyPlayerRecord(), announcements: 2, truths: 2 })).toBe(true);
+    expect(neverBluffed(emptyPlayerRecord())).toBe(false);
   });
 });

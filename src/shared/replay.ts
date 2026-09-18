@@ -2,9 +2,10 @@
  * The endgame replay: the last round as a filmstrip, and the lines that fall out
  * of each player's record.
  *
- * Pure and DOM-free like `showdown.ts`, so the frames and the sentences are
- * unit-tested under plain Node rather than only being seen in one random browser
- * game. `client/src/table.ts` renders what this returns and decides nothing.
+ * Pure and DOM-free like `showdown.ts`, so the frames, the sentences and the
+ * honest-winner gate are unit-tested under plain Node rather than only being
+ * seen in one random browser game. `client/src/table.ts` renders what this
+ * returns and decides nothing.
  *
  * The claims come out of `MiaState.events` — the room already keeps every
  * announcement of the round that ended the game, and the ring buffer's 60
@@ -14,7 +15,7 @@
  * rather than re-deriving the ranking rule in a second place.
  */
 import { escapeHtml } from "./html";
-import { type MiaPlayer, type MiaState, type PlayerRecord, type DoubtReveal } from "./mia";
+import { playerById, type MiaPlayer, type MiaState, type PlayerRecord, type DoubtReveal } from "./mia";
 import { showdownLoser, showdownValue } from "./showdown";
 
 // ---------------------------------------------------------------------------
@@ -262,4 +263,54 @@ export function playerOutcome(player: MiaPlayer): string {
 /** A roll value as it reads in the filmstrip: Mia is "MIA", never "2·1". */
 export function frameLabel(value: number): string {
   return showdownValue(value);
+}
+
+// ---------------------------------------------------------------------------
+// The honest-player badge
+// ---------------------------------------------------------------------------
+
+/**
+ * The sentence the result card shouts when the winner never bluffed. The
+ * lookbook's wording, not a new one: "never once" is the point, and "roughly
+ * never" is why it is loud.
+ */
+export const HONEST_BADGE_LABEL = "Never once bluffed";
+
+/**
+ * Claims that were not the roll in the cup. Same count `playerChips` prints as
+ * "Bluffs": anything other than an exact name of the dice, including a claim
+ * *below* the real roll. The badge and the chips have to agree, so this is not
+ * a second ranking comparison.
+ */
+export function bluffsOf(record: PlayerRecord): number {
+  return Math.max(0, record.announcements - record.truths);
+}
+
+/**
+ * True when this player announced at least once and every claim named the roll.
+ * A player who never picked up the cup does not qualify by vacuum — that is a
+ * win by other people's mistakes, not an honest game.
+ */
+export function neverBluffed(record: PlayerRecord): boolean {
+  return record.announcements > 0 && bluffsOf(record) === 0;
+}
+
+/**
+ * The winner, if they announced at least once and never bluffed across the
+ * *whole* game. Reads the engine's `PlayerRecord` rather than walking the log
+ * or re-deriving `outranks`: the log is a ring buffer and cannot score an
+ * undoubted claim, which is exactly the claim this badge has to count, and
+ * `truths` is already the engine's verdict of whether a claim named the cup.
+ *
+ * A loser who never bluffed is not named. An honest last round is not enough
+ * if an earlier claim was a bluff. `null` before `gameOver`, and `null` on a
+ * mid-game view whose records have been redacted — the tally is not news
+ * until the game is over.
+ */
+export function honestWinner(state: MiaState): MiaPlayer | null {
+  const winnerId = state.gameOver?.winnerId;
+  if (!winnerId) return null;
+  const winner = playerById(state, winnerId);
+  if (!winner?.record || !neverBluffed(winner.record)) return null;
+  return winner;
 }

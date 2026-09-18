@@ -152,10 +152,20 @@ dice the player holds — and it is the one `playerChips` turns into a liar rate
 
 `src/shared/replay.ts` is what turns the record and the log into the endgame
 screen's material: `lastRoundFilmstrip` (every claim of the final round in order,
-then the doubt and the truth) and `statLines` (at most two guarded sentences per
-player). Both are pure and pinned by `test/replay.test.ts`, which is where the
-edges live: a player who never announced, a two-player game, a game that ends in
-round one, a real Mia.
+then the doubt and the truth), `statLines` (at most two guarded sentences per
+player), and `honestWinner` (the result-card badge: a winner who announced at
+least once and whose `truths` equals `announcements`). All three are pure and
+pinned by `test/replay.test.ts`, which is where the edges live: a player who
+never announced, a two-player game, a game that ends in round one, a real Mia,
+a winner who bluffed earlier, a winner who never picked up the cup.
+
+The badge reads that record rather than walking `lastReveal` or re-deriving
+`outranks` from the log. A last-round-only check would name a winner whose
+finishing claim was true after a game of lies, and a log walk cannot score the
+undoubted claims the badge has to count. The definition of a bluff is the
+record's: any claim that is not the roll in the cup, including one below it —
+the same number `playerChips` prints, so the stamp and the liar rate cannot
+disagree.
 
 The filmstrip takes its claims from the log and its doubt and dice from
 `lastReveal` — the engine's typed verdict, not a second implementation of the
