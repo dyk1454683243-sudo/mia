@@ -722,7 +722,7 @@ async function verifyHoldToPeek(page: Page, ladderOpen: boolean): Promise<void> 
   await page.evaluate(() => window.scrollTo(0, 0));
   await shot(page, "06c-hold-to-peek");
   await releasePeek(page);
-  const released = await waitPeek(page, false);
+  const released = await waitPeek(page, false).catch(async () => peekView(page));
   check(
     "releasing the cup covers the dice again",
     !released.peeking && released.facesCovered && !released.facesVisible,
