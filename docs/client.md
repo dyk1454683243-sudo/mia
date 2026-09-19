@@ -123,10 +123,11 @@ The block is scoped with `:has(.table-card)` so the waiting room keeps its
 single centred column, and every rule in it is additive: without a
 `.table-card` the phone layout is unchanged. The lobby has its own, narrower
 widening — `#app:has(.lobby-room)` goes to `52rem` so three table ovals fit
-in a row — and does not take the three-column table layout. `pinLadder`
-measures the ladder box's own top against the fold, and placing the card at
-the top of a column (`position: static`, undoing the phone's sticky bottom
-edge) leaves that measurement anchored.
+in a row — and does not take the three-column table layout. Identity and
+history stay capped at `34rem` inside that wider page, so a name card does
+not become a banner. `pinLadder` measures the ladder box's own top against
+the fold, and placing the card at the top of a column (`position: static`,
+undoing the phone's sticky bottom edge) leaves that measurement anchored.
 
 `pinLadder` runs only from `paint()`, and there is no resize listener. A reader
 who loads at a given width gets a correct box on the first snapshot, but a

@@ -462,10 +462,21 @@ a.lobby-felt:hover {
 }
 
 @media (min-width: 900px) {
-  /* The table page already takes the width; the lobby only needs enough for
-   * three ovals in a row. Scoped so a table snapshot never matches. */
+  /* The table page already takes the width. The lobby only needs enough for
+   * three ovals in a row; identity and history stay the phone column so a
+   * name card does not stretch into a banner. Scoped so a table snapshot
+   * never matches. */
   #app:has(.lobby-room) {
     max-width: 52rem;
+  }
+
+  #app:has(.lobby-room) .me-card,
+  #app:has(.lobby-room) .collapsible,
+  #app:has(.lobby-room) .toast,
+  #app:has(.lobby-room) .footer {
+    max-width: 34rem;
+    width: 100%;
+    margin-inline: auto;
   }
 
   ul.tables.lobby-floor {
