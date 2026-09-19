@@ -119,12 +119,14 @@ doubt buttons otherwise — so the felt and the controls stay in one view on a
 laptop. The reveal from #29 is a `position: fixed` overlay, so it is out of the
 grid's flow and still takes the whole screen.
 
-The block is scoped with `:has(.table-card)` so the lobby and the waiting room
-keep their single centred column, and every rule in it is additive: without a
-`.table-card` the phone layout is unchanged. `pinLadder` measures the ladder
-box's own top against the fold, and placing the card at the top of a column
-(`position: static`, undoing the phone's sticky bottom edge) leaves that
-measurement anchored.
+The block is scoped with `:has(.table-card)` so the waiting room keeps its
+single centred column, and every rule in it is additive: without a
+`.table-card` the phone layout is unchanged. The lobby has its own, narrower
+widening — `#app:has(.lobby-room)` goes to `52rem` so three table ovals fit
+in a row — and does not take the three-column table layout. `pinLadder`
+measures the ladder box's own top against the fold, and placing the card at
+the top of a column (`position: static`, undoing the phone's sticky bottom
+edge) leaves that measurement anchored.
 
 `pinLadder` runs only from `paint()`, and there is no resize listener. A reader
 who loads at a given width gets a correct box on the first snapshot, but a
@@ -370,10 +372,24 @@ skips a poll while the rename field is open so it cannot overwrite what someone 
 typing. The lobby's data is low-frequency and a few seconds stale is fine; giving
 it a socket would mean a connection per idle browser sitting on the front page.
 
-The table list marks a full waiting table as a disabled button rather than a link.
-That is a fix, not styling: "Full" used to navigate into the table page, which
-could only ever say "Connecting…" because there was no seat. A terminal refusal
-now sets `state.fatal`, stops the socket, and renders why.
+The open tables are a room, not a list of rows — plate 08 of the lookbook.
+Each `TableSummary` is a felt oval with a rim of seats: the first
+`playerCount` points are brass dots, the rest are outlines, so a nearly-full
+waiting table and a just-opened one read differently from across the room.
+Which seats are filled is cosmetic; the summary has a count, not identities.
+A table mid-game keeps its ring lit and still offers **Watch**. A full waiting
+table marks itself with a disabled **Full** button rather than a link. That is
+a fix, not styling: "Full" used to navigate into the table page, which could
+only ever say "Connecting…" because there was no seat. A terminal refusal now
+sets `state.fatal`, stops the socket, and renders why. **New table** is the
+empty chair in the corner of the same grid — the create form, restyled as a
+dashed oval — so it is not a second card below a list.
+
+The filled dots on a waiting table drift a couple of pixels, like people
+shifting in their seats. The animation is declared only under
+`prefers-reduced-motion: no-preference`, so a reader who asked for reduce
+sees a still room. Playing tables do not drift; the lit ring is already doing
+that work.
 
 ## Client error handling
 

@@ -33,7 +33,7 @@ alternative that was rejected, and the trap that cost someone an afternoon.
 | [architecture.md](architecture.md) | The request and WebSocket topology, the four storage roles, why there is one Durable Object per table, and the routing decisions that are easy to undo by accident. |
 | [game-engine.md](game-engine.md) | `src/shared/mia.ts`: the hardcoded ranking, the phase machine, legal moves and auto-play, the doubt resolution, final standings, the per-player record behind the endgame stats, and the per-viewer redaction boundary. |
 | [table-room.md](table-room.md) | `src/worker/table-room.ts`: hibernation, the single alarm that drives every clock, persistence ordering, table reaping, and the finished-game result write with its retry and give-up behavior. |
-| [client.md](client.md) | The browser side: render-over-snapshot, the reconnect lifecycle and its stale-move stamp, the clock-drift correction, why the countdown is updated by hand, and the endgame screen. |
+| [client.md](client.md) | The browser side: render-over-snapshot, the reconnect lifecycle and its stale-move stamp, the clock-drift correction, why the countdown is updated by hand, the lobby room of tables, and the endgame screen. |
 | [identity-and-storage.md](identity-and-storage.md) | The signed cookie, why the signing key lives in a D1 row instead of a secret, the lazily created schema, and what does and does not reach D1. |
 | [testing.md](testing.md) | The two test runtimes, the test-only Durable Object subclass that keeps seams out of production, the fast clock, storage isolation, and the three harnesses. |
 | [known-gaps.md](known-gaps.md) | Deliberate limitations, unexercised paths, and the one open intermittent bug. |

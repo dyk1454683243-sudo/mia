@@ -1,7 +1,8 @@
 /**
- * Lobby: identity, the open-tables list, table creation, and recent results.
+ * Lobby: identity, the room of open tables, table creation, and recent results.
  * Polls the JSON API; no WebSocket lives here.
  */
+import { lobbySeats } from "../../src/shared/lobby-seats";
 import type { HistoryEntry, TableSummary } from "../../src/shared/protocol";
 import { api, escapeHtml, relativeTime } from "./net";
 
@@ -67,38 +68,72 @@ function renderMe(): string {
   </section>`;
 }
 
-function renderTables(): string {
-  if (!state.loaded) return `<section class="card"><p class="muted">Loading tables…</p></section>`;
-  if (state.tables.length === 0) {
-    return `<section class="card"><h2>Open tables</h2><p class="muted">No tables waiting. Start one below.</p></section>`;
+function renderSeats(table: TableSummary): string {
+  return lobbySeats(table.playerCount, table.maxPlayers)
+    .map(
+      (seat) =>
+        `<span class="lobby-seat${seat.filled ? " filled" : " empty"}" style="left:${seat.x.toFixed(2)}%;top:${seat.y.toFixed(2)}%" aria-hidden="true"><i></i></span>`,
+    )
+    .join("");
+}
+
+function renderTableCard(table: TableSummary): string {
+  const inGame = table.status === "playing";
+  const full = table.playerCount >= table.maxPlayers;
+  // A full waiting table has no seat left, so its label must not be a
+  // live join link: "Full" used to navigate straight into a page that
+  // could only ever say "Connecting…".
+  const action = inGame ? "Watch" : full ? "Full" : "Join";
+  const status = inGame ? "in progress" : `waiting · opened ${relativeTime(table.createdAt)}`;
+  const classes = ["lobby-table", inGame ? "playing" : "waiting", !inGame && full ? "is-full" : ""]
+    .filter(Boolean)
+    .join(" ");
+  const copy = `<span class="lobby-copy">
+      <span class="name">${escapeHtml(table.name)}</span>
+      <span class="muted small">${table.playerCount}/${table.maxPlayers} players · ${status}</span>
+      ${
+        inGame || !full
+          ? `<span class="lobby-go">${action}</span>`
+          : `<button class="lobby-go" type="button" disabled>Full</button>`
+      }
+    </span>`;
+  const felt = `${renderSeats(table)}${copy}`;
+  if (inGame || !full) {
+    return `<li class="${classes}" data-lobby-action="${action.toLowerCase()}">
+      <a class="lobby-felt" href="/t/${encodeURIComponent(table.id)}" aria-label="${action} ${escapeHtml(table.name)}, ${table.playerCount} of ${table.maxPlayers} players, ${status}">${felt}</a>
+    </li>`;
   }
-  return `<section class="card">
-    <h2>Open tables</h2>
-    <ul class="tables">
-      ${state.tables
-        .map((table) => {
-          const inGame = table.status === "playing";
-          const full = table.playerCount >= table.maxPlayers;
-          // A full waiting table has no seat left, so its label must not be a
-          // live join link: "Full" used to navigate straight into a page that
-          // could only ever say "Connecting…".
-          const action = inGame
-            ? `<a class="primary link" href="/t/${encodeURIComponent(table.id)}">Watch</a>`
-            : full
-              ? `<button class="primary" type="button" disabled>Full</button>`
-              : `<a class="primary link" href="/t/${encodeURIComponent(table.id)}">Join</a>`;
-          return `<li class="table-row">
-            <div class="table-meta">
-              <span class="name">${escapeHtml(table.name)}</span>
-              <span class="muted small">${table.playerCount}/${table.maxPlayers} players · ${
-                inGame ? "in progress" : `waiting · opened ${relativeTime(table.createdAt)}`
-              }</span>
-            </div>
-            ${action}
-          </li>`;
-        })
-        .join("")}
+  return `<li class="${classes}" data-lobby-action="full">
+    <div class="lobby-felt" aria-label="${escapeHtml(table.name)} is full, ${table.playerCount} of ${table.maxPlayers} players">${felt}</div>
+  </li>`;
+}
+
+function renderNewTable(): string {
+  return `<li class="lobby-table lobby-new">
+    <form class="lobby-felt" data-form="create">
+      <span class="lobby-new-label">+ New table</span>
+      <input name="name" maxlength="40" placeholder="Table name" autocomplete="off" />
+      <button class="primary" type="submit">Create</button>
+      <p class="muted small">You get a shareable link to send to friends.</p>
+    </form>
+  </li>`;
+}
+
+function renderTables(): string {
+  const empty =
+    state.loaded && state.tables.length === 0
+      ? `<p class="muted">No tables waiting. The empty chair opens one.</p>`
+      : !state.loaded
+        ? `<p class="muted">Loading tables…</p>`
+        : "";
+  return `<section class="lobby-room">
+    <h2>Pull up a chair</h2>
+    ${empty}
+    <ul class="tables lobby-floor">
+      ${state.tables.map(renderTableCard).join("")}
+      ${renderNewTable()}
     </ul>
+    <p class="muted small lobby-reap">Tables clear themselves out when everyone leaves.</p>
   </section>`;
 }
 
@@ -147,14 +182,6 @@ function render(): void {
       ${state.error ? `<p class="toast">${escapeHtml(state.error)}</p>` : ""}
       ${renderMe()}
       ${renderTables()}
-      <section class="card">
-        <h2>New table</h2>
-        <form class="row gap" data-form="create">
-          <input name="name" maxlength="40" placeholder="Table name" autocomplete="off" />
-          <button class="primary" type="submit">Create</button>
-        </form>
-        <p class="muted small">You get a shareable link to send to friends.</p>
-      </section>
       ${renderHistory()}
       <p class="muted small footer">Mia · highest die first, doubles beat mixed, 21 is unbeatable.</p>
     </main>`);

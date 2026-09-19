@@ -275,6 +275,205 @@ ul {
   gap: 0.5rem;
 }
 
+/* The lobby is a room of tables, not a list of rows. Plate 08. */
+.lobby-room {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.lobby-room h2 {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  font-weight: 600;
+}
+
+.lobby-room > .muted {
+  margin: 0;
+}
+
+ul.tables.lobby-floor {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem 0.55rem;
+  align-items: stretch;
+}
+
+.lobby-table {
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.lobby-felt {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1 / 0.82;
+  padding: 1.15rem 0.7rem 0.85rem;
+  border-radius: 50% / 44%;
+  border: 1.5px solid var(--line);
+  background: radial-gradient(ellipse at 50% 35%, #14624a 0%, #0c4534 62%, #07301f 100%);
+  box-shadow: inset 0 0 22px rgba(0, 0, 0, 0.35);
+  color: inherit;
+  text-decoration: none;
+  text-align: center;
+}
+
+a.lobby-felt:hover {
+  border-color: rgba(232, 196, 106, 0.45);
+}
+
+.lobby-table.playing .lobby-felt {
+  border-color: rgba(232, 196, 106, 0.72);
+  box-shadow:
+    inset 0 0 22px rgba(0, 0, 0, 0.35),
+    0 0 0 3px rgba(232, 196, 106, 0.16),
+    0 0 22px rgba(232, 196, 106, 0.2);
+}
+
+.lobby-table.is-full .lobby-felt {
+  opacity: 0.72;
+}
+
+.lobby-copy {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.12rem;
+  max-width: 92%;
+  pointer-events: none;
+}
+
+.lobby-copy .name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.lobby-copy .muted {
+  font-size: 0.62rem;
+  line-height: 1.25;
+}
+
+.lobby-go {
+  margin-top: 0.15rem;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--gold);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.lobby-go[disabled] {
+  filter: none;
+  color: var(--ink-dim);
+  cursor: not-allowed;
+}
+
+.lobby-seat {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.lobby-seat i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+
+.lobby-seat.filled i {
+  background: var(--gold);
+  box-shadow: 0 0 6px rgba(232, 196, 106, 0.55);
+}
+
+.lobby-seat.empty i {
+  background: transparent;
+  border: 1.5px solid rgba(255, 255, 255, 0.32);
+}
+
+/* People shifting in their seats. Only the filled dots, and only while the
+ * table is still waiting — a game in progress already has the lit ring. */
+@media (prefers-reduced-motion: no-preference) {
+  .lobby-table.waiting .lobby-seat.filled i {
+    animation: lobby-seat-drift 3.8s ease-in-out infinite alternate;
+  }
+
+  .lobby-table.waiting .lobby-seat.filled:nth-child(2n) i {
+    animation-duration: 4.4s;
+    animation-delay: -1.1s;
+  }
+
+  .lobby-table.waiting .lobby-seat.filled:nth-child(3n) i {
+    animation-duration: 3.2s;
+    animation-delay: -2.4s;
+  }
+}
+
+@keyframes lobby-seat-drift {
+  from { transform: translate(0, 0); }
+  to { transform: translate(1.2px, -1px); }
+}
+
+.lobby-new .lobby-felt {
+  border-style: dashed;
+  background: none;
+  box-shadow: none;
+  gap: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 1rem 0.85rem 0.85rem;
+}
+
+.lobby-new-label {
+  color: var(--gold);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.lobby-new input,
+.lobby-new button {
+  width: 100%;
+}
+
+.lobby-new .muted {
+  margin: 0;
+}
+
+.lobby-reap {
+  margin: 0.15rem 0 0;
+  text-align: center;
+}
+
+@media (min-width: 900px) {
+  /* The table page already takes the width; the lobby only needs enough for
+   * three ovals in a row. Scoped so a table snapshot never matches. */
+  #app:has(.lobby-room) {
+    max-width: 52rem;
+  }
+
+  ul.tables.lobby-floor {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.9rem 0.75rem;
+  }
+}
+
 .table-row,
 .roster-row,
 .history li {

@@ -13,7 +13,7 @@ import { mkdirSync } from "node:fs";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { formatValue, MAX_PLAYERS, MIA, MIN_PLAYERS, outranks, RANKING } from "../src/shared/mia.ts";
 import { SHIP_NAMES } from "../src/shared/ships.ts";
-import { api, BASE, createPlayer } from "./lib.ts";
+import { api, BASE, Client, createPlayer } from "./lib.ts";
 
 const OUT = process.env.MIA_UI_OUT ?? ".r1-screenshots";
 const PHONE = { width: 375, height: 812 };
@@ -224,7 +224,8 @@ async function verifyLobby(page: Page): Promise<void> {
   const afterPoll = await page.evaluate(() => window.scrollY);
   check("a poll refresh keeps the reader's scroll position", Math.abs(afterPoll - scrolled) <= 1, `${scrolled} -> ${afterPoll}`);
 
-  // A table created elsewhere shows up in the list.
+  // A table created elsewhere shows up in the room. Connect the seeder so the
+  // ring has a filled seat — a POST-only row is 0/8 and cannot pin drift.
   const seeder = await createPlayer("lobby-seed");
   const seeded = await api("/api/tables", {
     method: "POST",
@@ -232,10 +233,141 @@ async function verifyLobby(page: Page): Promise<void> {
     body: JSON.stringify({ name: "Listed table" }),
   });
   check("setup: a second table exists", seeded.status === 201, `status ${seeded.status}`);
+  const seededId = (seeded.body as { id: string }).id;
+  const listedClient = new Client(seeder);
+  await listedClient.connect(seededId);
+  await listedClient.waitFor((snapshot) => snapshot.players.length >= 1);
+
+  // Mid-game → Watch. Two seats, then start, so the lobby can offer Watch
+  // without the browser having to play.
+  const watchHost = await createPlayer("lobby-watch-host");
+  const watchGuest = await createPlayer("lobby-watch-guest");
+  const watchCreated = await api("/api/tables", {
+    method: "POST",
+    player: watchHost,
+    body: JSON.stringify({ name: "Watch me" }),
+  });
+  check("setup: a playing table exists", watchCreated.status === 201, `status ${watchCreated.status}`);
+  const watchId = (watchCreated.body as { id: string }).id;
+  const watchClients = [new Client(watchHost), new Client(watchGuest)];
+  await watchClients[0]!.connect(watchId);
+  await watchClients[1]!.connect(watchId);
+  await watchClients[0]!.waitFor((snapshot) => snapshot.players.length === 2);
+  watchClients[0]!.send({ type: "start" });
+  await watchClients[0]!.waitNext((snapshot) => snapshot.round === 1);
+
+  // Full waiting → Full. Fill every seat and do not start.
+  const fullHost = await createPlayer("lobby-full-host");
+  const fullCreated = await api("/api/tables", {
+    method: "POST",
+    player: fullHost,
+    body: JSON.stringify({ name: "Packed house" }),
+  });
+  check("setup: a full waiting table exists", fullCreated.status === 201, `status ${fullCreated.status}`);
+  const fullId = (fullCreated.body as { id: string }).id;
+  const fullClients = [new Client(fullHost)];
+  await fullClients[0]!.connect(fullId);
+  for (let seat = 1; seat < MAX_PLAYERS; seat += 1) {
+    const player = await createPlayer(`lobby-full-${seat}`);
+    const client = new Client(player);
+    await client.connect(fullId);
+    fullClients.push(client);
+  }
+  await fullClients[0]!.waitFor((snapshot) => snapshot.players.length === MAX_PLAYERS);
+
   await page.reload({ waitUntil: "networkidle" });
   await page.waitForFunction(() => document.querySelectorAll(".tables .name").length > 0);
   const listText = (await page.textContent(".tables")) ?? "";
   check("the lobby lists open tables", listText.includes("Listed table"), listText.replace(/\s+/g, " ").slice(0, 80));
+
+  const room = await page.evaluate(() => {
+    const read = (name: string) => {
+      const card = [...document.querySelectorAll<HTMLElement>(".lobby-table")].find((node) =>
+        node.querySelector(".name")?.textContent?.includes(name),
+      );
+      if (!card) return null;
+      return {
+        rows: document.querySelectorAll(".table-row").length,
+        felt: card.querySelectorAll(".lobby-felt").length,
+        filled: card.querySelectorAll(".lobby-seat.filled").length,
+        empty: card.querySelectorAll(".lobby-seat.empty").length,
+        action: card.dataset.lobbyAction ?? "",
+        go: card.querySelector(".lobby-go")?.textContent?.trim() ?? "",
+        href: card.querySelector("a.lobby-felt")?.getAttribute("href") ?? null,
+        fullButton: card.querySelector("button.lobby-go[disabled]") !== null,
+        playing: card.classList.contains("playing"),
+        waiting: card.classList.contains("waiting"),
+      };
+    };
+    return {
+      listed: read("Listed table"),
+      watch: read("Watch me"),
+      packed: read("Packed house"),
+      newChair: document.querySelector(".lobby-new form[data-form='create']") !== null,
+      rowCount: document.querySelectorAll(".table-row").length,
+    };
+  });
+
+  check("open tables are drawn as tables, not rows", room.rowCount === 0, `${room.rowCount} .table-row`);
+  check("the listed table is a felt ring", (room.listed?.felt ?? 0) === 1, JSON.stringify(room.listed));
+  check(
+    "a one-seat waiting table shows one brass dot and the rest outlines",
+    room.listed?.filled === 1 && room.listed?.empty === MAX_PLAYERS - 1,
+    `${room.listed?.filled ?? "?"}/${room.listed ? room.listed.filled + room.listed.empty : "?"}`,
+  );
+  check(
+    "a waiting table with a free seat offers Join",
+    room.listed?.action === "join" && room.listed?.go === "Join" && Boolean(room.listed?.href),
+    JSON.stringify(room.listed),
+  );
+  check(
+    "a mid-game table keeps its ring lit and offers Watch",
+    room.watch?.playing === true && room.watch?.action === "watch" && room.watch?.go === "Watch" && Boolean(room.watch?.href),
+    JSON.stringify(room.watch),
+  );
+  check(
+    "a full waiting table offers Full and is not a link",
+    room.packed?.waiting === true &&
+      room.packed?.action === "full" &&
+      room.packed?.go === "Full" &&
+      room.packed?.href === null &&
+      room.packed?.fullButton === true &&
+      room.packed?.filled === MAX_PLAYERS,
+    JSON.stringify(room.packed),
+  );
+  check("new table is the empty chair in the room", room.newChair);
+
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  const driftOn = await page.evaluate(() => {
+    const dot = document.querySelector(".lobby-table.waiting .lobby-seat.filled i");
+    return dot ? getComputedStyle(dot).animationName : "";
+  });
+  check(
+    "waiting seats drift when motion is allowed",
+    driftOn !== "none" && driftOn.length > 0,
+    driftOn || "no filled waiting seat",
+  );
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const driftOff = await page.evaluate(() => {
+    const dot = document.querySelector(".lobby-table.waiting .lobby-seat.filled i");
+    return dot ? getComputedStyle(dot).animationName : "";
+  });
+  check("waiting seats do not drift under reduced motion", driftOff === "none", driftOff);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+
+  // The moment that matters: mixed occupancy, a lit Watch ring, a Full table,
+  // and the empty chair — not the empty lobby before anything was seeded.
+  await shot(page, "01b-lobby-room");
+  check("no horizontal scroll in the room at 375px", (await overflow(page)) === 0, `${await overflow(page)}px overflow`);
+
+  await page.setViewportSize(DESKTOP);
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForFunction(() => document.querySelectorAll(".tables .name").length > 0);
+  await shot(page, "01c-lobby-room-desktop");
+  check("no horizontal scroll in the room at 1280px", (await overflow(page)) === 0, `${await overflow(page)}px overflow`);
+  await page.setViewportSize(PHONE);
+
+  for (const client of [listedClient, ...watchClients, ...fullClients]) client.close();
 }
 
 // ---------------------------------------------------------------------------
