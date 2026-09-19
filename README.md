@@ -175,7 +175,8 @@ npm run e2e       # protocol-level: plays a full game over WebSockets and
 ```
 
 ```sh
-npm run ui-check  # the real client in headless Chromium at 375x812 (needs
+npm run ui-check  # the real client in headless Chromium at 375x812, plus a
+                  # spectator tab at 1280px after the table is full (needs
                   # `npm run ui-setup` once); writes screenshots to
                   # .r1-screenshots/ and fails on any console error
 ```

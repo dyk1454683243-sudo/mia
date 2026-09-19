@@ -6,7 +6,7 @@ The suite runs in two different runtimes, and the split is the point.
 
 - **`unit`** runs in plain Node with no Workers runtime. It covers the pure rules
   engine, the clock arithmetic, the seat-limit constants, the round table's
-  seat geometry, the showdown's verdict and beat arithmetic and the endgame
+  seat geometry and spectator origin, the showdown's verdict and beat arithmetic and the endgame
   replay's filmstrip and stat lines. These are the tests that can be reasoned
   about from the code alone, and they run fast because there is no platform
   underneath them.
@@ -124,6 +124,16 @@ cover the assembled system, and they need a running `wrangler dev` (or a deploye
   stats and rematch against the snapshot, and opens the rematch link in a second
   page to see the seeded lobby — the one place the rematch handoff is exercised
   with a real browser and a real cookie.
+  A spectator tab is opened at the 1280px desktop viewport *after* the table is
+  full, on `?watch=1`, and stays next to the playing phone through the hand.
+  That is the check the share-link-before-fill workaround cannot stand in for:
+  a fresh session cannot take the last seat of a full table, but a watcher
+  never asks for one. The assertions that have teeth are "not `table-full`",
+  "no `ClientMessage` control", "no `(you)`", and a felt wider than the
+  player's 28rem desktop column. The spectator origin itself — seat 0, even
+  when `you` is a later seat — is pinned under Node in
+  `test/seat-positions.test.ts`, because the harness's watcher is a fresh
+  session and would never have a chair to leak.
 - **`scripts/bots.ts`** fills the non-human seats so a person can play in a
   browser. It shares `scripts/lib.ts` with `e2e.ts`.
 

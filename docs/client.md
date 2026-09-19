@@ -101,7 +101,9 @@ measures the cut and cheapest claim against the 812px fold at 375x812. It fills
 its table to `MAX_PLAYERS` by default so the geometry is exercised at its worst,
 and takes `MIA_UI_SEATS` to run a smaller table. The share-link step runs before
 the table is filled, because a fresh session cannot take the last seat of a full
-table — a separate, pre-existing bug (see `fix/full-table-join`).
+table — a separate, pre-existing bug (see `fix/full-table-join`). A spectator
+does not have that restriction: the harness opens `?watch=1` after the table is
+full.
 
 ## Using the width on desktop
 
@@ -137,6 +139,43 @@ The harness's 768px viewport is below the breakpoint, so it never reached this
 regime — the trap [testing.md](testing.md) names. `ui-check` now also measures
 at 1280px and asserts the controls, felt and log occupy three non-overlapping
 horizontal bands.
+
+## The spectator screen
+
+A URL opened on a laptop or a TV: the felt, everyone's claims and the showdown
+at full size, with **no controls and no "you"**. Phones keep the buttons.
+
+The server already says when a socket is watching. `StateView.spectator` is the
+flag — set for `?watch=1` and for a late arrival after the first deal — and the
+page renders from that, not from an error. The client forwards the page query
+onto the WebSocket upgrade; the Worker is still the one that canonicalizes it.
+The lobby's Watch link carries `?watch=1` so a TV pointed at a table in progress
+asks to watch instead of trying to sit.
+
+`renderPlayers` and the showdown are the same functions the seats use. What a
+spectator render leaves out is the actions card, the announce ladder and the
+`you` seat treatment; what it changes is scale. `you` on the snapshot is still
+the socket's player id, and that id may even be a seated player's (same cookie,
+watching socket), so "find my chair" is the wrong question. `tableViewerIndex`
+and `isViewerSeat` in `src/shared/seat-positions.ts` read the flag: a spectator
+rotates from seat 0 — the first player who sat, usually the creator — so every
+TV in the room sees the same table, and no chair is marked `(you)`.
+
+Above 900px the spectator page is two columns, felt and table talk, not the
+player's three. Seat names, the standing claim and the showdown type scale up;
+the chrome does not. Below the breakpoint a late joiner on a phone gets the
+same omissions without the TV type size.
+
+It has to be right before the first deal (the TV goes on early) and after the
+game finishes. The waiting spectator reuses `renderPlayers` on the lobby
+snapshot, with no start button. The finished spectator gets the filmstrip and
+the stats, and still no rematch button — that is a `ClientMessage`, and the
+server refuses anyone without a seat.
+
+`scripts/ui-check.ts` opens a fresh desktop tab on `?watch=1` *after* the table
+is full. A ninth player cannot join a full table; a spectator never asks for a
+seat, so that step does not need the share-link-before-fill workaround. The
+watching tab stays open next to the playing one through the hand.
 
 ## The reveal as a showdown
 

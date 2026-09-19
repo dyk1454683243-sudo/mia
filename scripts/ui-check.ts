@@ -24,6 +24,8 @@ const WIDE = { width: 768, height: 1024 };
  * reaches the regime" trap from docs/testing.md. This one does.
  */
 const DESKTOP = { width: 1280, height: 800 };
+/** Controls that enqueue a `ClientMessage`. A spectator page must draw none. */
+const CLIENT_MESSAGE_ACTIONS = ["start", "roll", "believe", "doubt", "announce", "rematch"] as const;
 mkdirSync(OUT, { recursive: true });
 
 /**
@@ -178,6 +180,113 @@ async function desktopColumns(page: Page): Promise<DesktopColumns> {
   });
 }
 
+interface SpectatorShot {
+  watching: boolean;
+  youMarks: number;
+  sendable: string[];
+  seats: number;
+  feltWidth: number;
+  nameSize: number;
+  standingSize: number;
+  showdown: boolean;
+  rematchButton: boolean;
+  fatal: boolean;
+  waitingLine: boolean;
+}
+
+/**
+ * What the TV tab actually drew. The sendable list is the ClientMessage
+ * actions; share and lobby links are not moves and do not belong here.
+ */
+async function spectatorShot(page: Page): Promise<SpectatorShot> {
+  return await page.evaluate((actions: readonly string[]) => {
+    const sendable = [...document.querySelectorAll<HTMLElement>("[data-action]")]
+      .map((element) => element.dataset.action ?? "")
+      .filter((action) => actions.includes(action));
+    const stage = document.querySelector<HTMLElement>(".table-stage");
+    const name = document.querySelector<HTMLElement>(".player .name");
+    const chip = document.querySelector<HTMLElement>(".standing .chip");
+    return {
+      watching: document.querySelector(".page.spectator") !== null,
+      youMarks: document.querySelectorAll(
+        ".player.you, .player .name em, .stat-row.you, .showdown-chip.you, .film-cell.you",
+      ).length,
+      sendable,
+      seats: document.querySelectorAll(".player").length,
+      feltWidth: stage ? Math.round(stage.getBoundingClientRect().width) : 0,
+      nameSize: name ? Number.parseFloat(getComputedStyle(name).fontSize) : 0,
+      standingSize: chip ? Number.parseFloat(getComputedStyle(chip).fontSize) : 0,
+      showdown: document.querySelector(".showdown") !== null,
+      rematchButton: document.querySelector('[data-action="rematch"]') !== null,
+      fatal: (document.querySelector("h2")?.textContent ?? "").includes("Can’t join"),
+      waitingLine: document.querySelector(".watching-line") !== null,
+    };
+  }, CLIENT_MESSAGE_ACTIONS);
+}
+
+/**
+ * A fresh session watching a *full* waiting table at the desktop viewport.
+ *
+ * The share-link step has to run before the roster is filled, because a ninth
+ * player cannot take a seat. A spectator never asks for one, so this is the
+ * step that would stay green if `?watch=1` were dropped from the socket and
+ * the page fell back to the terminal `table-full` refusal.
+ */
+async function verifySpectator(
+  browser: Browser,
+  hostPage: Page,
+  tableId: string,
+): Promise<{ context: BrowserContext; page: Page }> {
+  section("Spectator tab at 1280x800 (full table, before the first deal)");
+  const hostSeats = await hostPage.evaluate(() => document.querySelectorAll(".roster-row").length);
+  const context = await browser.newContext({ viewport: DESKTOP });
+  const page = await context.newPage();
+  watch(page);
+  await page.goto(`${BASE}/t/${tableId}?watch=1`, { waitUntil: "networkidle" });
+  await page.waitForFunction(
+    () =>
+      document.querySelector(".page.spectator") !== null ||
+      (document.querySelector("h2")?.textContent ?? "").includes("Can’t join"),
+    { timeout: 15_000 },
+  );
+  const shot = await spectatorShot(page);
+  check(
+    "a spectator opens a full waiting table without taking a seat",
+    shot.watching && !shot.fatal && shot.seats === SEATS,
+    `watching=${shot.watching} fatal=${shot.fatal} seats=${shot.seats} of ${SEATS}`,
+  );
+  const hostAfter = await hostPage.evaluate(() => document.querySelectorAll(".roster-row").length);
+  check(
+    "the watching tab does not consume a seat on the playing table",
+    hostAfter === hostSeats && hostAfter === SEATS,
+    `host ${hostAfter} (was ${hostSeats})`,
+  );
+  check(
+    "SPECTATOR: no sendable ClientMessage control before the first deal",
+    shot.sendable.length === 0,
+    shot.sendable.join(", ") || "none",
+  );
+  check("SPECTATOR: no you seat treatment before the first deal", shot.youMarks === 0, `${shot.youMarks} you marks`);
+  check("SPECTATOR: the early TV shows the felt", shot.seats === SEATS && shot.feltWidth > 0, `${shot.seats} seats · felt ${shot.feltWidth}px`);
+  check("SPECTATOR: waiting line before the first deal", shot.waitingLine);
+  check(
+    "SPECTATOR: the felt is TV-scaled at the desktop viewport",
+    shot.feltWidth >= 520,
+    `${shot.feltWidth}px (phone felt is 22rem / 352px; player desktop is 28rem / 448px)`,
+  );
+  check(
+    "SPECTATOR: seat names scale up",
+    shot.nameSize >= 13,
+    `${shot.nameSize}px`,
+  );
+  check(
+    "the playing tab still has the start button",
+    (await hostPage.$('[data-action="start"]')) !== null,
+  );
+  await shot(page, "02c-spectator-waiting");
+  return { context, page };
+}
+
 // ---------------------------------------------------------------------------
 // Lobby
 // ---------------------------------------------------------------------------
@@ -288,7 +397,9 @@ async function verifyShare(page: Page, context: BrowserContext, browser: Browser
   // The copied link joins the table from a brand-new session. This runs before
   // the roster is filled, on purpose: a *full* table cannot take a fresh joiner
   // (a pre-existing bug, see `fix/full-table-join`), so the share step needs a
-  // free seat and the bots arrive afterwards.
+  // free seat and the bots arrive afterwards. A spectator is not that joiner —
+  // `?watch=1` never asks for a seat — and `verifySpectator` opens one after
+  // the table is full for that reason.
   const rosterBefore = await page.evaluate(() => document.querySelectorAll(".roster-row").length);
   const fresh = await browser.newContext({ viewport: PHONE });
   const freshPage = await fresh.newPage();
@@ -927,7 +1038,7 @@ async function act(page: Page): Promise<string> {
   });
 }
 
-async function playGame(page: Page, bots: ChildProcess, tableId: string): Promise<{ saw: Set<string>; secrecyViolations: string[]; claimBubbleViolations: string[]; diceSpill: string[]; viewerDiceSeen: boolean; countdownTicks: string[]; rerenderSurvived: boolean | null }> {
+async function playGame(page: Page, bots: ChildProcess, tableId: string, spectator: Page): Promise<{ saw: Set<string>; secrecyViolations: string[]; claimBubbleViolations: string[]; diceSpill: string[]; viewerDiceSeen: boolean; countdownTicks: string[]; rerenderSurvived: boolean | null }> {
   section("A full game with bots");
   const saw = new Set<string>();
   const secrecyViolations: string[] = [];
@@ -958,9 +1069,16 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
   let nonTurnSeatSamples = 0;
   let motionProbe: MotionProbe | null = null;
   let countdownProbed = false;
+  let spectatorPlayChecked = false;
+  let spectatorRevealChecked = false;
   const deadline = Date.now() + 12 * 60_000;
 
   await page.click('[data-action="start"]');
+  await spectator.waitForFunction(
+    (expected) => document.querySelectorAll(".player").length === expected && document.querySelector(".watching-line") === null,
+    SEATS,
+    { timeout: 20_000 },
+  );
   while (Date.now() < deadline) {
     const snap = await snapshot(page);
     const firstTime = !saw.has(snap.phase);
@@ -1004,6 +1122,51 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
       check("the ring seats every player", snap.seatCount === SEATS, `${snap.seatCount} of ${SEATS} seats`);
       const layout = await seatLayout(page);
       check("your own seat is the bottom-most seat on the ring", layout.youIsBottom, layout.detail);
+    }
+    // The watching tab sits at the desktop viewport next to this phone. Sample
+    // it once mid-game (felt + names + no controls) and once on the showdown,
+    // then again at game over — the TV is on for the whole hand.
+    if (!spectatorPlayChecked && (snap.phase === "deciding" || snap.phase === "announcing") && snap.seatCount === SEATS) {
+      const spec = await spectatorShot(spectator);
+      if (spec.watching && spec.seats === SEATS) {
+        spectatorPlayChecked = true;
+        check(
+          "SPECTATOR: no sendable ClientMessage control mid-game",
+          spec.sendable.length === 0,
+          spec.sendable.join(", ") || "none",
+        );
+        check("SPECTATOR: no you seat treatment mid-game", spec.youMarks === 0, `${spec.youMarks} you marks`);
+        check(
+          "SPECTATOR: the felt stays TV-scaled mid-game",
+          spec.feltWidth >= 520,
+          `${spec.feltWidth}px`,
+        );
+        check("SPECTATOR: seat names stay large mid-game", spec.nameSize >= 13, `${spec.nameSize}px`);
+        if (spec.standingSize > 0) {
+          check(
+            "SPECTATOR: the standing claim scales up",
+            spec.standingSize >= 28,
+            `${spec.standingSize}px`,
+          );
+        }
+        await shot(spectator, "05s-spectator-play");
+      }
+    }
+    if (!spectatorRevealChecked && snap.phase === "revealing") {
+      const showdownUp = await spectator
+        .waitForSelector(".showdown", { timeout: 10_000 })
+        .then(() => true)
+        .catch(() => false);
+      const spec = await spectatorShot(spectator);
+      spectatorRevealChecked = true;
+      check("SPECTATOR: the showdown plays on the watching tab", showdownUp && spec.showdown);
+      check("SPECTATOR: the showdown has no you chip", spec.youMarks === 0, `${spec.youMarks} you marks`);
+      check(
+        "SPECTATOR: no sendable control during the showdown",
+        spec.sendable.length === 0,
+        spec.sendable.join(", ") || "none",
+      );
+      await shot(spectator, "07s-spectator-showdown");
     }
     // The claim changes every turn and the bubble is rebuilt with it, so this
     // samples every snapshot carrying a claim rather than only the first: a
@@ -1271,6 +1434,17 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
       );
       await shot(page, "09-game-over");
 
+      await spectator.waitForSelector(".winner, .film-card", { timeout: 15_000 });
+      const specOver = await spectatorShot(spectator);
+      check(
+        "SPECTATOR: the finished screen has no rematch button",
+        !specOver.rematchButton && specOver.sendable.length === 0,
+        `rematch=${specOver.rematchButton} sendable=${specOver.sendable.join(",") || "none"}`,
+      );
+      check("SPECTATOR: the finished screen has no you", specOver.youMarks === 0, `${specOver.youMarks} you marks`);
+      check("SPECTATOR: every seat is still on the watching felt", specOver.seats === SEATS, `${specOver.seats} of ${SEATS}`);
+      await shot(spectator, "08s-spectator-finished");
+
       // The rematch. A press opens a *new* table and the link reaches this
       // socket through the snapshot; the new table's lobby is seeded with the
       // whole roster before anyone else clicks.
@@ -1509,6 +1683,19 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
       : "no motion probe",
   );
 
+  check(
+    "SPECTATOR: sampled mid-game alongside the playing tab",
+    spectatorPlayChecked,
+    spectatorPlayChecked ? "felt + names + no controls" : "never reached a deciding/announcing snapshot",
+  );
+  if (saw.has("revealing")) {
+    check(
+      "SPECTATOR: sampled a showdown on the watching tab",
+      spectatorRevealChecked,
+      spectatorRevealChecked ? "showdown on the TV tab" : "the playing tab revealed, the watcher did not",
+    );
+  }
+
   if (!saw.has("finished")) note("the game did not finish inside the time box");
   return { saw, secrecyViolations, claimBubbleViolations, diceSpill, viewerDiceSeen, countdownTicks, rerenderSurvived };
 }
@@ -1563,7 +1750,9 @@ async function main(): Promise<void> {
   check(`${BOTS} bots appear in the roster`, true, `${SEATS} seats`);
   await shot(page, "02b-table-with-bots");
 
-  const game = await playGame(page, bots, tableId);
+  const spectator = await verifySpectator(browser, page, tableId);
+
+  const game = await playGame(page, bots, tableId, spectator.page);
   check("every table phase rendered", ["roundStart", "deciding", "announcing", "revealing", "finished"].every((phase) => game.saw.has(phase)), [...game.saw].join(", "));
   check("no other player's dice were ever on screen before a reveal", game.secrecyViolations.length === 0, game.secrecyViolations.slice(0, 3).join("; "));
   check("the claim bubble hangs on the seat that made the claim", game.claimBubbleViolations.length === 0, game.claimBubbleViolations.slice(0, 3).join("; "));
@@ -1621,6 +1810,7 @@ async function main(): Promise<void> {
   bots.kill("SIGINT");
   await sleep(300);
   bots.kill("SIGKILL");
+  await spectator.context.close();
   await browser.close();
 
   section("Summary");

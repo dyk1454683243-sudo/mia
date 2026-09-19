@@ -22,7 +22,7 @@ import {
 } from "../../src/shared/mia";
 import type { ClientMessage, StateView, TableSummary } from "../../src/shared/protocol";
 import { TurnClock, type CountdownView } from "../../src/shared/clock";
-import { seatPositions } from "../../src/shared/seat-positions";
+import { isViewerSeat, seatPositions, tableViewerIndex } from "../../src/shared/seat-positions";
 import {
   frameLabel,
   lastRoundFilmstrip,
@@ -126,7 +126,7 @@ function renderShowdown(game: MiaState, view: StateView, reveal: DoubtReveal): s
     .filter((player) => !player.eliminated)
     .map(
       (player) =>
-        `<span class="showdown-chip${player.id === view.you ? " you" : ""}"><span class="avatar" aria-hidden="true">${escapeHtml(
+        `<span class="showdown-chip${isViewerSeat(view.spectator, player.id, view.you) ? " you" : ""}"><span class="avatar" aria-hidden="true">${escapeHtml(
           initialsOf(player.name),
         )}</span>${escapeHtml(player.name)}</span>`,
     )
@@ -203,6 +203,9 @@ const clock = new TurnClock();
 let socket: TableSocket | null = null;
 
 function send(message: ClientMessage): void {
+  // A spectator has no seat and the page draws no controls that send, but a
+  // leftover click must not enqueue a move the server will only refuse.
+  if (state.view?.spectator) return;
   // Stamp the snapshot this move was decided against. A move queued during a
   // disconnect is replayed on reconnect by `TableSocket`, and by then the table
   // may be several turns on; the server refuses a stamp that no longer matches.
@@ -241,6 +244,7 @@ function toast(message: string): void {
 // ---------------------------------------------------------------------------
 
 function renderWaiting(view: StateView): string {
+  if (view.spectator) return renderSpectatorWaiting(view);
   const players = view.state.players;
   // The creator is whoever D1 recorded, not whoever opened a socket first.
   const hostId = view.state.hostId ?? players[0]?.id ?? null;
@@ -285,6 +289,25 @@ function renderWaiting(view: StateView): string {
     </section>`;
 }
 
+/**
+ * The TV goes on early: same felt as the round, no start button, no "you".
+ * `renderPlayers` already draws an empty ring when `round === 0`.
+ */
+function renderSpectatorWaiting(view: StateView): string {
+  const events = view.state.events
+    .slice(-8)
+    .reverse()
+    .map((event) => `<li class="ev-${event.kind}">${escapeHtml(event.text)}</li>`)
+    .join("");
+  return `
+    ${renderPlayers(view.state, view)}
+    <p class="watching-line">Watching · waiting for the first deal</p>
+    <section class="card log-card">
+      <h3>Table talk</h3>
+      <ol class="log">${events || '<li class="muted">The table is quiet.</li>'}</ol>
+    </section>`;
+}
+
 /** Two-letter initials for the seat avatar: first letters of the first two words. */
 function initialsOf(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
@@ -315,13 +338,19 @@ function countdownMarkup(countdown: CountdownView): string {
  * snapshot actually carries dice, a `.badge.cup`, the `turn`/`out` classes on
  * the seat, and one `.pip.on` per life. The claim is a text speech bubble on the
  * seat that made it, never dice, so the secrecy rule is untouched.
+ *
+ * A spectator snapshot still carries a `you` (the socket's player id, which may
+ * even be a seated player's). The `spectator` flag is what drops the `you`
+ * treatment and rotates from `SPECTATOR_VIEWER_INDEX` rather than hunting for
+ * a chair this watcher does not have.
  */
 function renderPlayers(game: MiaState, view: StateView): string {
   const countdown = clock.countdown(game.turnStartedAt, game.deadlineAt);
   const players = game.players;
-  const viewerIndex = Math.max(
-    0,
-    players.findIndex((player) => player.id === view.you),
+  const viewerIndex = tableViewerIndex(
+    view.spectator,
+    view.you,
+    players.map((player) => player.id),
   );
   const positions = seatPositions(players.length, viewerIndex);
   const claim = game.lastAnnouncement;
@@ -331,7 +360,7 @@ function renderPlayers(game: MiaState, view: StateView): string {
       const turn = game.turnPlayerId === player.id;
       const cup = game.diceOwnerId === player.id && game.phase !== "finished";
       const offline = !view.connected.includes(player.id);
-      const isYou = player.id === view.you;
+      const isYou = isViewerSeat(view.spectator, player.id, view.you);
       const ownTurn = turn && isYou && countdown !== null;
       const lives = Array.from({ length: STARTING_LIVES }, (_, life) =>
         life < player.lives ? '<i class="pip on"></i>' : '<i class="pip"></i>',
@@ -400,7 +429,7 @@ function renderFilmstrip(game: MiaState, view: StateView): string {
   if (strip.frames.length === 0) return "";
   const cells = strip.frames
     .map((frame) => {
-      const mine = frame.playerId === view.you;
+      const mine = isViewerSeat(view.spectator, frame.playerId, view.you);
       const who = mine ? "you" : initialsOf(frame.playerName);
       const label = mine ? "You" : escapeHtml(frame.playerName);
       if (frame.kind === "doubt") {
@@ -431,10 +460,11 @@ function renderFilmstrip(game: MiaState, view: StateView): string {
 
 /** The finishing order and what each player did, read off their record. */
 function renderStats(game: MiaState, view: StateView): string {
-  const viewer = playerById(game, view.you);
+  const viewer = view.spectator ? undefined : playerById(game, view.you);
   const chips = viewer?.record ? playerChips(viewer.record) : [];
   // A spectator has no seat and so no record: the heading goes with the numbers
-  // rather than sitting over an empty section.
+  // rather than sitting over an empty section. A same-cookie watcher still has
+  // a `you` that matches a seat — the flag, not the id, is what drops "you".
   const head =
     viewer?.record && chips.length > 0
       ? `<h3>How you played</h3>
@@ -451,9 +481,10 @@ function renderStats(game: MiaState, view: StateView): string {
   const rows = finalStandings(game)
     .map(({ player, place }) => {
       const line = player.record ? escapeHtml(statLines(player.record, voiceFor(player, view.you)).join(" ")) : "";
-      return `<li class="stat-row${player.id === view.you ? " you" : ""}">
+      const mine = isViewerSeat(view.spectator, player.id, view.you);
+      return `<li class="stat-row${mine ? " you" : ""}">
         <span class="place">${ordinal(place)}</span>
-        <span class="name">${escapeHtml(player.name)}${player.id === view.you ? " <em>(you)</em>" : ""}</span>
+        <span class="name">${escapeHtml(player.name)}${mine ? " <em>(you)</em>" : ""}</span>
         <span class="outcome">${escapeHtml(playerOutcome(player))}</span>
         ${line ? `<span class="stat-line">${line}</span>` : ""}
       </li>`;
@@ -490,7 +521,7 @@ function ordinal(place: number): string {
  */
 function renderFinishedActions(game: MiaState, view: StateView): string {
   const winner = game.gameOver?.winnerName ?? "somebody";
-  const seated = playerById(game, view.you) !== undefined;
+  const seated = !view.spectator && playerById(game, view.you) !== undefined;
   const rematch =
     game.rematchId !== null
       ? `<a class="primary link" data-action="join-rematch" href="/t/${encodeURIComponent(
@@ -610,16 +641,19 @@ function renderAnnounceLadder(
 
 function renderPlay(view: StateView): string {
   const game = view.state;
+  const spectator = view.spectator;
   const moves = legalMoves(game, view.you);
-  const you = playerById(game, view.you);
+  const you = spectator ? undefined : playerById(game, view.you);
   const standing = game.lastAnnouncement;
   const turnPlayer = playerById(game, game.turnPlayerId ?? "");
   const countdown = clock.countdown(game.turnStartedAt, view.deadlineAt);
   const reveal = game.pendingDoubt ?? game.lastReveal;
-  const turnIsMine = game.turnPlayerId !== null && game.turnPlayerId === view.you;
+  const turnIsMine = !spectator && game.turnPlayerId !== null && game.turnPlayerId === view.you;
 
   let actions = "";
-  if (game.phase === "finished") {
+  if (spectator && game.phase !== "finished") {
+    // No actions card, no announce ladder: a TV does not send ClientMessages.
+  } else if (game.phase === "finished") {
     actions = renderFinishedActions(game, view);
   } else if (game.phase === "revealing") {
     actions = `<div class="card actions"><p class="muted">Reveal…</p></div>`;
@@ -692,10 +726,14 @@ function renderPlay(view: StateView): string {
           .join("")}
       </ol>
     </section>
-    <div class="row gap">
+    ${
+      spectator
+        ? ""
+        : `<div class="row gap">
       <button class="ghost" data-action="share">Share join link</button>
       <a class="ghost link" href="/">Leave table</a>
-    </div>`;
+    </div>`
+    }`;
 }
 
 // The ladder box is capped to the stylesheet's `30rem` (at a 16px root).
@@ -790,13 +828,25 @@ function render(): void {
 
   const started = view.state.round > 0;
   const over = view.state.gameOver !== null;
+  const watching = view.spectator;
+  const roundLabel = watching
+    ? over
+      ? "Watching · Final"
+      : started
+        ? `Watching · Round ${view.state.round}`
+        : "Watching"
+    : over
+      ? "Final"
+      : started
+        ? `Round ${view.state.round}`
+        : "Lobby";
   paint(`
     <header class="topbar">
       <a class="brand" href="/">Mia</a>
       <span class="table-title">${escapeHtml(title)}</span>
-      <span class="round">${over ? "Final" : started ? `Round ${view.state.round}` : "Lobby"}</span>
+      <span class="round">${roundLabel}</span>
     </header>
-    <main class="page">
+    <main class="page${watching ? " spectator" : ""}" data-spectator="${watching ? "1" : "0"}">
       ${state.error ? `<p class="toast">${escapeHtml(state.error)}</p>` : ""}
       ${started ? renderPlay(view) : renderWaiting(view)}
     </main>`);
@@ -856,26 +906,31 @@ async function boot(): Promise<void> {
     return;
   }
   document.title = `${state.table.name} — Mia`;
-  socket = new TableSocket(tableId, {
-    onState: (view) => {
-      clock.sync(view.serverTime);
-      state.view = view;
-      render();
-    },
-    onError: (message, code) => {
-      // "Table full" is terminal: there is no seat and no snapshot to wait for.
-      // Stop the socket so the reconnect loop cannot spin, and show the reason
-      // as a page rather than a toast that fades and leaves "Connecting…".
-      if (code === "table-full") {
-        state.fatal = message;
-        socket?.close();
+  const watch = new URLSearchParams(location.search).get("watch") === "1";
+  socket = new TableSocket(
+    tableId,
+    {
+      onState: (view) => {
+        clock.sync(view.serverTime);
+        state.view = view;
         render();
-        return;
-      }
-      toast(message);
+      },
+      onError: (message, code) => {
+        // "Table full" is terminal: there is no seat and no snapshot to wait for.
+        // Stop the socket so the reconnect loop cannot spin, and show the reason
+        // as a page rather than a toast that fades and leaves "Connecting…".
+        if (code === "table-full") {
+          state.fatal = message;
+          socket?.close();
+          render();
+          return;
+        }
+        toast(message);
+      },
+      onClose: () => render(),
     },
-    onClose: () => render(),
-  });
+    watch,
+  );
   socket.connect();
   render();
 }

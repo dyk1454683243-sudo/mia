@@ -83,7 +83,7 @@ function renderTables(): string {
           // live join link: "Full" used to navigate straight into a page that
           // could only ever say "Connecting…".
           const action = inGame
-            ? `<a class="primary link" href="/t/${encodeURIComponent(table.id)}">Watch</a>`
+            ? `<a class="primary link" href="/t/${encodeURIComponent(table.id)}?watch=1">Watch</a>`
             : full
               ? `<button class="primary" type="button" disabled>Full</button>`
               : `<a class="primary link" href="/t/${encodeURIComponent(table.id)}">Join</a>`;
