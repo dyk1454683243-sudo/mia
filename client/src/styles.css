@@ -1915,7 +1915,10 @@ ul {
 :root.mood-press .primary[disabled],
 :root.mood-press button[disabled] {
   filter: none;
-  opacity: 0.4;
+  opacity: 1;
+  background: transparent;
+  color: var(--ink-dim);
+  border: 1.5px solid var(--ink);
 }
 
 :root.mood-press input {
@@ -1949,6 +1952,15 @@ ul {
   background: transparent;
   border-color: var(--ink);
   box-shadow: none;
+}
+
+:root.mood-press .player.out {
+  opacity: 1;
+}
+
+:root.mood-press .player.out .name,
+:root.mood-press .player.out .avatar {
+  color: var(--ink-dim);
 }
 
 :root.mood-press .avatar {
@@ -2043,6 +2055,11 @@ ul {
   border-color: var(--gold);
 }
 
+:root.mood-press .announce[disabled] {
+  opacity: 1;
+  color: var(--ink-dim);
+}
+
 :root.mood-press .showdown-stamp {
   border-radius: 0;
   text-shadow: none;
@@ -2065,11 +2082,13 @@ ul {
 :root.mood-press .showdown-cup {
   border-radius: 0;
   box-shadow: none;
+  background: var(--felt);
   border: 2px solid var(--ink);
 }
 
 :root.mood-press .showdown-cup::after {
   border-radius: 0;
+  border-color: var(--ink);
 }
 
 :root.mood-press .showdown-chip,

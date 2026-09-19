@@ -1992,6 +1992,31 @@ async function main(): Promise<void> {
       shadow: waitingPress.cardShadow,
     }),
   );
+  const disabledPrimary = await page.evaluate(() => {
+    const button = document.querySelector<HTMLElement>("button.primary[disabled], .primary[disabled]");
+    if (!button) return null;
+    const style = getComputedStyle(button);
+    const body = getComputedStyle(document.body);
+    return {
+      color: style.color,
+      fill: style.backgroundColor,
+      felt: body.backgroundColor,
+      opacity: style.opacity,
+    };
+  });
+  check("Press keeps a disabled start control to contrast-check", disabledPrimary !== null, "missing disabled primary");
+  if (disabledPrimary) {
+    const fill =
+      disabledPrimary.fill.startsWith("rgba(0, 0, 0, 0") || disabledPrimary.fill === "transparent"
+        ? disabledPrimary.felt
+        : disabledPrimary.fill;
+    const ratio = contrastRatio(disabledPrimary.color, fill);
+    check(
+      "Press disabled chrome stays opaque and meets WCAG AA",
+      disabledPrimary.opacity === "1" && ratio >= 4.5,
+      `${ratio.toFixed(2)}:1 at opacity ${disabledPrimary.opacity} (${disabledPrimary.color} on ${fill})`,
+    );
+  }
   await page.selectOption("[data-mood-picker]", "felt");
   await shotMoods(page, "02-table-waiting");
   check("the waiting room shows the share control", (await page.$('[data-action="share"]')) !== null);
