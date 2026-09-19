@@ -11,6 +11,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { livesIndicator } from "../src/shared/lives.ts";
 import { formatValue, MAX_PLAYERS, MIA, MIN_PLAYERS, outranks, RANKING } from "../src/shared/mia.ts";
 import { SHIP_NAMES } from "../src/shared/ships.ts";
 import { api, BASE, createPlayer } from "./lib.ts";
@@ -398,7 +399,19 @@ interface Snapshot {
     hasCut: boolean;
     standingRung: number | null;
   };
-  players: { name: string; you: boolean; dice: boolean; cup: boolean; out: boolean; turn: boolean; lives: number }[];
+  players: {
+    name: string;
+    you: boolean;
+    dice: boolean;
+    cup: boolean;
+    out: boolean;
+    turn: boolean;
+    lives: number;
+    livesCount: string;
+    livesLabel: string;
+  }[];
+  /** The showdown loss row: remaining lives after the charge, labelled. */
+  showdownLives: { on: number; count: string; label: string } | null;
   /** How many `.player` seats the table drew — eliminated players included. */
   seatCount: number;
   /** The player id on the centre `.standing` chip, so the claim is tied to a seat. */
@@ -439,15 +452,33 @@ async function snapshot(page: Page): Promise<Snapshot> {
           ? miaValue
           : Number(standingText.replace(/\D/g, "")) || null;
     const standingButton = document.querySelector<HTMLElement>(".announce.rung-standing");
-    const players = [...document.querySelectorAll<HTMLElement>(".player")].map((row) => ({
-      name: row.querySelector(".name")?.textContent?.trim() ?? "",
-      you: row.querySelector(".name em") !== null,
-      dice: row.querySelector(".player-dice") !== null,
-      cup: row.querySelector(".badge.cup") !== null,
-      out: row.classList.contains("out"),
-      turn: row.classList.contains("turn"),
-      lives: row.querySelectorAll(".pip.on").length,
-    }));
+    const readLives = (root: Element | null) => {
+      const pips = root?.querySelector(".pips") ?? null;
+      return {
+        on: pips ? pips.querySelectorAll(".pip.on").length : 0,
+        count: pips?.querySelector(".lives-count")?.textContent?.trim() ?? "",
+        label: pips?.getAttribute("aria-label") ?? "",
+      };
+    };
+    const players = [...document.querySelectorAll<HTMLElement>(".player")].map((row) => {
+      const lives = readLives(row);
+      return {
+        name: row.querySelector(".name")?.textContent?.trim() ?? "",
+        you: row.querySelector(".name em") !== null,
+        dice: row.querySelector(".player-dice") !== null,
+        cup: row.querySelector(".badge.cup") !== null,
+        out: row.classList.contains("out"),
+        turn: row.classList.contains("turn"),
+        // `.pip.on` is still the seat contract the harness counts.
+        lives: row.querySelectorAll(".pip.on").length,
+        livesCount: lives.count,
+        livesLabel: lives.label,
+      };
+    });
+    const showdownLivesRaw = readLives(document.querySelector(".showdown-loss"));
+    const showdownLives = document.querySelector(".showdown-loss")
+      ? { on: showdownLivesRaw.on, count: showdownLivesRaw.count, label: showdownLivesRaw.label }
+      : null;
     const claimNodes = [...document.querySelectorAll<HTMLElement>(".player .claim")];
     const claim = {
       by: claimNodes[0]?.closest<HTMLElement>(".player")?.dataset.playerId ?? null,
@@ -529,6 +560,7 @@ async function snapshot(page: Page): Promise<Snapshot> {
         standingRung: standingButton ? Number(standingButton.dataset.value) : null,
       },
       players,
+      showdownLives,
       seatCount: players.length,
       standingClaimerId: standingNode?.dataset.claimerId ?? null,
       claim,
@@ -927,11 +959,17 @@ async function act(page: Page): Promise<string> {
   });
 }
 
-async function playGame(page: Page, bots: ChildProcess, tableId: string): Promise<{ saw: Set<string>; secrecyViolations: string[]; claimBubbleViolations: string[]; diceSpill: string[]; viewerDiceSeen: boolean; countdownTicks: string[]; rerenderSurvived: boolean | null }> {
+function livesRowAgrees(on: number, count: string, label: string): boolean {
+  const expected = livesIndicator(on);
+  return count === expected.countText && label === expected.ariaLabel;
+}
+
+async function playGame(page: Page, bots: ChildProcess, tableId: string): Promise<{ saw: Set<string>; secrecyViolations: string[]; claimBubbleViolations: string[]; livesViolations: string[]; diceSpill: string[]; viewerDiceSeen: boolean; countdownTicks: string[]; rerenderSurvived: boolean | null }> {
   section("A full game with bots");
   const saw = new Set<string>();
   const secrecyViolations: string[] = [];
   const claimBubbleViolations: string[] = [];
+  const livesViolations: string[] = [];
   const diceSpill: string[] = [];
   let viewerDiceSeen = false;
   const countdownTicks: string[] = [];
@@ -1004,6 +1042,39 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
       check("the ring seats every player", snap.seatCount === SEATS, `${snap.seatCount} of ${SEATS} seats`);
       const layout = await seatLayout(page);
       check("your own seat is the bottom-most seat on the ring", layout.youIsBottom, layout.detail);
+      const hiddenCounts = await page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>(".player .lives-count")].filter((node) => {
+          const style = getComputedStyle(node);
+          const box = node.getBoundingClientRect();
+          return (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            style.opacity === "0" ||
+            box.width < 4 ||
+            box.height < 4
+          );
+        }).length,
+      );
+      check(
+        "every seat draws a visible lives number, not only an aria-label",
+        snap.players.every((player) => player.livesCount.length > 0) && hiddenCounts === 0,
+        hiddenCounts === 0
+          ? snap.players.map((player) => player.livesCount).join(", ")
+          : `${hiddenCounts} hidden counts`,
+      );
+    }
+    // The count changes when someone loses a life, so this samples every
+    // in-play snapshot rather than only the first: a number that sticks at 6
+    // while `.pip.on` drops has to register. Mismatches accumulate and assert
+    // once after the loop.
+    if (snap.seatCount > 0) {
+      for (const player of snap.players) {
+        if (!livesRowAgrees(player.lives, player.livesCount, player.livesLabel)) {
+          livesViolations.push(
+            `${player.name}: pips ${player.lives} · count ${JSON.stringify(player.livesCount)} · label ${JSON.stringify(player.livesLabel)}`,
+          );
+        }
+      }
     }
     // The claim changes every turn and the bubble is rebuilt with it, so this
     // samples every snapshot carrying a claim rather than only the first: a
@@ -1153,6 +1224,29 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
       );
       const layout = await showdownLayout(page);
       check("claimed and actual stand side by side in the showdown", layout.sideBySide, layout.detail);
+      const showdown = snap.showdownLives;
+      const showdownCountHidden = await page.evaluate(() => {
+        const node = document.querySelector<HTMLElement>(".showdown-loss .lives-count");
+        if (!node) return true;
+        const style = getComputedStyle(node);
+        const box = node.getBoundingClientRect();
+        return (
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          style.opacity === "0" ||
+          box.width < 4 ||
+          box.height < 4
+        );
+      });
+      check(
+        "the showdown labels the loser's remaining lives with a visible number",
+        showdown !== null &&
+          livesRowAgrees(showdown.on, showdown.count, showdown.label) &&
+          !showdownCountHidden,
+        showdown
+          ? `pips ${showdown.on} · count ${showdown.count} · label ${showdown.label}`
+          : "no showdown-loss row",
+      );
       // The staging's whole value is *when* the verdict appears, and every
       // other check here only tests *that* it appears. Read the first and last
       // beat for each tone from an off-screen clone, so a tone rule that leaks
@@ -1510,7 +1604,7 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
   );
 
   if (!saw.has("finished")) note("the game did not finish inside the time box");
-  return { saw, secrecyViolations, claimBubbleViolations, diceSpill, viewerDiceSeen, countdownTicks, rerenderSurvived };
+  return { saw, secrecyViolations, claimBubbleViolations, livesViolations, diceSpill, viewerDiceSeen, countdownTicks, rerenderSurvived };
 }
 
 // ---------------------------------------------------------------------------
@@ -1567,6 +1661,11 @@ async function main(): Promise<void> {
   check("every table phase rendered", ["roundStart", "deciding", "announcing", "revealing", "finished"].every((phase) => game.saw.has(phase)), [...game.saw].join(", "));
   check("no other player's dice were ever on screen before a reveal", game.secrecyViolations.length === 0, game.secrecyViolations.slice(0, 3).join("; "));
   check("the claim bubble hangs on the seat that made the claim", game.claimBubbleViolations.length === 0, game.claimBubbleViolations.slice(0, 3).join("; "));
+  check(
+    "visible lives counts agree with .pip.on and the aria-label on every seat",
+    game.livesViolations.length === 0,
+    game.livesViolations.slice(0, 3).join("; "),
+  );
   // The #48 regression: a long name on the viewer's chair must not carry its
   // dice (or a revealed pair) past the felt card. The viewer's own dice are
   // asserted to have been seen, so a run that never put them on screen fails

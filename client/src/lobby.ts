@@ -2,6 +2,7 @@
  * Lobby: identity, the open-tables list, table creation, and recent results.
  * Polls the JSON API; no WebSocket lives here.
  */
+import { livesCountText } from "../../src/shared/lives";
 import type { HistoryEntry, TableSummary } from "../../src/shared/protocol";
 import { api, escapeHtml, relativeTime } from "./net";
 
@@ -120,9 +121,9 @@ function renderHistory(): string {
                 <ol class="places">${game.players
                   .map(
                     (player) =>
-                      `<li><span class="place">${player.place}</span> ${escapeHtml(player.name)} <span class="muted small">${
-                        player.livesLeft
-                      } lives · ${player.roundsPlayed} rounds</span></li>`,
+                      `<li><span class="place">${player.place}</span> ${escapeHtml(player.name)} <span class="muted small">${livesCountText(
+                        player.livesLeft,
+                      )} · ${player.roundsPlayed} rounds</span></li>`,
                   )
                   .join("")}</ol>
               </li>`,
