@@ -1371,12 +1371,15 @@ ul {
 
 @keyframes showdown-mia-claim {
   0%, 54% { box-shadow: 0 0 0 0 transparent; }
-  62%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold) 75%, transparent) inset, 0 0 24px color-mix(in srgb, var(--gold) 30%, transparent); }
+  /* Solid token colours, not color-mix: mix() in a keyframe is dropped by
+   * Chromium and the ring never arrives — the harness then reads beat 3 as
+   * still undecorated. var() resolves and still follows the mood. */
+  62%, 100% { box-shadow: 0 0 0 3px var(--gold) inset, 0 0 24px var(--gold); }
 }
 
 @keyframes showdown-believed-glow {
   0%, 54% { filter: drop-shadow(0 0 0 transparent); }
-  66%, 100% { filter: drop-shadow(0 0 12px color-mix(in srgb, var(--good) 55%, transparent)); }
+  66%, 100% { filter: drop-shadow(0 0 12px var(--good)); }
 }
 
 /* Under reduced motion the showdown still shows claimed, actual and the
