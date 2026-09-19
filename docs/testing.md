@@ -143,8 +143,8 @@ Two properties of `e2e.ts` are deliberate and should not be "cleaned up":
 
 ## An assertion that cannot fail is not coverage
 
-A test earns its place by failing when the thing it protects breaks. There are two
-ways it can quietly not do that, and both have shipped here.
+A test earns its place by failing when the thing it protects breaks. There are four
+ways it can quietly not do that, and every one of them has shipped here.
 
 **The assertion is unreachable given the fixture.** A `COUNT(*)` against a sentinel
 row is trivially zero in a file that never finishes a game, so it holds whether or
@@ -158,6 +158,27 @@ exactly right and still never run where it would fail. Prefer a default that
 exercises the worst case over an opt-in someone has to remember: `ui-check` fills
 to `MAX_PLAYERS` rather than leaving the full table behind a flag, so the tightest
 layout is on the default path.
+
+**The sampling is scoped to the state the feature was designed for.** A threshold
+usually has more than one way to be crossed, and a probe watches the one the
+feature was written for. The #49 countdown reddens the felt in the turn clock's
+last ten seconds, and it was checked exactly there — one live frame above ten
+seconds, one below — with the sampling gated on `phase === "deciding" || phase ===
+"announcing"`. But `urgent` was `seconds <= COUNTDOWN_URGENT_SECONDS` against
+*any* `deadlineAt`, and `armRoundStart` (2s) and the reveal (5s) arm one the same
+way the 60s turn does, so every frame of those phases sat inside ten seconds: the
+felt and the whole page went red for the beat at the top of every round, before
+the clock had even started, and green again once it had. Nothing here was vacuous
+— the checks were sound, each mutation reproduced, the suite was green — the
+coverage simply stopped at the state the treatment was meant for, and the bug was
+plain in the round-start screenshot, a frame nobody had looked at. So enumerate
+the states that can cross a threshold, sample the ones you did not design for,
+and put the scope where the threshold lives: `urgent` now requires the phase
+*window* to outlast the threshold, in `src/shared/clock.ts` beside the constant,
+rather than in a CSS selector. The tell that a new case is a real gap and not a
+restatement of the ones beside it: with the fix reverted it should be the *only*
+red check, as the round-start assertion was while the above-ten and below-ten
+pair stayed green.
 
 **The assertion is about existence when the property is about timing.** A check
 that claimed, actual and the stamp all appear says nothing about *when* each one
