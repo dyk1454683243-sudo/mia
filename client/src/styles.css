@@ -485,13 +485,108 @@ ul {
   letter-spacing: 0.04em;
 }
 
+/* Round-table lives are candles (plate 07). The generic `.pip` below stays a
+ * compact dot for incidental counts — the showdown loss row — so chalk-tally
+ * and chip treatments are not sitting around as unused CSS. `.pip.on` still
+ * means a remaining life; only the paint changes here. */
 .player .pips {
-  margin-top: 0.1rem;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  /* Padding holds the flame / smoke, which sit above the wax. */
+  margin-top: 0.12rem;
+  padding-top: 6px;
+  gap: 0.16rem;
 }
 
 .player .pip {
-  width: 6px;
-  height: 6px;
+  position: relative;
+  width: 4px;
+  height: 9px;
+  border-radius: 1px 1px 0.5px 0.5px;
+  background: linear-gradient(180deg, #8d8070, #5c5348);
+  box-shadow: none;
+  opacity: 0.5;
+}
+
+.player .pip.on {
+  background: linear-gradient(180deg, #f6edd6, #d8c69c);
+  box-shadow: none;
+  opacity: 1;
+}
+
+/* A static wick mark so a reduced-motion seat is still cream-vs-ash, not a
+ * flame blob. The flicker and the smoke thread are the motion; they live
+ * behind `no-preference` and are skipped entirely under `reduce`. */
+@media (prefers-reduced-motion: reduce) {
+  .player .pip.on {
+    box-shadow: 0 -1px 0 var(--gold);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .player .pip.on::before {
+    content: "";
+    position: absolute;
+    top: -6px;
+    left: 50%;
+    width: 6px;
+    height: 8px;
+    transform: translateX(-50%);
+    border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+    background: radial-gradient(circle at 50% 70%, #ffe9a8, #ff9a32 58%, rgba(255, 80, 0, 0));
+    filter: blur(0.2px);
+    animation: flame-flicker 0.9s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  .player .pip:not(.on)::after {
+    content: "";
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    width: 2px;
+    height: 7px;
+    transform: translateX(-50%);
+    border-radius: 1px;
+    background: linear-gradient(180deg, rgba(190, 190, 190, 0.55), transparent);
+    animation: smoke-drift 2.6s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  /* One flame left: hotter, not taller — a size bump would move the dice. */
+  .player:not(.out) .pips:has(> .pip.on:first-child):not(:has(> .pip.on:nth-child(2))) .pip.on::before {
+    background: radial-gradient(circle at 50% 70%, #fff6d0, #ff6a10 52%, rgba(255, 30, 0, 0));
+    filter: none;
+  }
+}
+
+@keyframes flame-flicker {
+  0%,
+  100% {
+    transform: translateX(-50%) scale(1);
+    opacity: 1;
+  }
+  40% {
+    transform: translateX(-52%) scaleY(1.12) scaleX(0.88);
+    opacity: 0.88;
+  }
+  70% {
+    transform: translateX(-48%) scaleY(0.94) scaleX(1.06);
+    opacity: 1;
+  }
+}
+
+@keyframes smoke-drift {
+  0%,
+  100% {
+    transform: translateX(-50%) translateY(0);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translateX(calc(-50% + 1px)) translateY(-3px);
+    opacity: 0.2;
+  }
 }
 
 .player .player-dice {

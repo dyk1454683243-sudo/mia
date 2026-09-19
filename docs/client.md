@@ -41,11 +41,18 @@ The rearrangement is visual only. The seats are still one semantic `<ul>` of
 `.player` items, each keeping the contract the harness reads — `.name` (with
 `.name em` marking the viewer), `.player-dice` only when the snapshot actually
 carries dice, a `.badge.cup`, the `turn`/`out` classes on the seat, and one
-`.pip.on` per life plus the lives `aria-label`. What changed is that the standing
-claim now lives in the centre inside the same `.standing` the page-level reads
-use, and a claim is a text speech bubble pinned to the claimant's chair rather
-than a row in a list. The bubble is never a die, so the secrecy invariant is
-untouched.
+`.pip.on` per life plus the lives `aria-label`. On the ring those pips are
+candles — cream wax and a flame while the life is there, ash and a thread of
+smoke once it is gone — because six identical dots do not count at a glance
+across the felt. The showdown loss row keeps the compact pip, where the count
+is incidental next to `−1`. Flame flicker and smoke are skipped under
+`prefers-reduced-motion`; the wax still distinguishes lit from snuffed.
+Chalk-tally and chip treatments were the other plate-07 options and are not
+in the stylesheet. The number-next-to-the-glyph half of that plate is #32,
+not this page. What changed is that the standing claim now lives in the centre
+inside the same `.standing` the page-level reads use, and a claim is a text
+speech bubble pinned to the claimant's chair rather than a row in a list. The
+bubble is never a die, so the secrecy invariant is untouched.
 
 Names are the full string in the DOM, so assistive tech and the harness keep
 reading who someone is. At seat size other players ellipsize to one line, while

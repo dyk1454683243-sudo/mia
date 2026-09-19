@@ -120,7 +120,12 @@ cover the assembled system, and they need a running `wrangler dev` (or a deploye
   so the assertion fails if the red arrived at sixty seconds, or arrived at the
   2s top of a round where nobody is running out of time, and it reads a
   forced-urgent clone under both motion preferences so the reduced-motion skip
-  cannot pass by accident. At the end it checks the finished screen's filmstrip,
+  cannot pass by accident. The lives-treatment check is the same idea for
+  plate 07: it measures a seat pip as a tall candle and a showdown pip as the
+  compact dot, then reads flame and smoke under both motion preferences from a
+  cloned seat that already has a snuffed candle, so a missing `reduce` gate
+  (motion in both) and a missing treatment (motion in neither) both fail. At
+  the end it checks the finished screen's filmstrip,
   stats and rematch against the snapshot, and opens the rematch link in a second
   page to see the seeded lobby — the one place the rematch handoff is exercised
   with a real browser and a real cookie.

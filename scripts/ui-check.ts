@@ -841,6 +841,109 @@ interface MotionProbe {
   reducedBody: boolean;
 }
 
+interface LivesBox {
+  width: number;
+  height: number;
+  radius: string;
+}
+
+interface LivesTreatment {
+  onCount: number;
+  seatOn: LivesBox | null;
+  showdownPip: LivesBox | null;
+}
+
+interface LivesMotionProbe {
+  normalFlame: boolean;
+  normalSmoke: boolean;
+  reducedFlame: boolean;
+  reducedSmoke: boolean;
+  hasOff: boolean;
+}
+
+function isCandle(box: LivesBox | null): boolean {
+  return box !== null && box.height >= 8 && box.height > box.width * 1.4;
+}
+
+function isCompactPip(box: LivesBox | null): boolean {
+  return box !== null && box.height <= 10 && Math.abs(box.height - box.width) <= 2;
+}
+
+function livesBoxDetail(box: LivesBox | null): string {
+  return box ? `${box.width.toFixed(1)}×${box.height.toFixed(1)} r=${box.radius}` : "none";
+}
+
+/**
+ * Seat candles vs incidental pips, as painted. The harness already counts
+ * `.pip.on`; this is the ornament — tall wax on the ring, compact dots on
+ * the showdown loss row — so shipping candles everywhere or leaving the
+ * table as dots both fail.
+ */
+async function sampleLivesTreatment(page: Page): Promise<LivesTreatment> {
+  return await page.evaluate(() => {
+    const boxOf = (node: HTMLElement | null): LivesBox | null => {
+      if (!node) return null;
+      const rect = node.getBoundingClientRect();
+      return {
+        width: rect.width,
+        height: rect.height,
+        radius: getComputedStyle(node).borderRadius,
+      };
+    };
+    return {
+      onCount: document.querySelectorAll(".player .pip.on").length,
+      seatOn: boxOf(document.querySelector<HTMLElement>(".player .pip.on")),
+      showdownPip: boxOf(document.querySelector<HTMLElement>(".showdown-loss .pip")),
+    };
+  });
+}
+
+/**
+ * Flame flicker and smoke, read from a cloned seat under both motion
+ * preferences. The live clock is the wrong fixture: every opening frame has
+ * six lit candles and no smoke. A seat that already lost a life has both
+ * pseudos, so a missing `reduce` gate cannot hide behind "nobody has died
+ * yet".
+ */
+async function livesMotionProbe(page: Page): Promise<LivesMotionProbe | null> {
+  const sample = async (reduced: boolean) => {
+    await page.emulateMedia({ reducedMotion: reduced ? "reduce" : "no-preference" });
+    return await page.evaluate(() => {
+      const seats = [...document.querySelectorAll<HTMLElement>(".player")];
+      const row =
+        seats.find((seat) => seat.querySelector(".pip.on") && seat.querySelector(".pip:not(.on)")) ?? seats[0];
+      if (!row) return null;
+      const clone = row.cloneNode(true) as HTMLElement;
+      clone.style.position = "absolute";
+      clone.style.left = "-9999px";
+      document.body.appendChild(clone);
+      const painted = (content: string) => content !== "none" && content !== "";
+      const on = clone.querySelector<HTMLElement>(".pip.on");
+      const off = clone.querySelector<HTMLElement>(".pip:not(.on)");
+      const flame = on ? getComputedStyle(on, "::before") : null;
+      const smoke = off ? getComputedStyle(off, "::after") : null;
+      const result = {
+        flame: flame !== null && painted(flame.content) && flame.animationName !== "none",
+        smoke: smoke !== null && painted(smoke.content) && smoke.animationName !== "none",
+        hasOff: off !== null,
+      };
+      clone.remove();
+      return result;
+    });
+  };
+  const normal = await sample(false);
+  const reduced = await sample(true);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  if (!normal || !reduced) return null;
+  return {
+    normalFlame: normal.flame,
+    normalSmoke: normal.smoke,
+    reducedFlame: reduced.flame,
+    reducedSmoke: reduced.smoke,
+    hasOff: normal.hasOff,
+  };
+}
+
 /**
  * The reduced-motion skip, read from a forced-urgent clone rather than the live
  * clock so it cannot pass because the frame happened to be calm. The same clone
@@ -958,6 +1061,10 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
   let nonTurnSeatSamples = 0;
   let motionProbe: MotionProbe | null = null;
   let countdownProbed = false;
+  let livesSeatChecked = false;
+  let livesShowdownChecked = false;
+  let livesMotion: LivesMotionProbe | null = null;
+  let oneLifeShot = false;
   const deadline = Date.now() + 12 * 60_000;
 
   await page.click('[data-action="start"]');
@@ -1004,6 +1111,25 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
       check("the ring seats every player", snap.seatCount === SEATS, `${snap.seatCount} of ${SEATS} seats`);
       const layout = await seatLayout(page);
       check("your own seat is the bottom-most seat on the ring", layout.youIsBottom, layout.detail);
+    }
+    if (!livesSeatChecked && snap.seatCount > 0) {
+      livesSeatChecked = true;
+      const lives = await sampleLivesTreatment(page);
+      check(
+        "the ring draws lives as candles, not compact pips",
+        isCandle(lives.seatOn),
+        `${livesBoxDetail(lives.seatOn)} · ${lives.onCount} .pip.on`,
+      );
+    }
+    if (!oneLifeShot && snap.players.some((player) => player.lives === 1)) {
+      oneLifeShot = true;
+      await shot(page, "14-one-life");
+      note(
+        `14-one-life: ${snap.players
+          .filter((player) => player.lives === 1)
+          .map((player) => `${player.you ? "you" : player.name} @ ${player.lives}`)
+          .join(", ")} in ${snap.phase}`,
+      );
     }
     // The claim changes every turn and the bubble is rebuilt with it, so this
     // samples every snapshot carrying a claim rather than only the first: a
@@ -1153,6 +1279,30 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
       );
       const layout = await showdownLayout(page);
       check("claimed and actual stand side by side in the showdown", layout.sideBySide, layout.detail);
+      if (!livesShowdownChecked) {
+        livesShowdownChecked = true;
+        const lives = await sampleLivesTreatment(page);
+        check(
+          "the showdown keeps compact pips where the count is incidental",
+          isCompactPip(lives.showdownPip),
+          livesBoxDetail(lives.showdownPip),
+        );
+        livesMotion = await livesMotionProbe(page);
+        check(
+          "candle flame and smoke run when motion is allowed",
+          livesMotion !== null && livesMotion.hasOff && livesMotion.normalFlame && livesMotion.normalSmoke,
+          livesMotion
+            ? `hasOff=${livesMotion.hasOff} flame=${livesMotion.normalFlame} smoke=${livesMotion.normalSmoke}`
+            : "no seat to probe",
+        );
+        check(
+          "candle flame and smoke are skipped under reduced motion",
+          livesMotion !== null && !livesMotion.reducedFlame && !livesMotion.reducedSmoke,
+          livesMotion
+            ? `reduced flame=${livesMotion.reducedFlame} smoke=${livesMotion.reducedSmoke}`
+            : "no seat to probe",
+        );
+      }
       // The staging's whole value is *when* the verdict appears, and every
       // other check here only tests *that* it appears. Read the first and last
       // beat for each tone from an off-screen clone, so a tone rule that leaks

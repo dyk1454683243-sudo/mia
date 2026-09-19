@@ -313,8 +313,10 @@ function countdownMarkup(countdown: CountdownView): string {
  * The DOM keeps the contract the harness relies on — each seat is a `.player`
  * with `.name` (and `.name em` for the viewer), `.player-dice` only when the
  * snapshot actually carries dice, a `.badge.cup`, the `turn`/`out` classes on
- * the seat, and one `.pip.on` per life. The claim is a text speech bubble on the
- * seat that made it, never dice, so the secrecy rule is untouched.
+ * the seat, and one `.pip.on` per life. On the ring those pips paint as
+ * candles; the showdown loss row keeps the compact dots. The claim is a text
+ * speech bubble on the seat that made it, never dice, so the secrecy rule is
+ * untouched.
  */
 function renderPlayers(game: MiaState, view: StateView): string {
   const countdown = clock.countdown(game.turnStartedAt, game.deadlineAt);
