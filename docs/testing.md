@@ -123,12 +123,15 @@ cover the assembled system, and they need a running `wrangler dev` (or a deploye
   2s top of a round where nobody is running out of time, and it reads a
   forced-urgent clone under both motion preferences so the reduced-motion skip
   cannot pass by accident. The mood check is the sibling of the rename-persist
-  idea: it uses the real picker, asserts Stammtisch and Night Shift are
+  idea: it uses the real picker, asserts Stammtisch, Night Shift and Press are
   different `--felt` values, watches the class land on `<html>` at
   `domcontentloaded` (the first-paint script, not the page module), and checks
-  the lobby and waiting-room boxes do not move. Extra screenshots for those two
-  moods are taken from the same DOM — a class toggle, not a second game — so a
-  token-only mood that still needs a component change is visible in the picture.
+  the lobby and waiting-room boxes do not move for the token-only moods. Press
+  is the light theme: the same pass also asserts zero radius on the chrome,
+  no card shadow, and WCAG AA contrast on the ink, and takes phone plus
+  desktop screenshots. Extra mood screenshots are taken from the same DOM — a
+  class toggle, not a second game — so a mood that still needs a component
+  change is visible in the picture.
   At the end it checks the finished screen's filmstrip,
   stats and rematch against the snapshot, and opens the rematch link in a second
   page to see the seeded lobby — the one place the rematch handoff is exercised

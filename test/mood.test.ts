@@ -35,21 +35,22 @@ function htmlPages(): { name: string; source: string }[] {
 }
 
 describe("the mood catalog", () => {
-  it("is felt plus the two token-only moods, and not the two-colour press", () => {
-    expect(MOOD_IDS).toEqual(["felt", "stammtisch", "night-shift"]);
+  it("is felt, the two token-only moods, and the two-colour press", () => {
+    expect(MOOD_IDS).toEqual(["felt", "stammtisch", "night-shift", "press"]);
     expect(DEFAULT_MOOD).toBe("felt");
     expect(MOODS.map((mood) => mood.id)).toEqual([...MOOD_IDS]);
-    expect(MOOD_IDS.includes("press" as (typeof MOOD_IDS)[number])).toBe(false);
+    expect(MOODS.find((mood) => mood.id === "press")?.label).toBe("Press");
   });
 
   it("treats only the allow-list as a mood and falls back to felt", () => {
     expect(isMoodId("felt")).toBe(true);
     expect(isMoodId("stammtisch")).toBe(true);
     expect(isMoodId("night-shift")).toBe(true);
-    expect(isMoodId("press")).toBe(false);
+    expect(isMoodId("press")).toBe(true);
     expect(isMoodId("")).toBe(false);
     expect(moodFromStorage("stammtisch")).toBe("stammtisch");
     expect(moodFromStorage("night-shift")).toBe("night-shift");
+    expect(moodFromStorage("press")).toBe("press");
     expect(moodFromStorage("felt")).toBe("felt");
     expect(moodFromStorage(null)).toBe("felt");
     expect(moodFromStorage(undefined)).toBe("felt");
@@ -62,7 +63,8 @@ describe("the mood catalog", () => {
     expect(moodClassName("felt")).toBe("mood-felt");
     expect(moodClassName("stammtisch")).toBe("mood-stammtisch");
     expect(moodClassName("night-shift")).toBe("mood-night-shift");
-    expect(moodClassNames()).toEqual(["mood-felt", "mood-stammtisch", "mood-night-shift"]);
+    expect(moodClassName("press")).toBe("mood-press");
+    expect(moodClassNames()).toEqual(["mood-felt", "mood-stammtisch", "mood-night-shift", "mood-press"]);
   });
 
   it("applies exactly one mood class at a time", () => {
@@ -77,6 +79,8 @@ describe("the mood catalog", () => {
     expect([...tokens].sort()).toEqual(["mood-stammtisch", "unrelated"]);
     applyMoodClass(classList, "night-shift");
     expect([...tokens].sort()).toEqual(["mood-night-shift", "unrelated"]);
+    applyMoodClass(classList, "press");
+    expect([...tokens].sort()).toEqual(["mood-press", "unrelated"]);
     applyMoodClass(classList, "felt");
     expect([...tokens].sort()).toEqual(["mood-felt", "unrelated"]);
   });
@@ -85,7 +89,23 @@ describe("the mood catalog", () => {
     expect(themeColorFor("felt")).toBe("#0b3d2e");
     expect(themeColorFor("stammtisch")).toBe("#b98f5c");
     expect(themeColorFor("night-shift")).toBe("#0c0620");
+    expect(themeColorFor("press")).toBe("#efeadf");
     expect(new Set(MOODS.map((mood) => mood.themeColor)).size).toBe(MOODS.length);
+  });
+});
+
+describe("the press stylesheet", () => {
+  it("is a token block plus component overrides, not tokens alone", () => {
+    const css = readFileSync(join(root, "client/src/styles.css"), "utf8");
+    expect(css).toContain(":root.mood-press");
+    expect(css).toMatch(/:root\.mood-press,\s*body\.mood-press\s*\{[^}]*--radius:\s*0/);
+    expect(css).toContain(":root.mood-press .card");
+    expect(css).toContain(":root.mood-press .table-stage");
+    expect(css).toContain(":root.mood-press .announce");
+    expect(css).toContain(":root.mood-press .showdown-stamp");
+    expect(css).toContain(":root.mood-press .film-cell");
+    expect(css).toMatch(/:root\.mood-press \.card[\s\S]*box-shadow:\s*none/);
+    expect(css).toMatch(/:root\.mood-press \.table-stage[\s\S]*border-radius:\s*0/);
   });
 });
 
@@ -103,6 +123,11 @@ describe("the first-paint boot script", () => {
       expect(moduleAt, `${name} still has its page module`).toBeGreaterThan(cssAt);
       for (const id of MOOD_IDS) {
         expect(source, `${name} knows ${id}`).toContain(`mood-${id}`);
+      }
+      for (const mood of MOODS) {
+        expect(source, `${name} themes ${mood.id}`).toMatch(
+          new RegExp(`["']?${mood.id}["']?:\\s*"${mood.themeColor}"`),
+        );
       }
     }
   });

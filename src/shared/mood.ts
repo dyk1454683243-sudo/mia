@@ -5,15 +5,16 @@
  *
  * The allow-list and the storage key are the contract the inline first-paint
  * script in `client/index.html` and `client/table.html` must stay in lockstep
- * with. Adding a mood is a new id here, a token block, and a line in that
- * script — not a component change. The two-colour press (#53) is the exception
- * and is not in this list.
+ * with. A token-only mood is a new id here, a token block, and a line in that
+ * script. The two-colour press is in this list too; it also needs the
+ * component overrides in `styles.css`, because it inverts the dark-on-dark
+ * assumptions the other moods keep.
  */
 export const MOOD_STORAGE_KEY = "mia-mood";
 
 export const DEFAULT_MOOD = "felt";
 
-export const MOOD_IDS = ["felt", "stammtisch", "night-shift"] as const;
+export const MOOD_IDS = ["felt", "stammtisch", "night-shift", "press"] as const;
 
 export type MoodId = (typeof MOOD_IDS)[number];
 
@@ -28,6 +29,7 @@ export const MOODS: readonly MoodSpec[] = [
   { id: "felt", label: "Felt", themeColor: "#0b3d2e" },
   { id: "stammtisch", label: "Stammtisch", themeColor: "#b98f5c" },
   { id: "night-shift", label: "Night Shift", themeColor: "#0c0620" },
+  { id: "press", label: "Press", themeColor: "#efeadf" },
 ];
 
 export function isMoodId(value: string): value is MoodId {

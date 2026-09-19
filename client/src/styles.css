@@ -1,6 +1,7 @@
 /* Mia — dark table-felt, phone first, thumb reachable.
  * The palette is a token block. A mood is a class on <html>/<body> and
- * another block below; adding one should not need a component change. */
+ * another block below. Token-only moods (Stammtisch, Night Shift) should not
+ * need a component change. Press is the exception: a genuine light theme. */
 
 :root {
   --felt: #0b3d2e;
@@ -157,6 +158,65 @@ body.mood-night-shift {
   --urgent-hi: #6b1a40;
   --urgent-mid: #3d1028;
   --urgent-lo: #1a0812;
+}
+
+/* Two-colour press — newsprint stock, one red ink, hard rules, no radius.
+ * A genuine light theme: the dark-on-dark assumptions (white washes, glows,
+ * shadows-as-borders) have no equivalent here. Component overrides that
+ * square the chrome and swap smudges for rules live at the bottom. */
+:root.mood-press,
+body.mood-press {
+  --felt: #efeadf;
+  --felt-deep: #e4ddd0;
+  --felt-lift: #f6f2ea;
+  --felt-stage-hi: #f6f2ea;
+  --felt-stage-mid: #efeadf;
+  --felt-stage-lo: #ddd6c6;
+  --panel: transparent;
+  --panel-solid: #efeadf;
+  --line: rgba(20, 18, 14, 0.26);
+  --ink: #14120e;
+  --ink-dim: #5e5850;
+  --gold: #b4341f;
+  --gold-bright: #b4341f;
+  --gold-hot: #b4341f;
+  --gold-mid: #9a2c1a;
+  --gold-deep: #8a2718;
+  --danger: #b4341f;
+  --danger-ink: #14120e;
+  --danger-ink-strong: #14120e;
+  --danger-ink-soft: #b4341f;
+  --good: #14120e;
+  --good-ink: #14120e;
+  --chip: #14120e;
+  --chip-ink: #efeadf;
+  --die: transparent;
+  --primary-ink: #efeadf;
+  --mia-hint: #efeadf;
+  --ghost-fill: transparent;
+  --input-fill: #e4ddd0;
+  --wash: transparent;
+  --wash-soft: transparent;
+  --wash-mid: transparent;
+  --wash-strong: transparent;
+  --wash-loud: transparent;
+  --shade: transparent;
+  --hidden-die-a: #ddd6c6;
+  --hidden-die-b: #efeadf;
+  --hidden-die-ink: #5e5850;
+  --log-marker: #14120e;
+  --topbar-from: #efeadf;
+  --topbar-to: #efeadf;
+  --countdown-ring: #14120e;
+  --countdown-track: rgba(20, 18, 14, 0.22);
+  --urgent-hi: #f0d2ca;
+  --urgent-mid: #ead6cf;
+  --urgent-lo: #e4cfc8;
+  --page-bg: #efeadf;
+  --page-urgent: #ead6cf;
+  --felt-stage: #efeadf;
+  --felt-urgent: #ead6cf;
+  --radius: 0;
 }
 
 * {
@@ -1792,5 +1852,262 @@ ul {
   /* The centre column fits a larger felt than the phone's 22rem. */
   .page > .table-card .table-stage {
     max-width: 28rem;
+  }
+}
+
+/* ---------------------------------------------------------------- press */
+/* Newsprint inverts the dark-on-dark chrome. Shadows and glows that read as
+ * depth on felt become smudges on stock, so they go; `border-radius` goes to
+ * zero, including values that were hardcoded rather than `--radius`; and
+ * anything that was a white wash over a dark surface becomes a real ink rule.
+ * Circles that *are* circles — the countdown ring, die pips, life pips —
+ * stay round. The rest of the chrome is square. */
+
+:root.mood-press .topbar {
+  backdrop-filter: none;
+  background: var(--felt);
+  border-bottom: 2px solid var(--ink);
+}
+
+:root.mood-press .mood-picker select {
+  border-radius: 0;
+  border-color: var(--ink);
+}
+
+:root.mood-press .card,
+:root.mood-press .toast {
+  box-shadow: none;
+  background: transparent;
+  border: 1.5px solid var(--ink);
+}
+
+:root.mood-press .toast {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+:root.mood-press button,
+:root.mood-press .primary,
+:root.mood-press .ghost,
+:root.mood-press .danger,
+:root.mood-press input,
+:root.mood-press .link {
+  border-radius: 0;
+}
+
+:root.mood-press .primary {
+  background: var(--gold);
+  color: var(--primary-ink);
+}
+
+:root.mood-press .ghost {
+  background: transparent;
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+:root.mood-press .danger {
+  background: transparent;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+:root.mood-press .primary[disabled],
+:root.mood-press button[disabled] {
+  filter: none;
+  opacity: 0.4;
+}
+
+:root.mood-press input {
+  border-color: var(--ink);
+}
+
+:root.mood-press .actions {
+  background: var(--felt);
+  border: 1.5px solid var(--ink);
+  box-shadow: none;
+}
+
+:root.mood-press .table-stage {
+  border-radius: 0;
+  border: 2px solid var(--ink);
+  background: var(--felt);
+  box-shadow: none;
+}
+
+:root.mood-press .table-card.urgent .table-stage {
+  border-color: var(--danger);
+  background: var(--felt-urgent);
+  box-shadow: none;
+}
+
+:root.mood-press .player {
+  border-radius: 0;
+}
+
+:root.mood-press .player.turn {
+  background: transparent;
+  border-color: var(--ink);
+  box-shadow: none;
+}
+
+:root.mood-press .avatar {
+  border-radius: 0;
+  background: transparent;
+  border: 1.5px solid var(--ink);
+}
+
+:root.mood-press .player.turn .avatar {
+  background: transparent;
+  border-color: var(--gold);
+  box-shadow: none;
+}
+
+:root.mood-press .player .claim {
+  border-radius: 0;
+  box-shadow: none;
+  border: 1.5px solid var(--ink);
+}
+
+:root.mood-press .badge {
+  border-radius: 0;
+}
+
+:root.mood-press .pip {
+  background: transparent;
+  border: 1.5px solid var(--ink);
+  box-shadow: none;
+}
+
+:root.mood-press .pip.on {
+  background: var(--gold);
+  border-color: var(--gold);
+  box-shadow: none;
+}
+
+:root.mood-press .die {
+  border-radius: 0;
+  background: transparent;
+  border: 1.5px solid var(--ink);
+  box-shadow: none;
+}
+
+:root.mood-press .die i {
+  background: var(--ink);
+}
+
+:root.mood-press .die.hidden {
+  background: transparent;
+  border-style: dashed;
+  color: var(--ink-dim);
+}
+
+:root.mood-press .chip {
+  border-radius: 0;
+}
+
+:root.mood-press .chip.double {
+  box-shadow: none;
+  border: 2px solid var(--gold);
+}
+
+:root.mood-press .chip.mia,
+:root.mood-press .announce.mia {
+  background: var(--gold);
+  color: var(--primary-ink);
+}
+
+:root.mood-press .ladder-scroll {
+  border-radius: 0;
+  border: 1.5px solid var(--ink);
+  background: transparent;
+}
+
+:root.mood-press .announce {
+  border-radius: 0;
+  background: transparent;
+  border-color: var(--ink);
+}
+
+:root.mood-press .announce.mine,
+:root.mood-press .announce.rung-standing {
+  box-shadow: none;
+}
+
+:root.mood-press .announce.mine {
+  border-style: dashed;
+  border-color: var(--ink);
+}
+
+:root.mood-press .announce.rung-standing {
+  border-color: var(--gold);
+}
+
+:root.mood-press .showdown-stamp {
+  border-radius: 0;
+  text-shadow: none;
+}
+
+:root.mood-press .showdown.caught .showdown-stamp,
+:root.mood-press .showdown.believed .showdown-stamp,
+:root.mood-press .showdown.mia .showdown-stamp {
+  text-shadow: none;
+}
+
+:root.mood-press .showdown.believed .showdown-actual .dice {
+  filter: none;
+}
+
+:root.mood-press .showdown.mia .showdown-claimed .showdown-value {
+  box-shadow: 0 0 0 3px var(--gold) inset;
+}
+
+:root.mood-press .showdown-cup {
+  border-radius: 0;
+  box-shadow: none;
+  border: 2px solid var(--ink);
+}
+
+:root.mood-press .showdown-cup::after {
+  border-radius: 0;
+}
+
+:root.mood-press .showdown-chip,
+:root.mood-press .showdown-timer {
+  border-radius: 0;
+}
+
+:root.mood-press .showdown-timer {
+  background: transparent;
+  border-color: var(--ink);
+}
+
+:root.mood-press .film-cell,
+:root.mood-press .stat-chip,
+:root.mood-press .stat-row.you {
+  border-radius: 0;
+  background: transparent;
+}
+
+:root.mood-press .film-cell {
+  border-color: var(--ink);
+}
+
+:root.mood-press .stat-chip {
+  border: 1.5px solid var(--ink);
+}
+
+@keyframes showdown-mia-claim-press {
+  0%, 54% { box-shadow: 0 0 0 0 transparent; }
+  62%, 100% { box-shadow: 0 0 0 3px var(--gold) inset; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root.mood-press .showdown.mia .showdown-claimed .showdown-value {
+    animation-name: showdown-mia-claim-press;
+  }
+
+  :root.mood-press .showdown.believed .showdown-actual .dice {
+    animation-name: showdown-dice-in;
   }
 }

@@ -77,7 +77,7 @@ browser ──HTTP──► Worker ──► D1          (identity, table direct
 
 - **Client** — vanilla TypeScript built by Vite into two pages (`/` lobby and
   `/t/:id` table). No framework; every render is a function of the latest server
-  snapshot. A personal colour mood (Felt, Stammtisch, Night Shift) lives in
+  snapshot. A personal colour mood (Felt, Stammtisch, Night Shift, Press) lives in
   `localStorage` and is applied before first paint; it is not a table setting.
 - **Worker** (`src/worker/index.ts`) — serves the static assets, the JSON API,
   the `/t/:id` join link, and proxies WebSocket upgrades into the table's

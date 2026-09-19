@@ -366,10 +366,14 @@ the forced-urgent clone stays neutral under `prefers-reduced-motion: reduce`.
 
 The colours are a token block at the top of `client/src/styles.css`. A mood is a
 class on `<html>` and `<body>` plus a second token block — Stammtisch (scrubbed
-oak, beer mats, chalk on slate) and Night Shift (magenta and cyan on deep
-violet). Adding another mood that stays on the dark-on-dark assumptions the
-components were drawn against is that block and nothing else. The two-colour
-press is a genuine light theme and is #53, not this.
+oak, beer mats, chalk on slate), Night Shift (magenta and cyan on deep
+violet), and Press (newsprint stock, one red ink, hard rules, no radius).
+Adding another mood that stays on the dark-on-dark assumptions the components
+were drawn against is that block and nothing else. Press is the exception: it
+inverts those assumptions, so shadows and glows become smudges, hardcoded
+`border-radius` goes to zero, and `rgba(255,255,255,…)` washes become real
+ink rules. The overrides live at the bottom of the stylesheet, scoped to
+`:root.mood-press`.
 
 The mood is **personal**, not a table setting. It needs no server state and no
 agreement between players. The choice lives in `localStorage` under `mia-mood`

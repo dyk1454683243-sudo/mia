@@ -169,13 +169,15 @@ async function paintMoodClass(page: Page, mood: (typeof MOOD_IDS)[number]): Prom
 }
 
 /**
- * The same DOM under each token-only mood. Class toggles only — localStorage
+ * The same DOM under each extra mood. Class toggles only — localStorage
  * stays on felt so the rest of the run is not a Stammtisch countdown probe.
+ * Press is in this list because it is a real light theme and every screen
+ * has to be looked at in it, not only the felt.
  */
 async function shotMoods(page: Page, name: string): Promise<void> {
   await shot(page, name);
   const felt = await moodPaint(page);
-  for (const mood of ["stammtisch", "night-shift"] as const) {
+  for (const mood of ["stammtisch", "night-shift", "press"] as const) {
     await paintMoodClass(page, mood);
     await shot(page, `${name}-${mood}`);
   }
@@ -184,6 +186,118 @@ async function shotMoods(page: Page, name: string): Promise<void> {
   if (restored.felt !== felt.felt) {
     await paintMoodClass(page, "felt");
   }
+}
+
+/** WCAG relative-luminance contrast between two computed `rgb()` colours. */
+function contrastRatio(a: string, b: string): number {
+  const channel = (value: string): [number, number, number] | null => {
+    const match = value.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+    if (!match) return null;
+    return [Number(match[1]), Number(match[2]), Number(match[3])];
+  };
+  const toLin = (value: number) => {
+    const srgb = value / 255;
+    return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = (value: string) => {
+    const rgb = channel(value);
+    if (!rgb) return 0;
+    return 0.2126 * toLin(rgb[0]) + 0.7152 * toLin(rgb[1]) + 0.0722 * toLin(rgb[2]);
+  };
+  const hi = Math.max(lum(a), lum(b));
+  const lo = Math.min(lum(a), lum(b));
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+function isZeroRadius(value: string): boolean {
+  if (value === "") return false;
+  return value.split(/\s+/).every((part) => part === "0" || part === "0px");
+}
+
+interface PressChrome {
+  cardRadius: string;
+  buttonRadius: string;
+  pickerRadius: string;
+  chipRadius: string;
+  stageRadius: string;
+  announceRadius: string;
+  ladderRadius: string;
+  cardShadow: string;
+  radiusToken: string;
+  ink: string;
+  felt: string;
+  dim: string;
+  gold: string;
+  primaryInk: string;
+  primaryFill: string;
+  chipInk: string;
+  chipFill: string;
+}
+
+async function pressChrome(page: Page): Promise<PressChrome> {
+  return page.evaluate(() => {
+    const styleOf = (selector: string) => {
+      const el = document.querySelector<HTMLElement>(selector);
+      return el ? getComputedStyle(el) : null;
+    };
+    const root = getComputedStyle(document.documentElement);
+    const card = styleOf(".card");
+    const button = styleOf("button.primary, .primary");
+    const picker = styleOf("[data-mood-picker]");
+    const chip = styleOf(".chip");
+    const stage = styleOf(".table-stage");
+    const announce = styleOf(".announce");
+    const ladder = styleOf(".ladder-scroll");
+    return {
+      cardRadius: card?.borderRadius ?? "",
+      buttonRadius: button?.borderRadius ?? "",
+      pickerRadius: picker?.borderRadius ?? "",
+      chipRadius: chip?.borderRadius ?? "",
+      stageRadius: stage?.borderRadius ?? "",
+      announceRadius: announce?.borderRadius ?? "",
+      ladderRadius: ladder?.borderRadius ?? "",
+      cardShadow: card?.boxShadow ?? "",
+      radiusToken: root.getPropertyValue("--radius").trim(),
+      ink: card?.color ?? styleOf("body")?.color ?? "",
+      felt: styleOf("body")?.backgroundColor ?? "",
+      dim: styleOf(".muted, .round")?.color ?? "",
+      gold: styleOf(".brand")?.color ?? "",
+      primaryInk: button?.color ?? "",
+      primaryFill: button?.backgroundColor ?? "",
+      chipInk: chip?.color ?? "",
+      chipFill: chip?.backgroundColor ?? "",
+    };
+  });
+}
+
+/** Mid-game press: the felt, chips and ladder are the screens tokens cannot fix. */
+async function verifyPressTable(page: Page): Promise<void> {
+  await paintMoodClass(page, "press");
+  const chrome = await pressChrome(page);
+  check(
+    "Press squares the felt and announce ladder",
+    isZeroRadius(chrome.stageRadius) &&
+      isZeroRadius(chrome.announceRadius) &&
+      isZeroRadius(chrome.ladderRadius) &&
+      (chrome.chipRadius === "" || isZeroRadius(chrome.chipRadius)),
+    JSON.stringify({
+      stage: chrome.stageRadius,
+      chip: chrome.chipRadius,
+      announce: chrome.announceRadius,
+      ladder: chrome.ladderRadius,
+    }),
+  );
+  if (chrome.chipInk && chrome.chipFill) {
+    const ratio = contrastRatio(chrome.chipInk, chrome.chipFill);
+    check(
+      "Press inverted chips meet WCAG AA",
+      ratio >= 4.5,
+      `${ratio.toFixed(2)}:1 (${chrome.chipInk} on ${chrome.chipFill})`,
+    );
+  } else {
+    note("no standing chip on this announce; Press chip contrast is pinned on the lobby inverted tokens");
+  }
+  await paintMoodClass(page, "felt");
 }
 
 async function overflow(page: Page): Promise<number> {
@@ -409,6 +523,123 @@ async function verifyMoodPicker(page: Page): Promise<void> {
     JSON.stringify({ felt: feltBoxes, neon: neonBoxes }),
   );
   await shot(page, "01-lobby-night-shift");
+
+  await page.selectOption("[data-mood-picker]", "press");
+  const ink = await moodPaint(page);
+  check(
+    "Press is a fourth mood on the same picker",
+    ink.data === "press" &&
+      ink.htmlClass.includes("mood-press") &&
+      ink.bodyClass.includes("mood-press") &&
+      ink.bodyClass.filter((name) => name.startsWith("mood-")).length === 1 &&
+      ink.picker === "press" &&
+      ink.felt !== feltToken &&
+      ink.felt !== oak.felt &&
+      ink.felt !== neon.felt,
+    JSON.stringify({ felt: feltToken, oak: oak.felt, neon: neon.felt, press: ink.felt }),
+  );
+  check("Press is written to the same localStorage key", ink.stored === "press", String(ink.stored));
+  check(
+    "there is still one mood picker, not a second switcher",
+    (await page.$$("[data-mood-picker]")).length === 1,
+  );
+  const chrome = await pressChrome(page);
+  check(
+    "Press forces zero radius on the lobby chrome",
+    isZeroRadius(chrome.radiusToken) &&
+      isZeroRadius(chrome.cardRadius) &&
+      isZeroRadius(chrome.buttonRadius) &&
+      isZeroRadius(chrome.pickerRadius),
+    JSON.stringify({
+      token: chrome.radiusToken,
+      card: chrome.cardRadius,
+      button: chrome.buttonRadius,
+      picker: chrome.pickerRadius,
+    }),
+  );
+  check(
+    "Press drops the card shadow that would smudge newsprint",
+    chrome.cardShadow === "none",
+    chrome.cardShadow,
+  );
+  const inkContrast = contrastRatio(chrome.ink, chrome.felt);
+  const dimContrast = contrastRatio(chrome.dim, chrome.felt);
+  const goldContrast = contrastRatio(chrome.gold, chrome.felt);
+  const primaryContrast = contrastRatio(chrome.primaryInk, chrome.primaryFill);
+  check(
+    "Press body ink meets WCAG AA against the newsprint",
+    inkContrast >= 4.5,
+    `${inkContrast.toFixed(2)}:1 (${chrome.ink} on ${chrome.felt})`,
+  );
+  check(
+    "Press muted ink meets WCAG AA against the newsprint",
+    dimContrast >= 4.5,
+    `${dimContrast.toFixed(2)}:1 (${chrome.dim} on ${chrome.felt})`,
+  );
+  check(
+    "Press red ink meets WCAG AA against the newsprint",
+    goldContrast >= 4.5,
+    `${goldContrast.toFixed(2)}:1 (${chrome.gold} on ${chrome.felt})`,
+  );
+  check(
+    "Press primary button ink meets WCAG AA",
+    primaryContrast >= 4.5,
+    `${primaryContrast.toFixed(2)}:1 (${chrome.primaryInk} on ${chrome.primaryFill})`,
+  );
+  const chipProbe = await page.evaluate(() => {
+    const probe = document.createElement("span");
+    probe.className = "chip";
+    probe.textContent = "6·2";
+    document.body.appendChild(probe);
+    const style = getComputedStyle(probe);
+    const sample = { color: style.color, fill: style.backgroundColor, radius: style.borderRadius };
+    probe.remove();
+    return sample;
+  });
+  check(
+    "Press inverted chips are square",
+    isZeroRadius(chipProbe.radius),
+    chipProbe.radius,
+  );
+  const chipContrast = contrastRatio(chipProbe.color, chipProbe.fill);
+  check(
+    "Press inverted chips meet WCAG AA",
+    chipContrast >= 4.5,
+    `${chipContrast.toFixed(2)}:1 (${chipProbe.color} on ${chipProbe.fill})`,
+  );
+  await shot(page, "01-lobby-press");
+  await page.setViewportSize(DESKTOP);
+  await sleep(200);
+  await shot(page, "01-lobby-press-desktop");
+  await page.setViewportSize(PHONE);
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const pressFirst = await page.evaluate(() => ({
+    data: document.documentElement.dataset.mood ?? "",
+    htmlClass: [...document.documentElement.classList].filter((name) => name.startsWith("mood-")),
+    bodyClass: [...document.body.classList].filter((name) => name.startsWith("mood-")),
+    felt: getComputedStyle(document.documentElement).getPropertyValue("--felt").trim(),
+    radius: getComputedStyle(document.documentElement).getPropertyValue("--radius").trim(),
+  }));
+  await page.waitForSelector("[data-mood-picker]");
+  const pressAfter = await moodPaint(page);
+  check(
+    "Press is on <html> and <body> before the page module runs",
+    pressFirst.data === "press" &&
+      pressFirst.htmlClass.includes("mood-press") &&
+      pressFirst.bodyClass.includes("mood-press"),
+    JSON.stringify(pressFirst),
+  );
+  check(
+    "Press tokens and zero radius are already on :root at first paint",
+    pressFirst.felt !== "" && pressFirst.felt !== feltToken && isZeroRadius(pressFirst.radius),
+    JSON.stringify(pressFirst),
+  );
+  check(
+    "Press survives a reload on the same picker",
+    pressAfter.data === "press" && pressAfter.picker === "press" && pressAfter.stored === "press",
+    JSON.stringify(pressAfter),
+  );
 
   await page.selectOption("[data-mood-picker]", "felt");
   const back = await moodPaint(page);
@@ -1160,6 +1391,9 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
         } else {
           await shot(page, names[snap.phase]);
         }
+        if (snap.phase === "announcing") {
+          await verifyPressTable(page);
+        }
       }
       if (snap.phase === "revealing") {
         note(
@@ -1748,6 +1982,16 @@ async function main(): Promise<void> {
     sameBox(waitingFelt.topbar, waitingOak.topbar) && sameBox(waitingFelt.card, waitingOak.card),
     JSON.stringify({ felt: waitingFelt, oak: waitingOak }),
   );
+  await page.selectOption("[data-mood-picker]", "press");
+  const waitingPress = await pressChrome(page);
+  check(
+    "Press squares the waiting-room cards and drops their shadow",
+    isZeroRadius(waitingPress.cardRadius) && waitingPress.cardShadow === "none",
+    JSON.stringify({
+      card: waitingPress.cardRadius,
+      shadow: waitingPress.cardShadow,
+    }),
+  );
   await page.selectOption("[data-mood-picker]", "felt");
   await shotMoods(page, "02-table-waiting");
   check("the waiting room shows the share control", (await page.$('[data-action="share"]')) !== null);
@@ -1803,6 +2047,15 @@ async function main(): Promise<void> {
   await page.setViewportSize(DESKTOP);
   await sleep(300);
   await shot(page, "13-wide-desktop");
+  await paintMoodClass(page, "press");
+  await shot(page, "13-wide-desktop-press");
+  const pressColumns = await desktopColumns(page);
+  check(
+    "Press keeps the desktop three-column layout",
+    pressColumns.sideBySide && pressColumns.overlap === 0,
+    pressColumns.detail,
+  );
+  await paintMoodClass(page, "felt");
   const columns = await desktopColumns(page);
   check(
     "the desktop viewport lays the table out in three side-by-side columns",

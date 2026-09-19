@@ -10,15 +10,15 @@
       /* Apply the personal mood before the stylesheet paints. Lockstep: src/shared/mood.ts */
       (function () {
         var KEY = "mia-mood";
-        var ALLOWED = { felt: 1, stammtisch: 1, "night-shift": 1 };
-        var THEME = { felt: "#0b3d2e", stammtisch: "#b98f5c", "night-shift": "#0c0620" };
+        var ALLOWED = { felt: 1, stammtisch: 1, "night-shift": 1, press: 1 };
+        var THEME = { felt: "#0b3d2e", stammtisch: "#b98f5c", "night-shift": "#0c0620", press: "#efeadf" };
         var mood = "felt";
         try {
           var stored = localStorage.getItem(KEY);
           if (stored && ALLOWED[stored]) mood = stored;
         } catch (e) {}
         var root = document.documentElement;
-        root.classList.remove("mood-felt", "mood-stammtisch", "mood-night-shift");
+        root.classList.remove("mood-felt", "mood-stammtisch", "mood-night-shift", "mood-press");
         root.classList.add("mood-" + mood);
         root.setAttribute("data-mood", mood);
         var meta = document.querySelector('meta[name="theme-color"]');
@@ -32,7 +32,7 @@
     <script>
       (function () {
         var mood = document.documentElement.getAttribute("data-mood") || "felt";
-        document.body.classList.remove("mood-felt", "mood-stammtisch", "mood-night-shift");
+        document.body.classList.remove("mood-felt", "mood-stammtisch", "mood-night-shift", "mood-press");
         document.body.classList.add("mood-" + mood);
       })();
     </script>
