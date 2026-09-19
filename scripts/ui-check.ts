@@ -1121,7 +1121,14 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
         `${livesBoxDetail(lives.seatOn)} · ${lives.onCount} .pip.on`,
       );
     }
-    if (!oneLifeShot && snap.players.some((player) => player.lives === 1)) {
+    // The showdown is a full-screen overlay, so a one-life seat photographed
+    // during `revealing` is a cup and a stamp, not the candle. Wait for the
+    // next table-visible frame.
+    if (
+      !oneLifeShot &&
+      snap.phase !== "revealing" &&
+      snap.players.some((player) => player.lives === 1)
+    ) {
       oneLifeShot = true;
       await shot(page, "14-one-life");
       note(
