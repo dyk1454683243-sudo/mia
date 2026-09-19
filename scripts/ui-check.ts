@@ -12,6 +12,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { formatValue, MAX_PLAYERS, MIA, MIN_PLAYERS, outranks, RANKING } from "../src/shared/mia.ts";
+import { MOOD_IDS, MOOD_STORAGE_KEY, moodClassName } from "../src/shared/mood.ts";
 import { SHIP_NAMES } from "../src/shared/ships.ts";
 import { api, BASE, createPlayer } from "./lib.ts";
 
@@ -130,6 +131,175 @@ async function shot(page: Page, name: string): Promise<void> {
   console.log(`  [shot] ${OUT}/${name}.png`);
 }
 
+interface MoodPaint {
+  data: string;
+  htmlClass: string[];
+  bodyClass: string[];
+  felt: string;
+  picker: string;
+  stored: string | null;
+}
+
+async function moodPaint(page: Page): Promise<MoodPaint> {
+  return page.evaluate((key) => {
+    const picker = document.querySelector<HTMLSelectElement>("[data-mood-picker]");
+    return {
+      data: document.documentElement.dataset.mood ?? "",
+      htmlClass: [...document.documentElement.classList].filter((name) => name.startsWith("mood-")),
+      bodyClass: [...document.body.classList].filter((name) => name.startsWith("mood-")),
+      felt: getComputedStyle(document.body).getPropertyValue("--felt").trim(),
+      picker: picker?.value ?? "",
+      stored: localStorage.getItem(key),
+    };
+  }, MOOD_STORAGE_KEY);
+}
+
+async function paintMoodClass(page: Page, mood: (typeof MOOD_IDS)[number]): Promise<void> {
+  await page.evaluate(
+    ({ mood: next, classes }) => {
+      for (const name of classes) {
+        const on = name === `mood-${next}`;
+        document.documentElement.classList.toggle(name, on);
+        document.body.classList.toggle(name, on);
+      }
+      document.documentElement.dataset.mood = next;
+    },
+    { mood, classes: MOOD_IDS.map((id) => moodClassName(id)) },
+  );
+}
+
+/**
+ * The same DOM under each extra mood. Class toggles only — localStorage
+ * stays on felt so the rest of the run is not a Stammtisch countdown probe.
+ * Press is in this list because it is a real light theme and every screen
+ * has to be looked at in it, not only the felt.
+ */
+async function shotMoods(page: Page, name: string): Promise<void> {
+  await shot(page, name);
+  const felt = await moodPaint(page);
+  for (const mood of ["stammtisch", "night-shift", "press"] as const) {
+    await paintMoodClass(page, mood);
+    await shot(page, `${name}-${mood}`);
+  }
+  await paintMoodClass(page, "felt");
+  const restored = await moodPaint(page);
+  if (restored.felt !== felt.felt) {
+    await paintMoodClass(page, "felt");
+  }
+}
+
+/** WCAG relative-luminance contrast between two computed `rgb()` colours. */
+function contrastRatio(a: string, b: string): number {
+  const channel = (value: string): [number, number, number] | null => {
+    const match = value.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+    if (!match) return null;
+    return [Number(match[1]), Number(match[2]), Number(match[3])];
+  };
+  const toLin = (value: number) => {
+    const srgb = value / 255;
+    return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = (value: string) => {
+    const rgb = channel(value);
+    if (!rgb) return 0;
+    return 0.2126 * toLin(rgb[0]) + 0.7152 * toLin(rgb[1]) + 0.0722 * toLin(rgb[2]);
+  };
+  const hi = Math.max(lum(a), lum(b));
+  const lo = Math.min(lum(a), lum(b));
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+function isZeroRadius(value: string): boolean {
+  if (value === "") return false;
+  return value.split(/\s+/).every((part) => part === "0" || part === "0px");
+}
+
+interface PressChrome {
+  cardRadius: string;
+  buttonRadius: string;
+  pickerRadius: string;
+  chipRadius: string;
+  stageRadius: string;
+  announceRadius: string;
+  ladderRadius: string;
+  cardShadow: string;
+  radiusToken: string;
+  ink: string;
+  felt: string;
+  dim: string;
+  gold: string;
+  primaryInk: string;
+  primaryFill: string;
+  chipInk: string;
+  chipFill: string;
+}
+
+async function pressChrome(page: Page): Promise<PressChrome> {
+  return page.evaluate(() => {
+    const styleOf = (selector: string) => {
+      const el = document.querySelector<HTMLElement>(selector);
+      return el ? getComputedStyle(el) : null;
+    };
+    const root = getComputedStyle(document.documentElement);
+    const card = styleOf(".card");
+    const button = styleOf("button.primary, .primary");
+    const picker = styleOf("[data-mood-picker]");
+    const chip = styleOf(".chip");
+    const stage = styleOf(".table-stage");
+    const announce = styleOf(".announce");
+    const ladder = styleOf(".ladder-scroll");
+    return {
+      cardRadius: card?.borderRadius ?? "",
+      buttonRadius: button?.borderRadius ?? "",
+      pickerRadius: picker?.borderRadius ?? "",
+      chipRadius: chip?.borderRadius ?? "",
+      stageRadius: stage?.borderRadius ?? "",
+      announceRadius: announce?.borderRadius ?? "",
+      ladderRadius: ladder?.borderRadius ?? "",
+      cardShadow: card?.boxShadow ?? "",
+      radiusToken: root.getPropertyValue("--radius").trim(),
+      ink: card?.color ?? styleOf("body")?.color ?? "",
+      felt: styleOf("body")?.backgroundColor ?? "",
+      dim: styleOf(".muted, .round")?.color ?? "",
+      gold: styleOf(".brand")?.color ?? "",
+      primaryInk: button?.color ?? "",
+      primaryFill: button?.backgroundColor ?? "",
+      chipInk: chip?.color ?? "",
+      chipFill: chip?.backgroundColor ?? "",
+    };
+  });
+}
+
+/** Mid-game press: the felt, chips and ladder are the screens tokens cannot fix. */
+async function verifyPressTable(page: Page): Promise<void> {
+  await paintMoodClass(page, "press");
+  const chrome = await pressChrome(page);
+  check(
+    "Press squares the felt and announce ladder",
+    isZeroRadius(chrome.stageRadius) &&
+      isZeroRadius(chrome.announceRadius) &&
+      isZeroRadius(chrome.ladderRadius) &&
+      (chrome.chipRadius === "" || isZeroRadius(chrome.chipRadius)),
+    JSON.stringify({
+      stage: chrome.stageRadius,
+      chip: chrome.chipRadius,
+      announce: chrome.announceRadius,
+      ladder: chrome.ladderRadius,
+    }),
+  );
+  if (chrome.chipInk && chrome.chipFill) {
+    const ratio = contrastRatio(chrome.chipInk, chrome.chipFill);
+    check(
+      "Press inverted chips meet WCAG AA",
+      ratio >= 4.5,
+      `${ratio.toFixed(2)}:1 (${chrome.chipInk} on ${chrome.chipFill})`,
+    );
+  } else {
+    note("no standing chip on this announce; Press chip contrast is pinned on the lobby inverted tokens");
+  }
+  await paintMoodClass(page, "felt");
+}
+
 async function overflow(page: Page): Promise<number> {
   return await page.evaluate(() => Math.max(0, document.documentElement.scrollWidth - window.innerWidth));
 }
@@ -236,6 +406,248 @@ async function verifyLobby(page: Page): Promise<void> {
   await page.waitForFunction(() => document.querySelectorAll(".tables .name").length > 0);
   const listText = (await page.textContent(".tables")) ?? "";
   check("the lobby lists open tables", listText.includes("Listed table"), listText.replace(/\s+/g, " ").slice(0, 80));
+
+  await verifyMoodPicker(page);
+}
+
+interface LayoutBox {
+  w: number;
+  h: number;
+  t: number;
+  l: number;
+}
+
+function sameBox(a: LayoutBox | null, b: LayoutBox | null): boolean {
+  if (!a || !b) return a === b;
+  return a.w === b.w && a.h === b.h && a.t === b.t && a.l === b.l;
+}
+
+async function pageBoxes(page: Page): Promise<Record<string, LayoutBox | null>> {
+  return page.evaluate(() => {
+    const box = (sel: string) => {
+      const el = document.querySelector(sel);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height), t: Math.round(r.top), l: Math.round(r.left) };
+    };
+    return {
+      topbar: box(".topbar"),
+      page: box(".page"),
+      card: box(".card"),
+      stage: box(".table-stage"),
+      actions: box(".actions"),
+    };
+  });
+}
+
+async function verifyMoodPicker(page: Page): Promise<void> {
+  section("Palette mood (personal, localStorage)");
+  await page.waitForSelector("[data-mood-picker]");
+  const start = await moodPaint(page);
+  check("the lobby picker is present", start.picker !== "", start.picker || "missing");
+  check(
+    "the default mood is felt",
+    start.data === "felt" && start.picker === "felt" && start.htmlClass.includes("mood-felt"),
+    JSON.stringify(start),
+  );
+
+  const feltBoxes = await pageBoxes(page);
+  const feltToken = start.felt;
+
+  await page.selectOption("[data-mood-picker]", "stammtisch");
+  const oak = await moodPaint(page);
+  check(
+    "choosing Stammtisch sets the html and body class",
+    oak.data === "stammtisch" &&
+      oak.htmlClass.includes("mood-stammtisch") &&
+      oak.bodyClass.includes("mood-stammtisch") &&
+      oak.picker === "stammtisch",
+    JSON.stringify(oak),
+  );
+  check(
+    "Stammtisch is a different token set, not a restyle of felt",
+    oak.felt !== "" && oak.felt !== feltToken,
+    `felt ${feltToken} → ${oak.felt}`,
+  );
+  check("the choice is written to localStorage", oak.stored === "stammtisch", String(oak.stored));
+  const oakBoxes = await pageBoxes(page);
+  check(
+    "Stammtisch does not move the lobby layout",
+    sameBox(feltBoxes.topbar, oakBoxes.topbar) && sameBox(feltBoxes.page, oakBoxes.page),
+    JSON.stringify({ felt: feltBoxes, oak: oakBoxes }),
+  );
+  await shot(page, "01-lobby-stammtisch");
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const firstPaint = await page.evaluate(() => ({
+    data: document.documentElement.dataset.mood ?? "",
+    htmlClass: [...document.documentElement.classList].filter((name) => name.startsWith("mood-")),
+    bodyClass: [...document.body.classList].filter((name) => name.startsWith("mood-")),
+    felt: getComputedStyle(document.documentElement).getPropertyValue("--felt").trim(),
+  }));
+  await page.waitForSelector("[data-mood-picker]");
+  const after = await moodPaint(page);
+  check(
+    "Stammtisch is on <html> and <body> before the page module runs",
+    firstPaint.data === "stammtisch" &&
+      firstPaint.htmlClass.includes("mood-stammtisch") &&
+      firstPaint.bodyClass.includes("mood-stammtisch"),
+    JSON.stringify(firstPaint),
+  );
+  check(
+    "Stammtisch tokens are already on :root at first paint",
+    firstPaint.felt !== "" && firstPaint.felt !== feltToken,
+    `felt ${feltToken} vs first-paint ${firstPaint.felt}`,
+  );
+  check(
+    "Stammtisch survives a reload",
+    after.data === "stammtisch" && after.picker === "stammtisch" && after.stored === "stammtisch",
+    JSON.stringify(after),
+  );
+
+  await page.selectOption("[data-mood-picker]", "night-shift");
+  const neon = await moodPaint(page);
+  check(
+    "Night Shift is a third token set",
+    neon.data === "night-shift" &&
+      neon.htmlClass.includes("mood-night-shift") &&
+      neon.bodyClass.includes("mood-night-shift") &&
+      neon.felt !== feltToken &&
+      neon.felt !== oak.felt,
+    JSON.stringify({ felt: feltToken, oak: oak.felt, neon: neon.felt }),
+  );
+  const neonBoxes = await pageBoxes(page);
+  check(
+    "Night Shift does not move the lobby layout",
+    sameBox(feltBoxes.topbar, neonBoxes.topbar) && sameBox(feltBoxes.page, neonBoxes.page),
+    JSON.stringify({ felt: feltBoxes, neon: neonBoxes }),
+  );
+  await shot(page, "01-lobby-night-shift");
+
+  await page.selectOption("[data-mood-picker]", "press");
+  const ink = await moodPaint(page);
+  check(
+    "Press is a fourth mood on the same picker",
+    ink.data === "press" &&
+      ink.htmlClass.includes("mood-press") &&
+      ink.bodyClass.includes("mood-press") &&
+      ink.bodyClass.filter((name) => name.startsWith("mood-")).length === 1 &&
+      ink.picker === "press" &&
+      ink.felt !== feltToken &&
+      ink.felt !== oak.felt &&
+      ink.felt !== neon.felt,
+    JSON.stringify({ felt: feltToken, oak: oak.felt, neon: neon.felt, press: ink.felt }),
+  );
+  check("Press is written to the same localStorage key", ink.stored === "press", String(ink.stored));
+  check(
+    "there is still one mood picker, not a second switcher",
+    (await page.$$("[data-mood-picker]")).length === 1,
+  );
+  const chrome = await pressChrome(page);
+  check(
+    "Press forces zero radius on the lobby chrome",
+    isZeroRadius(chrome.radiusToken) &&
+      isZeroRadius(chrome.cardRadius) &&
+      isZeroRadius(chrome.buttonRadius) &&
+      isZeroRadius(chrome.pickerRadius),
+    JSON.stringify({
+      token: chrome.radiusToken,
+      card: chrome.cardRadius,
+      button: chrome.buttonRadius,
+      picker: chrome.pickerRadius,
+    }),
+  );
+  check(
+    "Press drops the card shadow that would smudge newsprint",
+    chrome.cardShadow === "none",
+    chrome.cardShadow,
+  );
+  const inkContrast = contrastRatio(chrome.ink, chrome.felt);
+  const dimContrast = contrastRatio(chrome.dim, chrome.felt);
+  const goldContrast = contrastRatio(chrome.gold, chrome.felt);
+  const primaryContrast = contrastRatio(chrome.primaryInk, chrome.primaryFill);
+  check(
+    "Press body ink meets WCAG AA against the newsprint",
+    inkContrast >= 4.5,
+    `${inkContrast.toFixed(2)}:1 (${chrome.ink} on ${chrome.felt})`,
+  );
+  check(
+    "Press muted ink meets WCAG AA against the newsprint",
+    dimContrast >= 4.5,
+    `${dimContrast.toFixed(2)}:1 (${chrome.dim} on ${chrome.felt})`,
+  );
+  check(
+    "Press red ink meets WCAG AA against the newsprint",
+    goldContrast >= 4.5,
+    `${goldContrast.toFixed(2)}:1 (${chrome.gold} on ${chrome.felt})`,
+  );
+  check(
+    "Press primary button ink meets WCAG AA",
+    primaryContrast >= 4.5,
+    `${primaryContrast.toFixed(2)}:1 (${chrome.primaryInk} on ${chrome.primaryFill})`,
+  );
+  const chipProbe = await page.evaluate(() => {
+    const probe = document.createElement("span");
+    probe.className = "chip";
+    probe.textContent = "6·2";
+    document.body.appendChild(probe);
+    const style = getComputedStyle(probe);
+    const sample = { color: style.color, fill: style.backgroundColor, radius: style.borderRadius };
+    probe.remove();
+    return sample;
+  });
+  check(
+    "Press inverted chips are square",
+    isZeroRadius(chipProbe.radius),
+    chipProbe.radius,
+  );
+  const chipContrast = contrastRatio(chipProbe.color, chipProbe.fill);
+  check(
+    "Press inverted chips meet WCAG AA",
+    chipContrast >= 4.5,
+    `${chipContrast.toFixed(2)}:1 (${chipProbe.color} on ${chipProbe.fill})`,
+  );
+  await shot(page, "01-lobby-press");
+  await page.setViewportSize(DESKTOP);
+  await sleep(200);
+  await shot(page, "01-lobby-press-desktop");
+  await page.setViewportSize(PHONE);
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const pressFirst = await page.evaluate(() => ({
+    data: document.documentElement.dataset.mood ?? "",
+    htmlClass: [...document.documentElement.classList].filter((name) => name.startsWith("mood-")),
+    bodyClass: [...document.body.classList].filter((name) => name.startsWith("mood-")),
+    felt: getComputedStyle(document.documentElement).getPropertyValue("--felt").trim(),
+    radius: getComputedStyle(document.documentElement).getPropertyValue("--radius").trim(),
+  }));
+  await page.waitForSelector("[data-mood-picker]");
+  const pressAfter = await moodPaint(page);
+  check(
+    "Press is on <html> and <body> before the page module runs",
+    pressFirst.data === "press" &&
+      pressFirst.htmlClass.includes("mood-press") &&
+      pressFirst.bodyClass.includes("mood-press"),
+    JSON.stringify(pressFirst),
+  );
+  check(
+    "Press tokens and zero radius are already on :root at first paint",
+    pressFirst.felt !== "" && pressFirst.felt !== feltToken && isZeroRadius(pressFirst.radius),
+    JSON.stringify(pressFirst),
+  );
+  check(
+    "Press survives a reload on the same picker",
+    pressAfter.data === "press" && pressAfter.picker === "press" && pressAfter.stored === "press",
+    JSON.stringify(pressAfter),
+  );
+
+  await page.selectOption("[data-mood-picker]", "felt");
+  const back = await moodPaint(page);
+  check(
+    "the picker can return to felt",
+    back.data === "felt" && back.stored === "felt" && back.felt === feltToken,
+    JSON.stringify(back),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -973,7 +1385,16 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
         revealing: "07-revealing",
         finished: "08-finished",
       };
-      if (names[snap.phase]) await shot(page, names[snap.phase]);
+      if (names[snap.phase]) {
+        if (snap.phase === "announcing" || snap.phase === "revealing" || snap.phase === "finished") {
+          await shotMoods(page, names[snap.phase]);
+        } else {
+          await shot(page, names[snap.phase]);
+        }
+        if (snap.phase === "announcing") {
+          await verifyPressTable(page);
+        }
+      }
       if (snap.phase === "revealing") {
         note(
           `07-revealing captured at beat ${snap.beat} (${snap.showdownTone}, elapsed ${snap.showdownElapsed}ms of ${snap.showdownSpan}ms)`,
@@ -1547,7 +1968,57 @@ async function main(): Promise<void> {
 
   section("Table (waiting for players)");
   await page.waitForSelector(".room-card");
-  await shot(page, "02-table-waiting");
+  const tablePicker = await moodPaint(page);
+  check(
+    "the table picker is present",
+    tablePicker.picker !== "",
+    tablePicker.picker || "missing",
+  );
+  const waitingFelt = await pageBoxes(page);
+  await page.selectOption("[data-mood-picker]", "stammtisch");
+  const waitingOak = await pageBoxes(page);
+  check(
+    "Stammtisch does not move the waiting-room layout",
+    sameBox(waitingFelt.topbar, waitingOak.topbar) && sameBox(waitingFelt.card, waitingOak.card),
+    JSON.stringify({ felt: waitingFelt, oak: waitingOak }),
+  );
+  await page.selectOption("[data-mood-picker]", "press");
+  const waitingPress = await pressChrome(page);
+  check(
+    "Press squares the waiting-room cards and drops their shadow",
+    isZeroRadius(waitingPress.cardRadius) && waitingPress.cardShadow === "none",
+    JSON.stringify({
+      card: waitingPress.cardRadius,
+      shadow: waitingPress.cardShadow,
+    }),
+  );
+  const disabledPrimary = await page.evaluate(() => {
+    const button = document.querySelector<HTMLElement>("button.primary[disabled], .primary[disabled]");
+    if (!button) return null;
+    const style = getComputedStyle(button);
+    const body = getComputedStyle(document.body);
+    return {
+      color: style.color,
+      fill: style.backgroundColor,
+      felt: body.backgroundColor,
+      opacity: style.opacity,
+    };
+  });
+  check("Press keeps a disabled start control to contrast-check", disabledPrimary !== null, "missing disabled primary");
+  if (disabledPrimary) {
+    const fill =
+      disabledPrimary.fill.startsWith("rgba(0, 0, 0, 0") || disabledPrimary.fill === "transparent"
+        ? disabledPrimary.felt
+        : disabledPrimary.fill;
+    const ratio = contrastRatio(disabledPrimary.color, fill);
+    check(
+      "Press disabled chrome stays opaque and meets WCAG AA",
+      disabledPrimary.opacity === "1" && ratio >= 4.5,
+      `${ratio.toFixed(2)}:1 at opacity ${disabledPrimary.opacity} (${disabledPrimary.color} on ${fill})`,
+    );
+  }
+  await page.selectOption("[data-mood-picker]", "felt");
+  await shotMoods(page, "02-table-waiting");
   check("the waiting room shows the share control", (await page.$('[data-action="share"]')) !== null);
 
   await verifyShare(page, context, browser, tableId);
@@ -1601,6 +2072,15 @@ async function main(): Promise<void> {
   await page.setViewportSize(DESKTOP);
   await sleep(300);
   await shot(page, "13-wide-desktop");
+  await paintMoodClass(page, "press");
+  await shot(page, "13-wide-desktop-press");
+  const pressColumns = await desktopColumns(page);
+  check(
+    "Press keeps the desktop three-column layout",
+    pressColumns.sideBySide && pressColumns.overlap === 0,
+    pressColumns.detail,
+  );
+  await paintMoodClass(page, "felt");
   const columns = await desktopColumns(page);
   check(
     "the desktop viewport lays the table out in three side-by-side columns",

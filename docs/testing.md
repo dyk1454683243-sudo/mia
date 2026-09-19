@@ -6,8 +6,10 @@ The suite runs in two different runtimes, and the split is the point.
 
 - **`unit`** runs in plain Node with no Workers runtime. It covers the pure rules
   engine, the clock arithmetic, the seat-limit constants, the round table's
-  seat geometry, the showdown's verdict and beat arithmetic and the endgame
-  replay's filmstrip and stat lines. These are the tests that can be reasoned
+  seat geometry, the showdown's verdict and beat arithmetic, the endgame
+  replay's filmstrip and stat lines, and the personal mood catalog (allow-list,
+  fallback, body-class names, and that both HTML pages apply the stored mood
+  before the stylesheet). These are the tests that can be reasoned
   about from the code alone, and they run fast because there is no platform
   underneath them.
 - **`workers`** runs inside `workerd` with a real D1 database and a real Durable
@@ -120,7 +122,17 @@ cover the assembled system, and they need a running `wrangler dev` (or a deploye
   so the assertion fails if the red arrived at sixty seconds, or arrived at the
   2s top of a round where nobody is running out of time, and it reads a
   forced-urgent clone under both motion preferences so the reduced-motion skip
-  cannot pass by accident. At the end it checks the finished screen's filmstrip,
+  cannot pass by accident. The mood check is the sibling of the rename-persist
+  idea: it uses the real picker, asserts Stammtisch, Night Shift and Press are
+  different `--felt` values, watches the class land on `<html>` at
+  `domcontentloaded` (the first-paint script, not the page module), and checks
+  the lobby and waiting-room boxes do not move for the token-only moods. Press
+  is the light theme: the same pass also asserts zero radius on the chrome,
+  no card shadow, and WCAG AA contrast on the ink, and takes phone plus
+  desktop screenshots. Extra mood screenshots are taken from the same DOM — a
+  class toggle, not a second game — so a mood that still needs a component
+  change is visible in the picture.
+  At the end it checks the finished screen's filmstrip,
   stats and rematch against the snapshot, and opens the rematch link in a second
   page to see the seeded lobby — the one place the rematch handoff is exercised
   with a real browser and a real cookie.

@@ -6,10 +6,36 @@
     <meta name="theme-color" content="#0b3d2e" />
     <meta name="description" content="A Mia table — roll, bluff, believe or doubt." />
     <title>Mia — table</title>
+    <script>
+      /* Apply the personal mood before the stylesheet paints. Lockstep: src/shared/mood.ts */
+      (function () {
+        var KEY = "mia-mood";
+        var ALLOWED = { felt: 1, stammtisch: 1, "night-shift": 1, press: 1 };
+        var THEME = { felt: "#0b3d2e", stammtisch: "#b98f5c", "night-shift": "#0c0620", press: "#efeadf" };
+        var mood = "felt";
+        try {
+          var stored = localStorage.getItem(KEY);
+          if (stored && ALLOWED[stored]) mood = stored;
+        } catch (e) {}
+        var root = document.documentElement;
+        root.classList.remove("mood-felt", "mood-stammtisch", "mood-night-shift", "mood-press");
+        root.classList.add("mood-" + mood);
+        root.setAttribute("data-mood", mood);
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", THEME[mood]);
+      })();
+    </script>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b3d2e'/%3E%3Ccircle cx='11' cy='11' r='3' fill='%23f3e9d2'/%3E%3Ccircle cx='21' cy='21' r='3' fill='%23f3e9d2'/%3E%3C/svg%3E" />
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
+    <script>
+      (function () {
+        var mood = document.documentElement.getAttribute("data-mood") || "felt";
+        document.body.classList.remove("mood-felt", "mood-stammtisch", "mood-night-shift", "mood-press");
+        document.body.classList.add("mood-" + mood);
+      })();
+    </script>
     <div id="app">
       <header class="topbar"><a class="brand" href="/">Mia</a></header>
       <main class="page"><section class="card"><p class="muted">Connecting…</p></section></main>

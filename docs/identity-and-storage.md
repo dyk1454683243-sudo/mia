@@ -157,3 +157,7 @@ table names are trimmed, control characters stripped and length-checked in
 The history endpoint clamps its `limit` query parameter. There is no endpoint that
 exposes another player's hidden dice, because dice live only in the Durable Object
 and leave it only through redaction.
+
+The colour mood is not in this list. It is a personal preference in
+`localStorage` (`mia-mood`) and never reaches D1 or the Durable Object — see
+[client.md](client.md).
