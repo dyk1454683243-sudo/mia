@@ -6,10 +6,10 @@ The suite runs in two different runtimes, and the split is the point.
 
 - **`unit`** runs in plain Node with no Workers runtime. It covers the pure rules
   engine, the clock arithmetic, the seat-limit constants, the round table's
-  seat geometry, the showdown's verdict and beat arithmetic and the endgame
-  replay's filmstrip and stat lines. These are the tests that can be reasoned
-  about from the code alone, and they run fast because there is no platform
-  underneath them.
+  seat geometry, the showdown's verdict and beat arithmetic, the shake-to-roll
+  detector and the endgame replay's filmstrip and stat lines. These are the
+  tests that can be reasoned about from the code alone, and they run fast
+  because there is no platform underneath them.
 - **`workers`** runs inside `workerd` with a real D1 database and a real Durable
   Object. It covers the Durable Object and the HTTP API. These are the tests that
   need the actual storage and socket behavior, because a mock of a Durable Object
@@ -205,7 +205,11 @@ from a list — but the rotation itself is pinned in `test/seat-positions.test.t
 which imports the geometry under Node and walks every seat count and viewer index.
 That is only possible because `seatPositions` lives in its own DOM-free module
 (`src/shared/seat-positions.ts`); `client/src/table.ts` cannot be imported under
-Node, because it queries `#app` at module scope.
+Node, because it queries `#app` at module scope. Shake-to-roll is the same
+shape: Chromium has no `DeviceMotion` to drive, so the threshold, the
+one-roll-per-turn gate, the Space filter and the iOS "do not ask on load"
+plan live in `src/shared/shake-to-roll.ts` and are pinned by
+`test/shake-to-roll.test.ts`.
 
 Before trusting a new test, break the thing it guards and watch it go red —
 changing one thing at a time, so you learn which assertion is load-bearing rather

@@ -40,6 +40,17 @@ import {
   showdownTone,
   showdownValue,
 } from "../../src/shared/showdown";
+import {
+  ShakeDetector,
+  deviceMotionNeedsPermission,
+  gestureRollAction,
+  motionListenPlan,
+  motionMagnitude,
+  rollEffectsAllowed,
+  shouldSendRoll,
+  spaceShouldRoll,
+  type GestureRoll,
+} from "../../src/shared/shake-to-roll";
 import { api, escapeHtml, TableSocket } from "./net";
 
 const PIPS: Record<number, string[]> = {
@@ -201,6 +212,14 @@ const state: PageState = { table: null, view: null, error: null, fatal: null };
 /** Drift is captured when a snapshot lands, then reused for every tick. */
 const clock = new TurnClock();
 let socket: TableSocket | null = null;
+/**
+ * Client-side one-roll-per-turn. The server rejects extras; this stops the
+ * gesture from queuing a second `roll` / `believe` against the same `logSeq`.
+ */
+let sentRollLogSeq: number | null = null;
+let motionAsked = false;
+let motionListening = false;
+const shake = new ShakeDetector();
 
 function send(message: ClientMessage): void {
   // Stamp the snapshot this move was decided against. A move queued during a
@@ -208,6 +227,89 @@ function send(message: ClientMessage): void {
   // may be several turns on; the server refuses a stamp that no longer matches.
   const logSeq = state.view?.state.logSeq;
   socket?.send(logSeq === undefined ? message : { ...message, logSeq });
+}
+
+/**
+ * The same `send` the tap handlers use, so a shake or Space carries the
+ * snapshot's `logSeq` rather than a second, unstamped path.
+ */
+function sendPlayRoll(action: GestureRoll): boolean {
+  const logSeq = state.view?.state.logSeq;
+  if (logSeq !== undefined && !shouldSendRoll(sentRollLogSeq, logSeq)) return false;
+  if (logSeq !== undefined) sentRollLogSeq = logSeq;
+  send({ type: action });
+  return true;
+}
+
+function currentGestureRoll(): GestureRoll | null {
+  const view = state.view;
+  if (!view) return null;
+  return gestureRollAction(legalMoves(view.state, view.you));
+}
+
+function motionEffects() {
+  return rollEffectsAllowed(
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    typeof navigator.vibrate === "function",
+  );
+}
+
+function setRattling(on: boolean): void {
+  document.documentElement.classList.toggle("mia-rattling", on && motionEffects().rattle);
+}
+
+function settleHaptic(): void {
+  if (!motionEffects().haptic) return;
+  navigator.vibrate(24);
+}
+
+function tryGestureRoll(fromShake: boolean): void {
+  const action = currentGestureRoll();
+  if (!action) return;
+  if (!sendPlayRoll(action)) return;
+  if (fromShake) settleHaptic();
+}
+
+function onDeviceMotion(event: DeviceMotionEvent): void {
+  const { shake: fired, rattling } = shake.sample(
+    motionMagnitude({
+      acceleration: event.acceleration,
+      accelerationIncludingGravity: event.accelerationIncludingGravity,
+    }),
+    Date.now(),
+  );
+  setRattling(rattling);
+  if (fired) tryGestureRoll(true);
+}
+
+function startMotionListening(): void {
+  if (motionListening) return;
+  if (typeof window.DeviceMotionEvent === "undefined") return;
+  window.addEventListener("devicemotion", onDeviceMotion, { passive: true });
+  motionListening = true;
+}
+
+/**
+ * iOS only grants `DeviceMotionEvent` after a user gesture. The tap that
+ * already rolled is that gesture; the permission call must not run on load
+ * and must not delay the send.
+ */
+async function requestMotionFromGesture(): Promise<void> {
+  if (motionAsked) return;
+  motionAsked = true;
+  const ctor = window.DeviceMotionEvent;
+  if (!deviceMotionNeedsPermission(ctor)) {
+    startMotionListening();
+    return;
+  }
+  try {
+    const result = await (
+      ctor as unknown as { requestPermission: () => Promise<string> }
+    ).requestPermission();
+    if (result === "granted") startMotionListening();
+  } catch {
+    // Denied or the prompt failed. Roll / Believe already went out.
+  }
 }
 
 async function share(): Promise<void> {
@@ -814,10 +916,12 @@ app.addEventListener("click", (event) => {
       send({ type: "start" });
       break;
     case "roll":
-      send({ type: "roll" });
+      void requestMotionFromGesture();
+      sendPlayRoll("roll");
       break;
     case "believe":
-      send({ type: "believe" });
+      void requestMotionFromGesture();
+      sendPlayRoll("believe");
       break;
     case "doubt":
       send({ type: "doubt" });
@@ -874,11 +978,40 @@ async function boot(): Promise<void> {
       }
       toast(message);
     },
-    onClose: () => render(),
+    onClose: () => {
+      // Keep `sentRollLogSeq`: a drop mid-turn must not let a second shake
+      // queue another roll against the same snapshot. The detector is only
+      // half a gesture, so that can start over.
+      shake.reset();
+      setRattling(false);
+      render();
+    },
   });
   socket.connect();
   render();
 }
+
+const bootMotionPlan = motionListenPlan(
+  typeof window.DeviceMotionEvent !== "undefined",
+  deviceMotionNeedsPermission(window.DeviceMotionEvent),
+);
+if (bootMotionPlan === "listen") startMotionListening();
+
+window.addEventListener("keydown", (event) => {
+  const target = event.target;
+  const element = target instanceof HTMLElement ? target : null;
+  const editing =
+    element !== null &&
+    (element.isContentEditable ||
+      element.tagName === "INPUT" ||
+      element.tagName === "TEXTAREA" ||
+      element.tagName === "SELECT");
+  const focusedAction = target instanceof Element ? (target.closest<HTMLElement>("[data-action]")?.dataset.action ?? null) : null;
+  if (!spaceShouldRoll({ key: event.key, repeat: event.repeat, editing, focusedAction })) return;
+  if (!currentGestureRoll()) return;
+  event.preventDefault();
+  tryGestureRoll(false);
+});
 
 // Tick the clock without redrawing the world. A full `render()` here would
 // replace every node once a second, discarding text selection, in-flight taps,
