@@ -249,11 +249,11 @@ async function verifySpectator(
       (document.querySelector("h2")?.textContent ?? "").includes("Can’t join"),
     { timeout: 15_000 },
   );
-  const shot = await spectatorShot(page);
+  const spec = await spectatorShot(page);
   check(
     "a spectator opens a full waiting table without taking a seat",
-    shot.watching && !shot.fatal && shot.seats === SEATS,
-    `watching=${shot.watching} fatal=${shot.fatal} seats=${shot.seats} of ${SEATS}`,
+    spec.watching && !spec.fatal && spec.seats === SEATS,
+    `watching=${spec.watching} fatal=${spec.fatal} seats=${spec.seats} of ${SEATS}`,
   );
   const hostAfter = await hostPage.evaluate(() => document.querySelectorAll(".roster-row").length);
   check(
@@ -263,21 +263,21 @@ async function verifySpectator(
   );
   check(
     "SPECTATOR: no sendable ClientMessage control before the first deal",
-    shot.sendable.length === 0,
-    shot.sendable.join(", ") || "none",
+    spec.sendable.length === 0,
+    spec.sendable.join(", ") || "none",
   );
-  check("SPECTATOR: no you seat treatment before the first deal", shot.youMarks === 0, `${shot.youMarks} you marks`);
-  check("SPECTATOR: the early TV shows the felt", shot.seats === SEATS && shot.feltWidth > 0, `${shot.seats} seats · felt ${shot.feltWidth}px`);
-  check("SPECTATOR: waiting line before the first deal", shot.waitingLine);
+  check("SPECTATOR: no you seat treatment before the first deal", spec.youMarks === 0, `${spec.youMarks} you marks`);
+  check("SPECTATOR: the early TV shows the felt", spec.seats === SEATS && spec.feltWidth > 0, `${spec.seats} seats · felt ${spec.feltWidth}px`);
+  check("SPECTATOR: waiting line before the first deal", spec.waitingLine);
   check(
     "SPECTATOR: the felt is TV-scaled at the desktop viewport",
-    shot.feltWidth >= 520,
-    `${shot.feltWidth}px (phone felt is 22rem / 352px; player desktop is 28rem / 448px)`,
+    spec.feltWidth >= 520,
+    `${spec.feltWidth}px (phone felt is 22rem / 352px; player desktop is 28rem / 448px)`,
   );
   check(
     "SPECTATOR: seat names scale up",
-    shot.nameSize >= 13,
-    `${shot.nameSize}px`,
+    spec.nameSize >= 13,
+    `${spec.nameSize}px`,
   );
   check(
     "the playing tab still has the start button",
