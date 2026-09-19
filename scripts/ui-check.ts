@@ -655,6 +655,25 @@ async function peekView(page: Page): Promise<PeekView> {
   });
 }
 
+async function waitPeek(page: Page, open: boolean): Promise<PeekView> {
+  await page.waitForFunction(
+    (wantOpen) => {
+      const roots = [...document.querySelectorAll("[data-peek-cup]")];
+      if (roots.length === 0) return false;
+      if (roots.some((root) => root.classList.contains("peeking")) !== wantOpen) return false;
+      return roots.every((root) => {
+        const wrap = root.querySelector(".peek-faces");
+        if (!wrap) return false;
+        const opacity = Number.parseFloat(getComputedStyle(wrap).opacity);
+        return wantOpen ? opacity > 0.9 : opacity < 0.05;
+      });
+    },
+    open,
+    { timeout: 2_000 },
+  );
+  return peekView(page);
+}
+
 async function holdPeek(page: Page): Promise<void> {
   const pad = page.locator(".peek-pad").first();
   const cup = page.locator("[data-peek-cup]").first();
@@ -688,7 +707,7 @@ async function verifyHoldToPeek(page: Page, ladderOpen: boolean): Promise<void> 
     ladderOpen ? `tray=${closed.tray} announce=${closed.announceCount}` : "ladder not open",
   );
   await holdPeek(page);
-  const open = await peekView(page);
+  const open = await waitPeek(page, true).catch(async () => peekView(page));
   const faces = open.faceLabels.filter((label) => /^[1-6]$/.test(label));
   check(
     "holding the cup reveals the viewer's dice faces",
@@ -703,7 +722,7 @@ async function verifyHoldToPeek(page: Page, ladderOpen: boolean): Promise<void> 
   await page.evaluate(() => window.scrollTo(0, 0));
   await shot(page, "06c-hold-to-peek");
   await releasePeek(page);
-  const released = await peekView(page);
+  const released = await waitPeek(page, false);
   check(
     "releasing the cup covers the dice again",
     !released.peeking && released.facesCovered && !released.facesVisible,

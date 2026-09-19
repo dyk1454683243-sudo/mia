@@ -760,11 +760,10 @@ ul {
     transition: transform 0.16s ease, opacity 0.16s ease;
   }
 
-  .player-dice.peek-cup .peek-faces,
-  .peek-tray .peek-faces {
-    transition: opacity 0.12s ease;
-  }
-
+  /* Faces snap. A fade would leave them unreadable for the first frames of a
+   * hold and still readable after release — the sofa problem is opacity, so
+   * it has to change with the pointer, not after a transition. The lid is
+   * the motion. */
   .player-dice.peek-cup.peeking .peek-lid {
     transform: translateY(-12px) rotate(-8deg);
     opacity: 0.28;
