@@ -647,7 +647,7 @@ async function peekView(page: Page): Promise<PeekView> {
       seatCovered: seat !== null,
       tray: tray !== null,
       peeking: Boolean(seat?.classList.contains("peeking") || tray?.classList.contains("peeking")),
-      faceLabels: [...new Set(faces.map((face) => face.label))],
+      faceLabels: faces.map((face) => face.label),
       facesCovered: faces.length > 0 && opacities.every((opacity) => opacity < 0.05),
       facesVisible: faces.length > 0 && opacities.every((opacity) => opacity > 0.9),
       announceCount: document.querySelectorAll(".announce").length,
@@ -708,10 +708,12 @@ async function verifyHoldToPeek(page: Page, ladderOpen: boolean): Promise<void> 
   );
   await holdPeek(page);
   const open = await waitPeek(page, true).catch(async () => peekView(page));
+  // Two faces, not two distinct values: a double (`6·6`) is a legal roll and
+  // used to fail a `Set` of labels that demanded length 2.
   const faces = open.faceLabels.filter((label) => /^[1-6]$/.test(label));
   check(
     "holding the cup reveals the viewer's dice faces",
-    open.peeking && open.facesVisible && !open.facesCovered && faces.length === 2,
+    open.peeking && open.facesVisible && !open.facesCovered && faces.length >= 2,
     `peeking=${open.peeking} visible=${open.facesVisible} covered=${open.facesCovered} faces [${open.faceLabels.join(", ")}]`,
   );
   check(
