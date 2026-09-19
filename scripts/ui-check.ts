@@ -11,8 +11,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
-import { livesIndicator } from "../src/shared/lives.ts";
-import { formatValue, MAX_PLAYERS, MIA, MIN_PLAYERS, outranks, RANKING } from "../src/shared/mia.ts";
+import { formatValue, MAX_PLAYERS, MIA, MIN_PLAYERS, outranks, RANKING, STARTING_LIVES } from "../src/shared/mia.ts";
 import { SHIP_NAMES } from "../src/shared/ships.ts";
 import { api, BASE, createPlayer } from "./lib.ts";
 
@@ -762,7 +761,19 @@ async function showdownFrame(
   page: Page,
   tone: "caught" | "believed" | "mia",
   fraction: number,
-): Promise<{ stampOpacity: number; claimedStruck: boolean; claimedShadow: string; actualFilter: string }> {
+): Promise<{
+  stampOpacity: number;
+  claimedStruck: boolean;
+  claimedShadow: string;
+  actualFilter: string;
+  /** Animated opacity of `.showdown-loss` itself, not of the child count. */
+  lossOpacity: number;
+  lossOn: number;
+  lossCount: string;
+  lossLabel: string;
+  lossCountWidth: number;
+  lossCountHeight: number;
+}> {
   return await page.evaluate(
     ({ tone, fraction }) => {
       const live = document.querySelector<HTMLElement>(".showdown");
@@ -784,6 +795,10 @@ async function showdownFrame(
       const claimed = read(".showdown-claimed .showdown-value");
       const stamp = read(".showdown-stamp");
       const dice = read(".showdown-actual .dice");
+      const loss = read(".showdown-loss");
+      const lossPips = clone.querySelector(".showdown-loss .pips");
+      const lossCount = clone.querySelector<HTMLElement>(".showdown-loss .lives-count");
+      const lossBox = lossCount?.getBoundingClientRect();
       const frame = {
         stampOpacity: stamp ? Number(stamp.opacity) : -1,
         // `line-through` is on the base rule; its colour is what the beat-3
@@ -793,6 +808,15 @@ async function showdownFrame(
           (claimed?.textDecorationColor ?? "").includes("226, 104, 95"),
         claimedShadow: claimed?.boxShadow ?? "",
         actualFilter: dice?.filter ?? "",
+        // The fade-in is on `.showdown-loss`. The child `.lives-count` stays at
+        // opacity 1 from the first frame, so reading the child is how a green
+        // check shipped while the first-beat screenshot showed empty felt.
+        lossOpacity: loss ? Number(loss.opacity) : -1,
+        lossOn: lossPips ? lossPips.querySelectorAll(".pip.on").length : 0,
+        lossCount: lossCount?.textContent?.trim() ?? "",
+        lossLabel: lossPips?.getAttribute("aria-label") ?? "",
+        lossCountWidth: lossBox?.width ?? 0,
+        lossCountHeight: lossBox?.height ?? 0,
       };
       clone.remove();
       return frame;
@@ -959,9 +983,17 @@ async function act(page: Page): Promise<string> {
   });
 }
 
+/**
+ * The DOM contract `livesIndicator` writes. The harness cannot import
+ * `src/shared/lives.ts` — that file's extensionless `./mia` import is what
+ * Node's type-stripping cannot resolve, and scripts may only import with
+ * explicit `.ts` extensions (see docs/testing.md). The unit file pins the
+ * helper; this rebuilds the same two strings from `.pip.on`.
+ */
 function livesRowAgrees(on: number, count: string, label: string): boolean {
-  const expected = livesIndicator(on);
-  return count === expected.countText && label === expected.ariaLabel;
+  const countText = `${on} ${on === 1 ? "life" : "lives"}`;
+  const ariaLabel = `${on} of ${STARTING_LIVES} lives`;
+  return count === countText && label === ariaLabel;
 }
 
 async function playGame(page: Page, bots: ChildProcess, tableId: string): Promise<{ saw: Set<string>; secrecyViolations: string[]; claimBubbleViolations: string[]; livesViolations: string[]; diceSpill: string[]; viewerDiceSeen: boolean; countdownTicks: string[]; rerenderSurvived: boolean | null }> {
@@ -996,6 +1028,7 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
   let nonTurnSeatSamples = 0;
   let motionProbe: MotionProbe | null = null;
   let countdownProbed = false;
+  let showdownLossShot = false;
   const deadline = Date.now() + 12 * 60_000;
 
   await page.click('[data-action="start"]');
@@ -1225,24 +1258,14 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
       const layout = await showdownLayout(page);
       check("claimed and actual stand side by side in the showdown", layout.sideBySide, layout.detail);
       const showdown = snap.showdownLives;
-      const showdownCountHidden = await page.evaluate(() => {
-        const node = document.querySelector<HTMLElement>(".showdown-loss .lives-count");
-        if (!node) return true;
-        const style = getComputedStyle(node);
-        const box = node.getBoundingClientRect();
-        return (
-          style.display === "none" ||
-          style.visibility === "hidden" ||
-          style.opacity === "0" ||
-          box.width < 4 ||
-          box.height < 4
-        );
-      });
+      // Beat 1 is the cup lift: `.showdown-loss` is still at opacity 0
+      // (`showdown-fade-in` holds through 55% of the window). The count is
+      // already in the tree so AT and the lockstep can be read; claiming
+      // *visibility* here is the #29 trap — the child's own opacity is 1
+      // while the parent is faded out.
       check(
-        "the showdown labels the loser's remaining lives with a visible number",
-        showdown !== null &&
-          livesRowAgrees(showdown.on, showdown.count, showdown.label) &&
-          !showdownCountHidden,
+        "the showdown loss row's count and aria-label agree with .pip.on",
+        showdown !== null && livesRowAgrees(showdown.on, showdown.count, showdown.label),
         showdown
           ? `pips ${showdown.on} · count ${showdown.count} · label ${showdown.label}`
           : "no showdown-loss row",
@@ -1280,6 +1303,33 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
         missing.length === 0,
         missing.join("; ") || "beat 3: stamp up and verdict decorated in all three tones",
       );
+      // Visibility is read from the scrubbed last-beat clone, not from the
+      // live cup-lift frame. The fade-in is on `.showdown-loss`; by 0.95 of
+      // the window that parent is opaque and the number is on screen.
+      const faded = await showdownFrame(page, "caught", 0.95);
+      check(
+        "the showdown labels the loser's remaining lives with a visible number",
+        faded.lossOpacity > 0.9 &&
+          faded.lossCountWidth >= 4 &&
+          faded.lossCountHeight >= 4 &&
+          livesRowAgrees(faded.lossOn, faded.lossCount, faded.lossLabel),
+        `opacity ${faded.lossOpacity.toFixed(2)} · pips ${faded.lossOn} · count ${faded.lossCount} · label ${faded.lossLabel}`,
+      );
+    }
+    // The moment the change is about: the loss row after it has faded in,
+    // not the first-beat cup lift. Wait for the live parent's opacity rather
+    // than scrubbing, so the screenshot is a real frame of the staging.
+    if (!showdownLossShot && snap.phase === "revealing") {
+      const fadedIn = await page.evaluate(() => {
+        const row = document.querySelector<HTMLElement>(".showdown-loss");
+        if (!row) return false;
+        return Number(getComputedStyle(row).opacity) > 0.9;
+      });
+      if (fadedIn) {
+        showdownLossShot = true;
+        await shot(page, "07b-revealing-loss");
+        note(`07b-revealing-loss captured at beat ${snap.beat} (${snap.showdownTone})`);
+      }
     }
     // A Mia claim is the one roll where the verdict must read "MIA" and never
     // "2·1". The dice are random, so this runs on whichever reveal shows one
@@ -1603,6 +1653,11 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
       : "no motion probe",
   );
 
+  check(
+    "the showdown loss row was photographed after it faded in",
+    showdownLossShot,
+    showdownLossShot ? "07b-revealing-loss" : "the live row never reached opacity 1",
+  );
   if (!saw.has("finished")) note("the game did not finish inside the time box");
   return { saw, secrecyViolations, claimBubbleViolations, livesViolations, diceSpill, viewerDiceSeen, countdownTicks, rerenderSurvived };
 }
@@ -1652,7 +1707,10 @@ async function main(): Promise<void> {
   // tested where it is worst.
   section(`Filling the table to ${SEATS} seats`);
   console.log(`\n  starting ${BOTS} bot${BOTS === 1 ? "" : "s"} for ${tableId}…`);
-  const bots: ChildProcess = spawn("node", ["scripts/bots.ts", tableId, String(BOTS)], { stdio: "inherit", env: process.env });
+  const bots: ChildProcess = spawn(process.execPath, [...process.execArgv, "scripts/bots.ts", tableId, String(BOTS)], {
+    stdio: "inherit",
+    env: process.env,
+  });
   await page.waitForFunction((expected) => document.querySelectorAll(".roster-row").length === expected, SEATS, { timeout: 30_000 });
   check(`${BOTS} bots appear in the roster`, true, `${SEATS} seats`);
   await shot(page, "02b-table-with-bots");

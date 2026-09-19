@@ -124,7 +124,17 @@ cover the assembled system, and they need a running `wrangler dev` (or a deploye
   cannot pass by accident. The lives-count check samples every in-play snapshot
   and requires the visible `.lives-count` and the `aria-label` to agree with
   `.pip.on` — the number next to the glyph, not a second copy of the count
-  written by hand. At the end it checks the finished screen's filmstrip,
+  written by hand. The harness rebuilds those two strings from `.pip.on` and
+  `STARTING_LIVES` rather than importing `src/shared/lives.ts`: that file's
+  extensionless `./mia` import is what Node's type-stripping cannot resolve,
+  and scripts may only import with explicit `.ts` extensions. The unit file
+  pins the helper; the harness pins the DOM. The showdown loss row is the
+  sibling of the stamp-suspense check: the first reveal frame is the cup lift,
+  when `.showdown-loss` is still at opacity 0, so claiming visibility from the
+  child's own opacity is the #29 trap (the child is opaque while the parent is
+  faded out). Visibility is read from a last-beat clone of the parent, and the
+  live `07b-revealing-loss` shot waits until that parent has faded in. At the
+  end it checks the finished screen's filmstrip,
   stats and rematch against the snapshot, and opens the rematch link in a second
   page to see the seeded lobby — the one place the rematch handoff is exercised
   with a real browser and a real cookie.
