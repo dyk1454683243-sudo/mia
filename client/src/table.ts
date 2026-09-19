@@ -40,6 +40,7 @@ import {
   showdownTone,
   showdownValue,
 } from "../../src/shared/showdown";
+import { cupCoversOwnDice } from "../../src/shared/peek";
 import { api, escapeHtml, TableSocket } from "./net";
 
 const PIPS: Record<number, string[]> = {
@@ -63,6 +64,39 @@ function diceOf(player: MiaPlayer | undefined, size: "sm" | "lg" = "lg"): string
     return `<span class="dice"><span class="die ${size} hidden">?</span><span class="die ${size} hidden">?</span></span>`;
   }
   return `<span class="dice">${dieFace(player.dice[0], size)}${dieFace(player.dice[1], size)}</span>`;
+}
+
+/**
+ * The viewer's already-redacted pair, under a closed cup. The `.player-dice`
+ * node is still emitted — that is the seat contract — and the lid is only
+ * paint. A revealed pair (or anyone else's) is drawn face-up, as before.
+ */
+function renderSeatDice(game: MiaState, player: MiaPlayer, isYou: boolean): string {
+  if (!player.dice) return "";
+  const faces = diceOf(player, "sm");
+  if (!cupCoversOwnDice(game.phase, isYou, true)) {
+    return `<div class="player-dice">${faces}</div>`;
+  }
+  return `<div class="player-dice peek-cup" data-peek-cup>
+    <div class="peek-faces">${faces}</div>
+    <span class="peek-lid" aria-hidden="true"></span>
+  </div>`;
+}
+
+/**
+ * A 44px hold target that lives in the actions card, so peeking stays possible
+ * while the announce ladder is open. The ladder is `position: static` and does
+ * not cover the table, but the seat cup is a 20px pair at the foot of the
+ * ring; putting the gesture next to the prompt is what stops the cover from
+ * making the game harder to play. Not a `.player-dice`: the harness's seat
+ * contract and the felt spill check both read that class on `.player` only.
+ */
+function renderPeekTray(game: MiaState, you: MiaPlayer | undefined): string {
+  if (!you || !cupCoversOwnDice(game.phase, true, you.dice !== null)) return "";
+  return `<div class="peek-tray" data-peek-cup>
+    <button type="button" class="peek-pad" aria-pressed="false" aria-label="Hold to peek at your dice">Hold to peek</button>
+    <div class="peek-faces">${diceOf(you, "sm")}</div>
+  </div>`;
 }
 
 function valueChip(value: number, extra = ""): string {
@@ -201,6 +235,12 @@ const state: PageState = { table: null, view: null, error: null, fatal: null };
 /** Drift is captured when a snapshot lands, then reused for every tick. */
 const clock = new TurnClock();
 let socket: TableSocket | null = null;
+/**
+ * Hold-to-peek is pointer state, not snapshot state. `paint()` replaces the
+ * tree on every broadcast, so the flag lives here and is painted back on.
+ */
+let peekHeld = false;
+let peekPointerId: number | null = null;
 
 function send(message: ClientMessage): void {
   // Stamp the snapshot this move was decided against. A move queued during a
@@ -314,7 +354,9 @@ function countdownMarkup(countdown: CountdownView): string {
  * with `.name` (and `.name em` for the viewer), `.player-dice` only when the
  * snapshot actually carries dice, a `.badge.cup`, the `turn`/`out` classes on
  * the seat, and one `.pip.on` per life. The claim is a text speech bubble on the
- * seat that made it, never dice, so the secrecy rule is untouched.
+ * seat that made it, never dice, so the secrecy rule is untouched. A closed cup
+ * on the viewer's pair is a lid over that same `.player-dice` node, not a
+ * second redaction.
  */
 function renderPlayers(game: MiaState, view: StateView): string {
   const countdown = clock.countdown(game.turnStartedAt, game.deadlineAt);
@@ -355,7 +397,7 @@ function renderPlayers(game: MiaState, view: StateView): string {
           ${offline && !player.eliminated ? '<span class="badge muted">offline</span>' : ""}
         </span>
         <div class="pips" aria-label="${player.lives} of ${STARTING_LIVES} lives">${lives}</div>
-        ${player.dice ? `<div class="player-dice">${diceOf(player, "sm")}</div>` : ""}
+        ${renderSeatDice(game, player, isYou)}
         ${
           showClaim
             ? `<span class="claim" data-claim-player="${escapeHtml(player.id)}">${valueLabel(claim.value)}</span>`
@@ -626,11 +668,11 @@ function renderPlay(view: StateView): string {
   } else if (game.phase === "roundStart") {
     actions = `<div class="card actions"><p class="muted">Round ${game.round} — ${escapeHtml(
       turnPlayer?.name ?? "someone",
-    )} is picking up the cup…</p></div>`;
+    )} is picking up the cup…</p>${renderPeekTray(game, you)}</div>`;
   } else if (!turnIsMine) {
     actions = `<div class="card actions"><p class="muted">Waiting for ${escapeHtml(
       turnPlayer?.name ?? "the next player",
-    )}${countdown !== null ? ` · ${countdownMarkup(countdown)}` : ""}</p></div>`;
+    )}${countdown !== null ? ` · ${countdownMarkup(countdown)}` : ""}</p>${renderPeekTray(game, you)}</div>`;
   } else if (game.phase === "announcing") {
     const held = you?.dice ? rollValue(you.dice[0], you.dice[1]) : null;
     const heldBelowCut = held !== null && !moves.announcements.includes(held);
@@ -638,6 +680,7 @@ function renderPlay(view: StateView): string {
       <p class="prompt">Your dice are secret. Claim something <b>higher than ${
         standing ? valueLabel(standing.value) : "anything"
       }</b>:</p>
+      ${renderPeekTray(game, you)}
       ${renderAnnounceLadder(moves.announcements, you?.dice ?? null, standing)}
       ${
         heldBelowCut
@@ -652,6 +695,7 @@ function renderPlay(view: StateView): string {
           ? `Standing: <b>${valueLabel(standing.value)}</b> from ${escapeHtml(standing.playerName)}`
           : "You open the round."
       }</p>
+      ${renderPeekTray(game, you)}
       <div class="row gap">
         ${moves.canBelieve ? '<button class="primary" data-action="believe">Believe &amp; roll</button>' : ""}
         ${moves.canDoubt ? '<button class="danger" data-action="doubt">Doubt</button>' : ""}
@@ -755,6 +799,10 @@ function paint(html: string): void {
   app.innerHTML = html;
   window.scrollTo(0, scrollY);
   pinLadder();
+  // A snapshot rebuilds the tree; if the thumb is still down, the new lid
+  // stays open. `lostpointercapture` is not the closer — paint would fire it
+  // and slam the cup while the reader is still holding.
+  applyPeeking();
 }
 
 function render(): void {
@@ -805,6 +853,63 @@ function render(): void {
 // ---------------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------------
+
+function peekTarget(event: Event): HTMLElement | null {
+  const node = event.target;
+  if (!(node instanceof Element)) return null;
+  return node.closest("[data-peek-cup]");
+}
+
+function applyPeeking(): void {
+  for (const cup of document.querySelectorAll<HTMLElement>("[data-peek-cup]")) {
+    cup.classList.toggle("peeking", peekHeld);
+    cup.querySelector(".peek-pad")?.setAttribute("aria-pressed", peekHeld ? "true" : "false");
+  }
+}
+
+function onPeekPointerDown(event: PointerEvent): void {
+  if (!peekTarget(event)) return;
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+  peekHeld = true;
+  peekPointerId = event.pointerId;
+  applyPeeking();
+}
+
+function onPeekPointerEnd(event: PointerEvent): void {
+  if (!peekHeld) return;
+  if (peekPointerId !== null && event.pointerId !== peekPointerId) return;
+  peekHeld = false;
+  peekPointerId = null;
+  applyPeeking();
+}
+
+function onPeekKeyDown(event: KeyboardEvent): void {
+  if (event.repeat) return;
+  if (event.key !== " " && event.key !== "Enter") return;
+  if (!peekTarget(event)) return;
+  event.preventDefault();
+  peekHeld = true;
+  applyPeeking();
+}
+
+function onPeekKeyUp(event: KeyboardEvent): void {
+  if (event.key !== " " && event.key !== "Enter") return;
+  if (!peekHeld) return;
+  peekHeld = false;
+  applyPeeking();
+}
+
+app.addEventListener("pointerdown", onPeekPointerDown);
+window.addEventListener("pointerup", onPeekPointerEnd);
+window.addEventListener("pointercancel", onPeekPointerEnd);
+app.addEventListener("keydown", onPeekKeyDown);
+window.addEventListener("keyup", onPeekKeyUp);
+app.addEventListener("contextmenu", (event) => {
+  if (peekTarget(event)) event.preventDefault();
+});
+app.addEventListener("selectstart", (event) => {
+  if (peekTarget(event)) event.preventDefault();
+});
 
 app.addEventListener("click", (event) => {
   const target = (event.target as HTMLElement).closest<HTMLElement>("[data-action]");

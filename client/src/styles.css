@@ -668,6 +668,115 @@ ul {
   margin-top: 0.4rem;
 }
 
+/*
+ * Hold-to-peek. The lid is paint over the viewer's already-redacted pair.
+ * `touch-action: manipulation` and `user-select` are scoped to the cup so a
+ * real iOS long-press elsewhere — selecting a ship name, the standing claim,
+ * the page context menu — still behaves. `manipulation` drops the double-tap
+ * zoom delay without `touch-action: none`, which would steal a scroll that
+ * started on the seat. Opening is immediate on pointerdown: "hold" means keep
+ * holding to keep looking, not wait 500ms for a long-press timer.
+ */
+[data-peek-cup] {
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+}
+
+.player-dice.peek-cup {
+  position: relative;
+}
+
+.player-dice.peek-cup .peek-faces {
+  display: flex;
+  justify-content: center;
+}
+
+.player-dice.peek-cup:not(.peeking) .peek-faces,
+.peek-tray:not(.peeking) .peek-faces {
+  opacity: 0;
+}
+
+.player-dice.peek-cup.peeking .peek-faces,
+.peek-tray.peeking .peek-faces {
+  opacity: 1;
+}
+
+.peek-lid {
+  position: absolute;
+  inset: 0;
+  border-radius: 5px 5px 55% 55% / 4px 4px 70% 70%;
+  background: linear-gradient(160deg, #6e4322, #3d2313 60%, #28170c);
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 8px -4px rgba(0, 0, 0, 0.7), inset 0 2px 3px rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+}
+
+.peek-lid::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  right: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.peek-tray {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.peek-pad {
+  min-height: var(--tap);
+  min-width: 6.4rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  border: 2px solid var(--gold);
+  background: radial-gradient(circle, rgba(232, 196, 106, 0.18), transparent 70%);
+  color: var(--gold);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.peek-tray.peeking .peek-pad {
+  background: rgba(232, 196, 106, 0.28);
+}
+
+.peek-tray .peek-faces {
+  display: flex;
+  align-items: center;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .player-dice.peek-cup .peek-lid {
+    transition: transform 0.16s ease, opacity 0.16s ease;
+  }
+
+  .player-dice.peek-cup .peek-faces,
+  .peek-tray .peek-faces {
+    transition: opacity 0.12s ease;
+  }
+
+  .player-dice.peek-cup.peeking .peek-lid {
+    transform: translateY(-12px) rotate(-8deg);
+    opacity: 0.28;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player-dice.peek-cup.peeking .peek-lid {
+    opacity: 0;
+  }
+}
+
 /* ------------------------------------------------------------------- dice */
 
 .dice {

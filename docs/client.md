@@ -64,6 +64,46 @@ Eliminated players keep their chair and are greyed; the roster is every seat, no
 the survivors. Turn, cup and elimination are carried by words on badges as well as
 colour and opacity, never by colour alone.
 
+## Hold to peek
+
+The viewer's own pair is still in the snapshot — `visibilityFor` already
+stripped everyone else's — but it no longer sits face-up on the chair. A closed
+wooden cup covers `.player-dice` for the viewer during `roundStart`,
+`deciding` and `announcing`. Press-and-hold (a click-and-hold on desktop) lifts
+the lid; release puts it back. Revealed and finished pairs stay face-up, which
+is the showdown's job.
+
+The cover is presentation. `renderPlayers` still emits `.player-dice` exactly
+when the snapshot carries dice, and `cupCoversOwnDice` in `src/shared/peek.ts`
+is the only phase cut. `visibilityFor` is untouched.
+
+A closed cup must not make the game harder to play. The announce ladder already
+marks the held value (`.announce.mine`), and the ladder card is `position:
+static` so it does not cover the table. The hold target is also duplicated as a
+44px **Hold to peek** pad in the actions card, above the ladder, so peeking
+stays possible while claiming. That pad is not a `.player-dice` — the seat
+contract and the felt-spill check both read that class on `.player` only.
+
+`paint()` rebuilds the tree on every snapshot. The held flag lives in module
+scope and is painted back on, so a toast or a presence broadcast does not slam
+the cup while the thumb is down. `lostpointercapture` is deliberately not the
+closer: replacing the node would fire it.
+
+The pointer work is scoped so a real iOS long-press elsewhere still behaves:
+
+- `touch-action: manipulation` on `[data-peek-cup]` only — drops the
+  double-tap zoom delay without `touch-action: none`, which would steal a
+  scroll that started on the seat.
+- `user-select: none` and `-webkit-touch-callout: none` on the cup only, so a
+  ship name and the standing claim stay selectable.
+- `contextmenu` is cancelled on the cup only.
+- Opening is immediate on `pointerdown`. "Hold" means keep holding to keep
+  looking, not wait 500ms for a long-press timer. That is the physical-cup
+  model, and it is also what stops the gesture fighting the browser's own
+  long-press.
+
+Shake-to-roll is a different issue (#52) and is not wired here.
+
 ## The announce ladder
 
 The announce UI is the ranking drawn as one vertical ladder, not a grid of the

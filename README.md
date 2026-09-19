@@ -241,6 +241,7 @@ src/shared/     pure TypeScript, no Cloudflare imports
   protocol.ts     WebSocket message + state types shared by both sides
   clock.ts        turn-countdown arithmetic (clock drift captured per snapshot)
   seat-positions.ts  round-table seat geometry (pure, no DOM)
+  peek.ts         when the viewer's own cup sits closed (pure, no DOM)
   replay.ts       the endgame filmstrip and the per-player stat lines (pure)
   ships.ts        Culture ship-name pool for new players
 src/worker/
@@ -256,6 +257,7 @@ test/
   mia.test.ts     rules engine (node)
   clock.test.ts   countdown arithmetic (node)
   seat-positions.test.ts  round-table rotation (node)
+  peek.test.ts    closed-cup phase gate (node)
   replay.test.ts  endgame filmstrip, stat lines and per-player tallies (node)
   room.test.ts    Durable Object + D1 + WebSockets (workerd)
 scripts/

@@ -6,10 +6,10 @@ The suite runs in two different runtimes, and the split is the point.
 
 - **`unit`** runs in plain Node with no Workers runtime. It covers the pure rules
   engine, the clock arithmetic, the seat-limit constants, the round table's
-  seat geometry, the showdown's verdict and beat arithmetic and the endgame
-  replay's filmstrip and stat lines. These are the tests that can be reasoned
-  about from the code alone, and they run fast because there is no platform
-  underneath them.
+  seat geometry, the showdown's verdict and beat arithmetic, the closed-cup
+  phase gate and the endgame replay's filmstrip and stat lines. These are the
+  tests that can be reasoned about from the code alone, and they run fast
+  because there is no platform underneath them.
 - **`workers`** runs inside `workerd` with a real D1 database and a real Durable
   Object. It covers the Durable Object and the HTTP API. These are the tests that
   need the actual storage and socket behavior, because a mock of a Durable Object
@@ -110,7 +110,11 @@ cover the assembled system, and they need a running `wrangler dev` (or a deploye
   dice obey the same "run both" rule for their own reason: `ui-check` forces the
   longest pool name onto the viewer's seat and measures the dice against the felt
   card, which leaves the least room below the chair at three seats (90%) even
-  though the ring itself is tightest at eight.
+  though the ring itself is tightest at eight. Hold-to-peek covers those faces
+  by default, so the harness holds the cup (pointer down on **Hold to peek**)
+  before it treats the pair as readable: a lid that hid only from the eye and
+  not from the check would be cosmetic. The hold is taken on an announcing
+  turn so the ladder stays up while the faces are shown.
   Its showdown-suspense check mounts an off-screen clone of the live showdown
   with `--showdown-elapsed` scrubbed, so it can read the first and last beat for
   all three verdict tones rather than only whichever tone the random dice
@@ -205,7 +209,10 @@ from a list — but the rotation itself is pinned in `test/seat-positions.test.t
 which imports the geometry under Node and walks every seat count and viewer index.
 That is only possible because `seatPositions` lives in its own DOM-free module
 (`src/shared/seat-positions.ts`); `client/src/table.ts` cannot be imported under
-Node, because it queries `#app` at module scope.
+Node, because it queries `#app` at module scope. The closed-cup phase cut is the
+same shape: `cupCoversOwnDice` lives in `src/shared/peek.ts` and is pinned by
+`test/peek.test.ts`, because the browser harness cannot cheaply plant a
+revealing-phase pair on the viewer's chair and prove the lid stayed off.
 
 Before trusting a new test, break the thing it guards and watch it go red —
 changing one thing at a time, so you learn which assertion is load-bearing rather

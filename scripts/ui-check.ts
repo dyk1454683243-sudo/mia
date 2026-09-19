@@ -610,6 +610,107 @@ async function diceOffFelt(page: Page): Promise<{ violations: string[]; detail: 
   });
 }
 
+interface PeekView {
+  seatCovered: boolean;
+  tray: boolean;
+  peeking: boolean;
+  faceLabels: string[];
+  facesCovered: boolean;
+  facesVisible: boolean;
+  announceCount: number;
+}
+
+/**
+ * Visual cover, not the accessibility tree. `aria-label` on a die stays in
+ * the DOM while the cup is closed (assistive tech can still hear the pair);
+ * the sofa problem is opacity. Reading labels without holding would make the
+ * lid cosmetic.
+ */
+async function peekView(page: Page): Promise<PeekView> {
+  return await page.evaluate(() => {
+    const readFaces = (root: Element | null) => {
+      if (!root) return [];
+      return [...root.querySelectorAll<HTMLElement>(".peek-faces .die")].map((die) => {
+        const wrap = die.closest(".peek-faces");
+        const cs = getComputedStyle(wrap ?? die);
+        return {
+          label: die.getAttribute("aria-label") ?? "",
+          opacity: Number.parseFloat(cs.opacity),
+        };
+      });
+    };
+    const seat = document.querySelector(".player.you .player-dice[data-peek-cup]");
+    const tray = document.querySelector(".peek-tray[data-peek-cup]");
+    const faces = [...readFaces(seat), ...readFaces(tray)];
+    const opacities = faces.map((face) => face.opacity);
+    return {
+      seatCovered: seat !== null,
+      tray: tray !== null,
+      peeking: Boolean(seat?.classList.contains("peeking") || tray?.classList.contains("peeking")),
+      faceLabels: [...new Set(faces.map((face) => face.label))],
+      facesCovered: faces.length > 0 && opacities.every((opacity) => opacity < 0.05),
+      facesVisible: faces.length > 0 && opacities.every((opacity) => opacity > 0.9),
+      announceCount: document.querySelectorAll(".announce").length,
+    };
+  });
+}
+
+async function holdPeek(page: Page): Promise<void> {
+  const pad = page.locator(".peek-pad").first();
+  const cup = page.locator("[data-peek-cup]").first();
+  const target = (await pad.count()) > 0 ? pad : cup;
+  await target.scrollIntoViewIfNeeded();
+  const box = await target.boundingBox();
+  if (!box) throw new Error("hold-to-peek target has no box");
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+}
+
+async function releasePeek(page: Page): Promise<void> {
+  await page.mouse.up();
+}
+
+/**
+ * The cover is load-bearing: default closed, hold opens, release closes.
+ * When the ladder is up the same hold still works — a closed cup that hid
+ * the pair from the player who needs them would make the game harder.
+ */
+async function verifyHoldToPeek(page: Page, ladderOpen: boolean): Promise<void> {
+  const closed = await peekView(page);
+  check(
+    "the viewer's cup sits closed over their dice",
+    closed.seatCovered && !closed.peeking && closed.facesCovered && !closed.facesVisible,
+    `seat=${closed.seatCovered} tray=${closed.tray} peeking=${closed.peeking} covered=${closed.facesCovered} visible=${closed.facesVisible} faces [${closed.faceLabels.join(", ")}]`,
+  );
+  check(
+    "hold-to-peek stays reachable while the announce ladder is open",
+    !ladderOpen || (closed.tray && closed.announceCount > 0),
+    ladderOpen ? `tray=${closed.tray} announce=${closed.announceCount}` : "ladder not open",
+  );
+  await holdPeek(page);
+  const open = await peekView(page);
+  const faces = open.faceLabels.filter((label) => /^[1-6]$/.test(label));
+  check(
+    "holding the cup reveals the viewer's dice faces",
+    open.peeking && open.facesVisible && !open.facesCovered && faces.length === 2,
+    `peeking=${open.peeking} visible=${open.facesVisible} covered=${open.facesCovered} faces [${open.faceLabels.join(", ")}]`,
+  );
+  check(
+    "peeking does not dismiss the announce ladder",
+    !ladderOpen || open.announceCount === closed.announceCount,
+    `announce ${closed.announceCount} → ${open.announceCount}`,
+  );
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await shot(page, "06c-hold-to-peek");
+  await releasePeek(page);
+  const released = await peekView(page);
+  check(
+    "releasing the cup covers the dice again",
+    !released.peeking && released.facesCovered && !released.facesVisible,
+    `peeking=${released.peeking} covered=${released.facesCovered} visible=${released.facesVisible}`,
+  );
+}
+
 /**
  * The seat geometry the round table promises: the viewer's chair is the
  * bottom-most on the ring, whatever the seat count. Measuring centre points
@@ -938,6 +1039,7 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
   let rerenderSurvived: boolean | null = null;
   let reconnected = false;
   let sawAnnounceCut = false;
+  let peekChecked = false;
   let midGameDesktopChecked = false;
   let sawSeatLayout = false;
   let miaVerdictChecked = false;
@@ -1066,6 +1168,13 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
       check("the announce ladder keeps Mia distinct", snap.announce.values.includes(MIA) ? snap.announce.mia : true, `${rendered.length} rungs`);
       const ownCup = snap.players.some((player) => player.you && player.cup);
       check("the announce ladder marks your own roll", ownCup ? snap.announce.mine : true, ownCup ? `mine=${snap.announce.mine}` : "not holding the cup");
+      // The cover is not cosmetic: read the faces by holding, while the ladder
+      // is still up. The `.mine` highlight is the engine's held value; this is
+      // the gesture that still has to work next to it.
+      if (!peekChecked && ownCup) {
+        peekChecked = true;
+        await verifyHoldToPeek(page, true);
+      }
       const nameProbe = await page.evaluate(() => {
         const row = [...document.querySelectorAll<HTMLElement>(".player")].find((li) => li.querySelector(".name em"));
         const name = row?.querySelector<HTMLElement>(".name");
@@ -1509,6 +1618,11 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
       : "no motion probe",
   );
 
+  check(
+    "the harness peeked rather than reading covered faces through the lid",
+    peekChecked,
+    peekChecked ? "held, read, released" : "never saw the viewer's cup on an announcing turn",
+  );
   if (!saw.has("finished")) note("the game did not finish inside the time box");
   return { saw, secrecyViolations, claimBubbleViolations, diceSpill, viewerDiceSeen, countdownTicks, rerenderSurvived };
 }
