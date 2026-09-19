@@ -290,6 +290,45 @@ own turn. Any future event pushed mid-turn — a chat line, a presence notice �
 would start refusing legitimate moves. A turn-scoped or monotonic comparison
 would be sturdier if that happens.
 
+## Shake to roll
+
+The physical gesture from the real game is an accelerator, not a second way to
+play. `Roll the dice` and `Believe & roll` stay where `renderPlay` always drew
+them. A player who denies the iOS prompt, who never sees one, or who is on a
+laptop, is still looking at the same two buttons.
+
+A shake and a Space both call the same `send` the tap already used, so they
+carry the snapshot's `logSeq` rather than a parallel unstamped path. The
+decision of *which* message that is — `roll` when the round is opening,
+`believe` when a claim stands — is `gestureRollAction` in
+`src/shared/shake-to-roll.ts`, reading `legalMoves` the same way the buttons do.
+Off-turn, or when the only offer is doubt, the gesture sends nothing.
+
+The detector itself is also in that module, because walking is the failure
+mode the browser harness cannot produce. User acceleration has to cross
+16 m/s² three times in 450ms, with 70ms between peaks so one spike is not
+three samples, and a 900ms cooldown after a fire so one shake is one send.
+The client also refuses a second `roll` / `believe` against the same
+`logSeq`; the server would reject it, but the queue should not see it.
+
+iOS 13+ only delivers `devicemotion` after `DeviceMotionEvent.requestPermission`,
+and that call is denied by reflex if it runs on load. The page asks only from
+the first tap on Roll or Believe — the send already went out — and never from
+`boot`. Android has no such function and may listen immediately. A desktop with
+no `DeviceMotionEvent` never listens.
+
+Space is the desktop shake. It is also the native activator for a focused
+button, so a focused Doubt keeps its own Space; a focused Roll / Believe, or
+no control at all, is a roll. The key is ignored while a text field is
+focused and while it is repeating.
+
+The optional rattle (a short transform on `.table-stage`) and the settle
+haptic (`navigator.vibrate` once, when a shake commits) are feel, not rules.
+Both skip under `prefers-reduced-motion: reduce`; the haptic also skips when
+the Vibration API is missing. A tap never consults either.
+
+Hold-to-peek is a different issue (#28) and is not wired here.
+
 ## Counting down without redrawing the page
 
 The server puts an absolute `deadlineAt` on every snapshot and the client renders
