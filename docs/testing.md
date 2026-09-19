@@ -116,13 +116,15 @@ cover the assembled system, and they need a running `wrangler dev` (or a deploye
   with `--showdown-elapsed` scrubbed, so it can read the first and last beat for
   all three verdict tones rather than only whichever tone the random dice
   produced. The gap-gauge check is the sibling of the ladder's legality walk:
-  on every announcing snapshot it asks `gapGauge` for the kind, held roll,
-  cheapest claim and rung count from the same legal set and `.announce.mine`
-  the page already drew, and on every decide / round-start / reveal snapshot
-  it requires the gauge to be absent — your hand does not reach another
-  player's screen. It also requires the strip to stay above the 812px fold at
-  the default eight seats, because a caption under the scroller would sit
-  off-screen once `pinLadder` pins the cut. The countdown-ring check is the sibling of that idea: it freezes the
+  on every announcing snapshot it compares the drawn strip to the cheapest-last
+  / `RANKING`-index arithmetic of the legal set and `.announce.mine` the page
+  already drew (the harness cannot import `gap-gauge.ts` — Node's type-strip
+  loader cannot resolve that module's `./mia` import), and whenever there are
+  no rungs it requires the gauge to be absent — your hand does not reach
+  another player's screen. It also requires the strip to stay above the 812px
+  fold at the default eight seats, because a caption under the scroller would
+  sit off-screen once `pinLadder` pins the cut. The countdown-ring check is
+  the sibling of that idea: it freezes the
   bots on the viewer's own turn and reads a live frame above ten seconds, a live
   frame below, and the round-start beat — the real clock, not a class poked in —
   so the assertion fails if the red arrived at sixty seconds, or arrived at the
