@@ -12,6 +12,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { formatValue, MAX_PLAYERS, MIA, MIN_PLAYERS, outranks, RANKING } from "../src/shared/mia.ts";
+import { MOOD_IDS, MOOD_STORAGE_KEY, moodClassName } from "../src/shared/mood.ts";
 import { SHIP_NAMES } from "../src/shared/ships.ts";
 import { api, BASE, createPlayer } from "./lib.ts";
 
@@ -130,6 +131,61 @@ async function shot(page: Page, name: string): Promise<void> {
   console.log(`  [shot] ${OUT}/${name}.png`);
 }
 
+interface MoodPaint {
+  data: string;
+  htmlClass: string[];
+  bodyClass: string[];
+  felt: string;
+  picker: string;
+  stored: string | null;
+}
+
+async function moodPaint(page: Page): Promise<MoodPaint> {
+  return page.evaluate((key) => {
+    const picker = document.querySelector<HTMLSelectElement>("[data-mood-picker]");
+    return {
+      data: document.documentElement.dataset.mood ?? "",
+      htmlClass: [...document.documentElement.classList].filter((name) => name.startsWith("mood-")),
+      bodyClass: [...document.body.classList].filter((name) => name.startsWith("mood-")),
+      felt: getComputedStyle(document.body).getPropertyValue("--felt").trim(),
+      picker: picker?.value ?? "",
+      stored: localStorage.getItem(key),
+    };
+  }, MOOD_STORAGE_KEY);
+}
+
+async function paintMoodClass(page: Page, mood: (typeof MOOD_IDS)[number]): Promise<void> {
+  await page.evaluate(
+    ({ mood: next, classes }) => {
+      for (const name of classes) {
+        const on = name === `mood-${next}`;
+        document.documentElement.classList.toggle(name, on);
+        document.body.classList.toggle(name, on);
+      }
+      document.documentElement.dataset.mood = next;
+    },
+    { mood, classes: MOOD_IDS.map((id) => moodClassName(id)) },
+  );
+}
+
+/**
+ * The same DOM under each token-only mood. Class toggles only — localStorage
+ * stays on felt so the rest of the run is not a Stammtisch countdown probe.
+ */
+async function shotMoods(page: Page, name: string): Promise<void> {
+  await shot(page, name);
+  const felt = await moodPaint(page);
+  for (const mood of ["stammtisch", "night-shift"] as const) {
+    await paintMoodClass(page, mood);
+    await shot(page, `${name}-${mood}`);
+  }
+  await paintMoodClass(page, "felt");
+  const restored = await moodPaint(page);
+  if (restored.felt !== felt.felt) {
+    await paintMoodClass(page, "felt");
+  }
+}
+
 async function overflow(page: Page): Promise<number> {
   return await page.evaluate(() => Math.max(0, document.documentElement.scrollWidth - window.innerWidth));
 }
@@ -236,6 +292,131 @@ async function verifyLobby(page: Page): Promise<void> {
   await page.waitForFunction(() => document.querySelectorAll(".tables .name").length > 0);
   const listText = (await page.textContent(".tables")) ?? "";
   check("the lobby lists open tables", listText.includes("Listed table"), listText.replace(/\s+/g, " ").slice(0, 80));
+
+  await verifyMoodPicker(page);
+}
+
+interface LayoutBox {
+  w: number;
+  h: number;
+  t: number;
+  l: number;
+}
+
+function sameBox(a: LayoutBox | null, b: LayoutBox | null): boolean {
+  if (!a || !b) return a === b;
+  return a.w === b.w && a.h === b.h && a.t === b.t && a.l === b.l;
+}
+
+async function pageBoxes(page: Page): Promise<Record<string, LayoutBox | null>> {
+  return page.evaluate(() => {
+    const box = (sel: string) => {
+      const el = document.querySelector(sel);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height), t: Math.round(r.top), l: Math.round(r.left) };
+    };
+    return {
+      topbar: box(".topbar"),
+      page: box(".page"),
+      card: box(".card"),
+      stage: box(".table-stage"),
+      actions: box(".actions"),
+    };
+  });
+}
+
+async function verifyMoodPicker(page: Page): Promise<void> {
+  section("Palette mood (personal, localStorage)");
+  await page.waitForSelector("[data-mood-picker]");
+  const start = await moodPaint(page);
+  check("the lobby picker is present", start.picker !== "", start.picker || "missing");
+  check(
+    "the default mood is felt",
+    start.data === "felt" && start.picker === "felt" && start.htmlClass.includes("mood-felt"),
+    JSON.stringify(start),
+  );
+
+  const feltBoxes = await pageBoxes(page);
+  const feltToken = start.felt;
+
+  await page.selectOption("[data-mood-picker]", "stammtisch");
+  const oak = await moodPaint(page);
+  check(
+    "choosing Stammtisch sets the html and body class",
+    oak.data === "stammtisch" &&
+      oak.htmlClass.includes("mood-stammtisch") &&
+      oak.bodyClass.includes("mood-stammtisch") &&
+      oak.picker === "stammtisch",
+    JSON.stringify(oak),
+  );
+  check(
+    "Stammtisch is a different token set, not a restyle of felt",
+    oak.felt !== "" && oak.felt !== feltToken,
+    `felt ${feltToken} → ${oak.felt}`,
+  );
+  check("the choice is written to localStorage", oak.stored === "stammtisch", String(oak.stored));
+  const oakBoxes = await pageBoxes(page);
+  check(
+    "Stammtisch does not move the lobby layout",
+    sameBox(feltBoxes.topbar, oakBoxes.topbar) && sameBox(feltBoxes.page, oakBoxes.page),
+    JSON.stringify({ felt: feltBoxes, oak: oakBoxes }),
+  );
+  await shot(page, "01-lobby-stammtisch");
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const firstPaint = await page.evaluate(() => ({
+    data: document.documentElement.dataset.mood ?? "",
+    htmlClass: [...document.documentElement.classList].filter((name) => name.startsWith("mood-")),
+    bodyClass: [...document.body.classList].filter((name) => name.startsWith("mood-")),
+    felt: getComputedStyle(document.documentElement).getPropertyValue("--felt").trim(),
+  }));
+  await page.waitForSelector("[data-mood-picker]");
+  const after = await moodPaint(page);
+  check(
+    "Stammtisch is on <html> and <body> before the page module runs",
+    firstPaint.data === "stammtisch" &&
+      firstPaint.htmlClass.includes("mood-stammtisch") &&
+      firstPaint.bodyClass.includes("mood-stammtisch"),
+    JSON.stringify(firstPaint),
+  );
+  check(
+    "Stammtisch tokens are already on :root at first paint",
+    firstPaint.felt !== "" && firstPaint.felt !== feltToken,
+    `felt ${feltToken} vs first-paint ${firstPaint.felt}`,
+  );
+  check(
+    "Stammtisch survives a reload",
+    after.data === "stammtisch" && after.picker === "stammtisch" && after.stored === "stammtisch",
+    JSON.stringify(after),
+  );
+
+  await page.selectOption("[data-mood-picker]", "night-shift");
+  const neon = await moodPaint(page);
+  check(
+    "Night Shift is a third token set",
+    neon.data === "night-shift" &&
+      neon.htmlClass.includes("mood-night-shift") &&
+      neon.bodyClass.includes("mood-night-shift") &&
+      neon.felt !== feltToken &&
+      neon.felt !== oak.felt,
+    JSON.stringify({ felt: feltToken, oak: oak.felt, neon: neon.felt }),
+  );
+  const neonBoxes = await pageBoxes(page);
+  check(
+    "Night Shift does not move the lobby layout",
+    sameBox(feltBoxes.topbar, neonBoxes.topbar) && sameBox(feltBoxes.page, neonBoxes.page),
+    JSON.stringify({ felt: feltBoxes, neon: neonBoxes }),
+  );
+  await shot(page, "01-lobby-night-shift");
+
+  await page.selectOption("[data-mood-picker]", "felt");
+  const back = await moodPaint(page);
+  check(
+    "the picker can return to felt",
+    back.data === "felt" && back.stored === "felt" && back.felt === feltToken,
+    JSON.stringify(back),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -973,7 +1154,13 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
         revealing: "07-revealing",
         finished: "08-finished",
       };
-      if (names[snap.phase]) await shot(page, names[snap.phase]);
+      if (names[snap.phase]) {
+        if (snap.phase === "announcing" || snap.phase === "revealing" || snap.phase === "finished") {
+          await shotMoods(page, names[snap.phase]);
+        } else {
+          await shot(page, names[snap.phase]);
+        }
+      }
       if (snap.phase === "revealing") {
         note(
           `07-revealing captured at beat ${snap.beat} (${snap.showdownTone}, elapsed ${snap.showdownElapsed}ms of ${snap.showdownSpan}ms)`,
@@ -1547,7 +1734,22 @@ async function main(): Promise<void> {
 
   section("Table (waiting for players)");
   await page.waitForSelector(".room-card");
-  await shot(page, "02-table-waiting");
+  const tablePicker = await moodPaint(page);
+  check(
+    "the table picker is present",
+    tablePicker.picker !== "",
+    tablePicker.picker || "missing",
+  );
+  const waitingFelt = await pageBoxes(page);
+  await page.selectOption("[data-mood-picker]", "stammtisch");
+  const waitingOak = await pageBoxes(page);
+  check(
+    "Stammtisch does not move the waiting-room layout",
+    sameBox(waitingFelt.topbar, waitingOak.topbar) && sameBox(waitingFelt.card, waitingOak.card),
+    JSON.stringify({ felt: waitingFelt, oak: waitingOak }),
+  );
+  await page.selectOption("[data-mood-picker]", "felt");
+  await shotMoods(page, "02-table-waiting");
   check("the waiting room shows the share control", (await page.$('[data-action="share"]')) !== null);
 
   await verifyShare(page, context, browser, tableId);
