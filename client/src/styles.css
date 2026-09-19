@@ -487,6 +487,8 @@ ul {
 
 .player .pips {
   margin-top: 0.1rem;
+  flex-direction: column;
+  gap: 0.1rem;
 }
 
 .player .pip {
@@ -648,8 +650,28 @@ ul {
 
 .pips {
   display: flex;
-  gap: 0.22rem;
+  align-items: center;
+  gap: 0.28rem;
   margin-top: 0.35rem;
+}
+
+.pip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.22rem;
+}
+
+.lives-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.player .lives-count {
+  font-size: 0.54rem;
+  letter-spacing: 0.01em;
 }
 
 .pip {
@@ -1018,6 +1040,10 @@ ul {
 
 .showdown-loss .pips {
   margin: 0;
+}
+
+.showdown-loss .lives-count {
+  font-size: 0.86rem;
 }
 
 .showdown-next {

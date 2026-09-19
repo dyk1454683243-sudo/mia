@@ -22,6 +22,7 @@ import {
 } from "../../src/shared/mia";
 import type { ClientMessage, StateView, TableSummary } from "../../src/shared/protocol";
 import { TurnClock, type CountdownView } from "../../src/shared/clock";
+import { lifePipOn, livesCountText, livesIndicator } from "../../src/shared/lives";
 import { seatPositions } from "../../src/shared/seat-positions";
 import {
   frameLabel,
@@ -118,10 +119,7 @@ function renderShowdown(game: MiaState, view: StateView, reveal: DoubtReveal): s
   const timing = showdownTiming(game.turnStartedAt, game.deadlineAt, clock.now());
   const remaining = clock.secondsLeft(game.deadlineAt) ?? 0;
   const loserPlayer = playerById(game, loser.id);
-  const lives = Array.from(
-    { length: STARTING_LIVES },
-    (_, life) => (life < (loserPlayer?.lives ?? 0) ? '<i class="pip on"></i>' : '<i class="pip"></i>'),
-  ).join("");
+  const lives = renderLives(loserPlayer?.lives ?? 0);
   const living = game.players
     .filter((player) => !player.eliminated)
     .map(
@@ -170,7 +168,7 @@ function renderShowdown(game: MiaState, view: StateView, reveal: DoubtReveal): s
         </div>
         <div class="showdown-stamp-wrap"><span class="showdown-stamp">${stamp}</span></div>
         ${verdictLine(reveal)}
-        <p class="showdown-loss"><b>−${loser.livesLost}</b> ${escapeHtml(loser.name)}<span class="pips">${lives}</span></p>
+        <div class="showdown-loss"><b>−${loser.livesLost}</b> ${escapeHtml(loser.name)}${lives}</div>
         <p class="showdown-next">${escapeHtml(next)}</p>
         <div class="showdown-still"><span class="label">Still in</span>${living}</div>
       </div>
@@ -274,7 +272,7 @@ function renderWaiting(view: StateView): string {
   return `
     <section class="card room-card">
       <h2>${escapeHtml(state.table?.name ?? view.state.tableName)}</h2>
-      <p class="muted">${players.length} of ${MAX_PLAYERS} seats taken · ${STARTING_LIVES} lives each</p>
+      <p class="muted">${players.length} of ${MAX_PLAYERS} seats taken · ${livesCountText(STARTING_LIVES)} each</p>
       <ul class="roster">${rows}</ul>
       ${controls}
       ${hostAway}
@@ -308,13 +306,27 @@ function countdownMarkup(countdown: CountdownView): string {
 }
 
 /**
+ * One lives row: the visible count and the `aria-label` both come from
+ * `livesIndicator(lives)`. `.pip.on` still counts the remaining lives.
+ */
+function renderLives(lives: number): string {
+  const { ariaLabel, countText } = livesIndicator(lives);
+  const pips = Array.from(
+    { length: STARTING_LIVES },
+    (_, life) => `<i class="pip${lifePipOn(life, lives) ? " on" : ""}"></i>`,
+  ).join("");
+  return `<div class="pips" aria-label="${ariaLabel}"><span class="lives-count" aria-hidden="true">${countText}</span><span class="pip-row">${pips}</span></div>`;
+}
+
+/**
  * The table in the round: seats on the felt with the standing claim dead centre.
  *
  * The DOM keeps the contract the harness relies on — each seat is a `.player`
  * with `.name` (and `.name em` for the viewer), `.player-dice` only when the
  * snapshot actually carries dice, a `.badge.cup`, the `turn`/`out` classes on
- * the seat, and one `.pip.on` per life. The claim is a text speech bubble on the
- * seat that made it, never dice, so the secrecy rule is untouched.
+ * the seat, and one `.pip.on` per life plus a visible count from the same
+ * `player.lives` as the lives `aria-label`. The claim is a text speech bubble
+ * on the seat that made it, never dice, so the secrecy rule is untouched.
  */
 function renderPlayers(game: MiaState, view: StateView): string {
   const countdown = clock.countdown(game.turnStartedAt, game.deadlineAt);
@@ -333,9 +345,7 @@ function renderPlayers(game: MiaState, view: StateView): string {
       const offline = !view.connected.includes(player.id);
       const isYou = player.id === view.you;
       const ownTurn = turn && isYou && countdown !== null;
-      const lives = Array.from({ length: STARTING_LIVES }, (_, life) =>
-        life < player.lives ? '<i class="pip on"></i>' : '<i class="pip"></i>',
-      ).join("");
+      const lives = renderLives(player.lives);
       const { x, y } = positions[index]!;
       // A bubble hangs on the claimant's chair, so a claim repeated round after
       // round is visible at their seat instead of remembered from the log.
@@ -354,7 +364,7 @@ function renderPlayers(game: MiaState, view: StateView): string {
           ${ownTurn && countdown !== null ? countdownMarkup(countdown) : ""}
           ${offline && !player.eliminated ? '<span class="badge muted">offline</span>' : ""}
         </span>
-        <div class="pips" aria-label="${player.lives} of ${STARTING_LIVES} lives">${lives}</div>
+        ${lives}
         ${player.dice ? `<div class="player-dice">${diceOf(player, "sm")}</div>` : ""}
         ${
           showClaim

@@ -6,8 +6,9 @@ The suite runs in two different runtimes, and the split is the point.
 
 - **`unit`** runs in plain Node with no Workers runtime. It covers the pure rules
   engine, the clock arithmetic, the seat-limit constants, the round table's
-  seat geometry, the showdown's verdict and beat arithmetic and the endgame
-  replay's filmstrip and stat lines. These are the tests that can be reasoned
+  seat geometry, the lives indicator's visible count and `aria-label`, the
+  showdown's verdict and beat arithmetic and the endgame replay's filmstrip
+  and stat lines. These are the tests that can be reasoned
   about from the code alone, and they run fast because there is no platform
   underneath them.
 - **`workers`** runs inside `workerd` with a real D1 database and a real Durable
@@ -120,7 +121,20 @@ cover the assembled system, and they need a running `wrangler dev` (or a deploye
   so the assertion fails if the red arrived at sixty seconds, or arrived at the
   2s top of a round where nobody is running out of time, and it reads a
   forced-urgent clone under both motion preferences so the reduced-motion skip
-  cannot pass by accident. At the end it checks the finished screen's filmstrip,
+  cannot pass by accident. The lives-count check samples every in-play snapshot
+  and requires the visible `.lives-count` and the `aria-label` to agree with
+  `.pip.on` — the number next to the glyph, not a second copy of the count
+  written by hand. The harness rebuilds those two strings from `.pip.on` and
+  `STARTING_LIVES` rather than importing `src/shared/lives.ts`: that file's
+  extensionless `./mia` import is what Node's type-stripping cannot resolve,
+  and scripts may only import with explicit `.ts` extensions. The unit file
+  pins the helper; the harness pins the DOM. The showdown loss row is the
+  sibling of the stamp-suspense check: the first reveal frame is the cup lift,
+  when `.showdown-loss` is still at opacity 0, so claiming visibility from the
+  child's own opacity is the #29 trap (the child is opaque while the parent is
+  faded out). Visibility is read from a last-beat clone of the parent, and the
+  live `07b-revealing-loss` shot waits until that parent has faded in. At the
+  end it checks the finished screen's filmstrip,
   stats and rematch against the snapshot, and opens the rematch link in a second
   page to see the seeded lobby — the one place the rematch handoff is exercised
   with a real browser and a real cookie.

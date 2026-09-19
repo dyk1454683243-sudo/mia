@@ -41,7 +41,8 @@ The rearrangement is visual only. The seats are still one semantic `<ul>` of
 `.player` items, each keeping the contract the harness reads — `.name` (with
 `.name em` marking the viewer), `.player-dice` only when the snapshot actually
 carries dice, a `.badge.cup`, the `turn`/`out` classes on the seat, and one
-`.pip.on` per life plus the lives `aria-label`. What changed is that the standing
+`.pip.on` per life plus a visible count and the lives `aria-label`, both derived
+from the same `player.lives` in `livesIndicator`. What changed is that the standing
 claim now lives in the centre inside the same `.standing` the page-level reads
 use, and a claim is a text speech bubble pinned to the claimant's chair rather
 than a row in a list. The bubble is never a die, so the secrecy invariant is
@@ -61,8 +62,8 @@ forces the longest pool name onto the viewer's seat and asserts the dice stay
 inside `.table-card` at both three and eight seats.
 
 Eliminated players keep their chair and are greyed; the roster is every seat, not
-the survivors. Turn, cup and elimination are carried by words on badges as well as
-colour and opacity, never by colour alone.
+the survivors. Turn, cup, elimination and remaining lives are carried by words
+(and the lives number) as well as colour and opacity, never by colour alone.
 
 ## The announce ladder
 
@@ -157,7 +158,10 @@ layout: `BLUFF` is red and strikes through the claimed chip, `TRUE` is green,
 and a real `21` gets the brass `MIA` — heavier, with the double charge named
 against the **doubter**, matching `resolveDoubt`. The stamp, the tone and who
 pays all come from the engine's `DoubtReveal` rather than re-deriving the rules
-in the view.
+in the view. The loser's remaining lives are the same `renderLives` row the
+seats use — a visible count and an `aria-label` from one `lives` value — so a
+screen reader is not left with six anonymous dots at the moment the count is
+the point.
 
 The verdict decoration is itself a beat-3 arrival, not a base state. The caught
 strike and red ring on the claimed chip, the brass `MIA` ring and the believed
@@ -369,6 +373,10 @@ the forced-urgent clone stays neutral under `prefers-reduced-motion: reduce`.
 skips a poll while the rename field is open so it cannot overwrite what someone is
 typing. The lobby's data is low-frequency and a few seconds stale is fine; giving
 it a socket would mean a connection per idle browser sitting on the front page.
+
+Recent results already print remaining lives as a number, not as pips; that
+phrase now comes from the same `livesCountText` the seats and the showdown use,
+so a winner with one life left does not read "1 lives".
 
 The table list marks a full waiting table as a disabled button rather than a link.
 That is a fix, not styling: "Full" used to navigate into the table page, which

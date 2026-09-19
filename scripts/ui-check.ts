@@ -11,7 +11,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
-import { formatValue, MAX_PLAYERS, MIA, MIN_PLAYERS, outranks, RANKING } from "../src/shared/mia.ts";
+import { formatValue, MAX_PLAYERS, MIA, MIN_PLAYERS, outranks, RANKING, STARTING_LIVES } from "../src/shared/mia.ts";
 import { SHIP_NAMES } from "../src/shared/ships.ts";
 import { api, BASE, createPlayer } from "./lib.ts";
 
@@ -398,7 +398,19 @@ interface Snapshot {
     hasCut: boolean;
     standingRung: number | null;
   };
-  players: { name: string; you: boolean; dice: boolean; cup: boolean; out: boolean; turn: boolean; lives: number }[];
+  players: {
+    name: string;
+    you: boolean;
+    dice: boolean;
+    cup: boolean;
+    out: boolean;
+    turn: boolean;
+    lives: number;
+    livesCount: string;
+    livesLabel: string;
+  }[];
+  /** The showdown loss row: remaining lives after the charge, labelled. */
+  showdownLives: { on: number; count: string; label: string } | null;
   /** How many `.player` seats the table drew — eliminated players included. */
   seatCount: number;
   /** The player id on the centre `.standing` chip, so the claim is tied to a seat. */
@@ -439,15 +451,33 @@ async function snapshot(page: Page): Promise<Snapshot> {
           ? miaValue
           : Number(standingText.replace(/\D/g, "")) || null;
     const standingButton = document.querySelector<HTMLElement>(".announce.rung-standing");
-    const players = [...document.querySelectorAll<HTMLElement>(".player")].map((row) => ({
-      name: row.querySelector(".name")?.textContent?.trim() ?? "",
-      you: row.querySelector(".name em") !== null,
-      dice: row.querySelector(".player-dice") !== null,
-      cup: row.querySelector(".badge.cup") !== null,
-      out: row.classList.contains("out"),
-      turn: row.classList.contains("turn"),
-      lives: row.querySelectorAll(".pip.on").length,
-    }));
+    const readLives = (root: Element | null) => {
+      const pips = root?.querySelector(".pips") ?? null;
+      return {
+        on: pips ? pips.querySelectorAll(".pip.on").length : 0,
+        count: pips?.querySelector(".lives-count")?.textContent?.trim() ?? "",
+        label: pips?.getAttribute("aria-label") ?? "",
+      };
+    };
+    const players = [...document.querySelectorAll<HTMLElement>(".player")].map((row) => {
+      const lives = readLives(row);
+      return {
+        name: row.querySelector(".name")?.textContent?.trim() ?? "",
+        you: row.querySelector(".name em") !== null,
+        dice: row.querySelector(".player-dice") !== null,
+        cup: row.querySelector(".badge.cup") !== null,
+        out: row.classList.contains("out"),
+        turn: row.classList.contains("turn"),
+        // `.pip.on` is still the seat contract the harness counts.
+        lives: row.querySelectorAll(".pip.on").length,
+        livesCount: lives.count,
+        livesLabel: lives.label,
+      };
+    });
+    const showdownLivesRaw = readLives(document.querySelector(".showdown-loss"));
+    const showdownLives = document.querySelector(".showdown-loss")
+      ? { on: showdownLivesRaw.on, count: showdownLivesRaw.count, label: showdownLivesRaw.label }
+      : null;
     const claimNodes = [...document.querySelectorAll<HTMLElement>(".player .claim")];
     const claim = {
       by: claimNodes[0]?.closest<HTMLElement>(".player")?.dataset.playerId ?? null,
@@ -529,6 +559,7 @@ async function snapshot(page: Page): Promise<Snapshot> {
         standingRung: standingButton ? Number(standingButton.dataset.value) : null,
       },
       players,
+      showdownLives,
       seatCount: players.length,
       standingClaimerId: standingNode?.dataset.claimerId ?? null,
       claim,
@@ -730,7 +761,19 @@ async function showdownFrame(
   page: Page,
   tone: "caught" | "believed" | "mia",
   fraction: number,
-): Promise<{ stampOpacity: number; claimedStruck: boolean; claimedShadow: string; actualFilter: string }> {
+): Promise<{
+  stampOpacity: number;
+  claimedStruck: boolean;
+  claimedShadow: string;
+  actualFilter: string;
+  /** Animated opacity of `.showdown-loss` itself, not of the child count. */
+  lossOpacity: number;
+  lossOn: number;
+  lossCount: string;
+  lossLabel: string;
+  lossCountWidth: number;
+  lossCountHeight: number;
+}> {
   return await page.evaluate(
     ({ tone, fraction }) => {
       const live = document.querySelector<HTMLElement>(".showdown");
@@ -752,6 +795,10 @@ async function showdownFrame(
       const claimed = read(".showdown-claimed .showdown-value");
       const stamp = read(".showdown-stamp");
       const dice = read(".showdown-actual .dice");
+      const loss = read(".showdown-loss");
+      const lossPips = clone.querySelector(".showdown-loss .pips");
+      const lossCount = clone.querySelector<HTMLElement>(".showdown-loss .lives-count");
+      const lossBox = lossCount?.getBoundingClientRect();
       const frame = {
         stampOpacity: stamp ? Number(stamp.opacity) : -1,
         // `line-through` is on the base rule; its colour is what the beat-3
@@ -761,6 +808,15 @@ async function showdownFrame(
           (claimed?.textDecorationColor ?? "").includes("226, 104, 95"),
         claimedShadow: claimed?.boxShadow ?? "",
         actualFilter: dice?.filter ?? "",
+        // The fade-in is on `.showdown-loss`. The child `.lives-count` stays at
+        // opacity 1 from the first frame, so reading the child is how a green
+        // check shipped while the first-beat screenshot showed empty felt.
+        lossOpacity: loss ? Number(loss.opacity) : -1,
+        lossOn: lossPips ? lossPips.querySelectorAll(".pip.on").length : 0,
+        lossCount: lossCount?.textContent?.trim() ?? "",
+        lossLabel: lossPips?.getAttribute("aria-label") ?? "",
+        lossCountWidth: lossBox?.width ?? 0,
+        lossCountHeight: lossBox?.height ?? 0,
       };
       clone.remove();
       return frame;
@@ -927,11 +983,25 @@ async function act(page: Page): Promise<string> {
   });
 }
 
-async function playGame(page: Page, bots: ChildProcess, tableId: string): Promise<{ saw: Set<string>; secrecyViolations: string[]; claimBubbleViolations: string[]; diceSpill: string[]; viewerDiceSeen: boolean; countdownTicks: string[]; rerenderSurvived: boolean | null }> {
+/**
+ * The DOM contract `livesIndicator` writes. The harness cannot import
+ * `src/shared/lives.ts` — that file's extensionless `./mia` import is what
+ * Node's type-stripping cannot resolve, and scripts may only import with
+ * explicit `.ts` extensions (see docs/testing.md). The unit file pins the
+ * helper; this rebuilds the same two strings from `.pip.on`.
+ */
+function livesRowAgrees(on: number, count: string, label: string): boolean {
+  const countText = `${on} ${on === 1 ? "life" : "lives"}`;
+  const ariaLabel = `${on} of ${STARTING_LIVES} lives`;
+  return count === countText && label === ariaLabel;
+}
+
+async function playGame(page: Page, bots: ChildProcess, tableId: string): Promise<{ saw: Set<string>; secrecyViolations: string[]; claimBubbleViolations: string[]; livesViolations: string[]; diceSpill: string[]; viewerDiceSeen: boolean; countdownTicks: string[]; rerenderSurvived: boolean | null }> {
   section("A full game with bots");
   const saw = new Set<string>();
   const secrecyViolations: string[] = [];
   const claimBubbleViolations: string[] = [];
+  const livesViolations: string[] = [];
   const diceSpill: string[] = [];
   let viewerDiceSeen = false;
   const countdownTicks: string[] = [];
@@ -958,6 +1028,7 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
   let nonTurnSeatSamples = 0;
   let motionProbe: MotionProbe | null = null;
   let countdownProbed = false;
+  let showdownLossShot = false;
   const deadline = Date.now() + 12 * 60_000;
 
   await page.click('[data-action="start"]');
@@ -1004,6 +1075,39 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
       check("the ring seats every player", snap.seatCount === SEATS, `${snap.seatCount} of ${SEATS} seats`);
       const layout = await seatLayout(page);
       check("your own seat is the bottom-most seat on the ring", layout.youIsBottom, layout.detail);
+      const hiddenCounts = await page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>(".player .lives-count")].filter((node) => {
+          const style = getComputedStyle(node);
+          const box = node.getBoundingClientRect();
+          return (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            style.opacity === "0" ||
+            box.width < 4 ||
+            box.height < 4
+          );
+        }).length,
+      );
+      check(
+        "every seat draws a visible lives number, not only an aria-label",
+        snap.players.every((player) => player.livesCount.length > 0) && hiddenCounts === 0,
+        hiddenCounts === 0
+          ? snap.players.map((player) => player.livesCount).join(", ")
+          : `${hiddenCounts} hidden counts`,
+      );
+    }
+    // The count changes when someone loses a life, so this samples every
+    // in-play snapshot rather than only the first: a number that sticks at 6
+    // while `.pip.on` drops has to register. Mismatches accumulate and assert
+    // once after the loop.
+    if (snap.seatCount > 0) {
+      for (const player of snap.players) {
+        if (!livesRowAgrees(player.lives, player.livesCount, player.livesLabel)) {
+          livesViolations.push(
+            `${player.name}: pips ${player.lives} · count ${JSON.stringify(player.livesCount)} · label ${JSON.stringify(player.livesLabel)}`,
+          );
+        }
+      }
     }
     // The claim changes every turn and the bubble is rebuilt with it, so this
     // samples every snapshot carrying a claim rather than only the first: a
@@ -1153,6 +1257,19 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
       );
       const layout = await showdownLayout(page);
       check("claimed and actual stand side by side in the showdown", layout.sideBySide, layout.detail);
+      const showdown = snap.showdownLives;
+      // Beat 1 is the cup lift: `.showdown-loss` is still at opacity 0
+      // (`showdown-fade-in` holds through 55% of the window). The count is
+      // already in the tree so AT and the lockstep can be read; claiming
+      // *visibility* here is the #29 trap — the child's own opacity is 1
+      // while the parent is faded out.
+      check(
+        "the showdown loss row's count and aria-label agree with .pip.on",
+        showdown !== null && livesRowAgrees(showdown.on, showdown.count, showdown.label),
+        showdown
+          ? `pips ${showdown.on} · count ${showdown.count} · label ${showdown.label}`
+          : "no showdown-loss row",
+      );
       // The staging's whole value is *when* the verdict appears, and every
       // other check here only tests *that* it appears. Read the first and last
       // beat for each tone from an off-screen clone, so a tone rule that leaks
@@ -1186,6 +1303,33 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
         missing.length === 0,
         missing.join("; ") || "beat 3: stamp up and verdict decorated in all three tones",
       );
+      // Visibility is read from the scrubbed last-beat clone, not from the
+      // live cup-lift frame. The fade-in is on `.showdown-loss`; by 0.95 of
+      // the window that parent is opaque and the number is on screen.
+      const faded = await showdownFrame(page, "caught", 0.95);
+      check(
+        "the showdown labels the loser's remaining lives with a visible number",
+        faded.lossOpacity > 0.9 &&
+          faded.lossCountWidth >= 4 &&
+          faded.lossCountHeight >= 4 &&
+          livesRowAgrees(faded.lossOn, faded.lossCount, faded.lossLabel),
+        `opacity ${faded.lossOpacity.toFixed(2)} · pips ${faded.lossOn} · count ${faded.lossCount} · label ${faded.lossLabel}`,
+      );
+    }
+    // The moment the change is about: the loss row after it has faded in,
+    // not the first-beat cup lift. Wait for the live parent's opacity rather
+    // than scrubbing, so the screenshot is a real frame of the staging.
+    if (!showdownLossShot && snap.phase === "revealing") {
+      const fadedIn = await page.evaluate(() => {
+        const row = document.querySelector<HTMLElement>(".showdown-loss");
+        if (!row) return false;
+        return Number(getComputedStyle(row).opacity) > 0.9;
+      });
+      if (fadedIn) {
+        showdownLossShot = true;
+        await shot(page, "07b-revealing-loss");
+        note(`07b-revealing-loss captured at beat ${snap.beat} (${snap.showdownTone})`);
+      }
     }
     // A Mia claim is the one roll where the verdict must read "MIA" and never
     // "2·1". The dice are random, so this runs on whichever reveal shows one
@@ -1509,8 +1653,13 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
       : "no motion probe",
   );
 
+  check(
+    "the showdown loss row was photographed after it faded in",
+    showdownLossShot,
+    showdownLossShot ? "07b-revealing-loss" : "the live row never reached opacity 1",
+  );
   if (!saw.has("finished")) note("the game did not finish inside the time box");
-  return { saw, secrecyViolations, claimBubbleViolations, diceSpill, viewerDiceSeen, countdownTicks, rerenderSurvived };
+  return { saw, secrecyViolations, claimBubbleViolations, livesViolations, diceSpill, viewerDiceSeen, countdownTicks, rerenderSurvived };
 }
 
 // ---------------------------------------------------------------------------
@@ -1558,7 +1707,10 @@ async function main(): Promise<void> {
   // tested where it is worst.
   section(`Filling the table to ${SEATS} seats`);
   console.log(`\n  starting ${BOTS} bot${BOTS === 1 ? "" : "s"} for ${tableId}…`);
-  const bots: ChildProcess = spawn("node", ["scripts/bots.ts", tableId, String(BOTS)], { stdio: "inherit", env: process.env });
+  const bots: ChildProcess = spawn(process.execPath, [...process.execArgv, "scripts/bots.ts", tableId, String(BOTS)], {
+    stdio: "inherit",
+    env: process.env,
+  });
   await page.waitForFunction((expected) => document.querySelectorAll(".roster-row").length === expected, SEATS, { timeout: 30_000 });
   check(`${BOTS} bots appear in the roster`, true, `${SEATS} seats`);
   await shot(page, "02b-table-with-bots");
@@ -1567,6 +1719,11 @@ async function main(): Promise<void> {
   check("every table phase rendered", ["roundStart", "deciding", "announcing", "revealing", "finished"].every((phase) => game.saw.has(phase)), [...game.saw].join(", "));
   check("no other player's dice were ever on screen before a reveal", game.secrecyViolations.length === 0, game.secrecyViolations.slice(0, 3).join("; "));
   check("the claim bubble hangs on the seat that made the claim", game.claimBubbleViolations.length === 0, game.claimBubbleViolations.slice(0, 3).join("; "));
+  check(
+    "visible lives counts agree with .pip.on and the aria-label on every seat",
+    game.livesViolations.length === 0,
+    game.livesViolations.slice(0, 3).join("; "),
+  );
   // The #48 regression: a long name on the viewer's chair must not carry its
   // dice (or a revealed pair) past the felt card. The viewer's own dice are
   // asserted to have been seen, so a run that never put them on screen fails
