@@ -1682,17 +1682,17 @@ ul {
   }
 
   .page.spectator .player {
-    width: 7.2rem;
+    width: 8rem;
   }
 
   .page.spectator .avatar {
-    width: 42px;
-    height: 42px;
-    font-size: 0.95rem;
+    width: 48px;
+    height: 48px;
+    font-size: 1.05rem;
   }
 
   .page.spectator .player .name {
-    font-size: 0.85rem;
+    font-size: 1.05rem;
     font-weight: 700;
     color: var(--ink);
     display: -webkit-box;

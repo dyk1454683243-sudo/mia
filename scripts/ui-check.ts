@@ -276,7 +276,7 @@ async function verifySpectator(
   );
   check(
     "SPECTATOR: seat names scale up",
-    spec.nameSize >= 13,
+    spec.nameSize >= 16,
     `${spec.nameSize}px`,
   );
   check(
@@ -1071,6 +1071,7 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string, spectat
   let countdownProbed = false;
   let spectatorPlayChecked = false;
   let spectatorRevealChecked = false;
+  let spectatorStandingChecked = false;
   const deadline = Date.now() + 12 * 60_000;
 
   await page.click('[data-action="start"]');
@@ -1141,15 +1142,20 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string, spectat
           spec.feltWidth >= 520,
           `${spec.feltWidth}px`,
         );
-        check("SPECTATOR: seat names stay large mid-game", spec.nameSize >= 13, `${spec.nameSize}px`);
-        if (spec.standingSize > 0) {
-          check(
-            "SPECTATOR: the standing claim scales up",
-            spec.standingSize >= 28,
-            `${spec.standingSize}px`,
-          );
-        }
+        check("SPECTATOR: seat names stay large mid-game", spec.nameSize >= 16, `${spec.nameSize}px`);
         await shot(spectator, "05s-spectator-play");
+      }
+    }
+    if (!spectatorStandingChecked && snap.standingValue !== null && snap.seatCount === SEATS) {
+      const spec = await spectatorShot(spectator);
+      if (spec.standingSize > 0) {
+        spectatorStandingChecked = true;
+        check(
+          "SPECTATOR: the standing claim scales up",
+          spec.standingSize >= 28,
+          `${spec.standingSize}px`,
+        );
+        await shot(spectator, "05t-spectator-claim");
       }
     }
     if (!spectatorRevealChecked && snap.phase === "revealing") {
@@ -1687,6 +1693,11 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string, spectat
     "SPECTATOR: sampled mid-game alongside the playing tab",
     spectatorPlayChecked,
     spectatorPlayChecked ? "felt + names + no controls" : "never reached a deciding/announcing snapshot",
+  );
+  check(
+    "SPECTATOR: sampled a standing claim on the watching tab",
+    spectatorStandingChecked,
+    spectatorStandingChecked ? "standing chip at TV type size" : "never saw a .standing .chip",
   );
   if (saw.has("revealing")) {
     check(

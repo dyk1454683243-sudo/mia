@@ -480,7 +480,9 @@ function renderStats(game: MiaState, view: StateView): string {
       : "";
   const rows = finalStandings(game)
     .map(({ player, place }) => {
-      const line = player.record ? escapeHtml(statLines(player.record, voiceFor(player, view.you)).join(" ")) : "";
+      const line = player.record
+        ? escapeHtml(statLines(player.record, voiceFor(player, view.spectator ? "" : view.you)).join(" "))
+        : "";
       const mine = isViewerSeat(view.spectator, player.id, view.you);
       return `<li class="stat-row${mine ? " you" : ""}">
         <span class="place">${ordinal(place)}</span>
