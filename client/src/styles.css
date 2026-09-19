@@ -89,6 +89,15 @@ body {
   gap: 0.75rem;
 }
 
+.watching-line {
+  margin: 0;
+  text-align: center;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
 /* ------------------------------------------------------------------ cards */
 
 .card {
@@ -1552,15 +1561,19 @@ ul {
  * there is no vertical roster here to reintroduce, and the left column is
  * where the mockup drew one — the interactive controls. The reveal from #29 is
  * a `position: fixed` overlay, so it is out of this grid's flow and still takes
- * the whole screen. Everything in this block is additive; nothing below the
- * breakpoint changes. It is scoped with `:has(.table-card)` so the lobby and the
- * waiting room keep their single column. */
+ * the whole screen. A spectator page (`.page.spectator`) drops the controls
+ * column and scales the felt instead — see the second grid in this block.
+ * Everything in this block is additive; nothing below the breakpoint changes.
+ * It is scoped with `:has(.table-card)` so the lobby and the waiting room keep
+ * their single column. */
 @media (min-width: 900px) {
   #app:has(.table-card) {
     max-width: 90rem;
   }
 
-  .page:has(> .table-card) {
+  /* A seated laptop keeps the three-column player layout. A spectator page
+   * has no actions card, so it must not inherit an empty left column. */
+  .page:has(> .table-card):not(.spectator) {
     display: grid;
     grid-template-columns:
       minmax(15rem, 1fr)
@@ -1574,18 +1587,18 @@ ul {
     gap: 1.25rem;
   }
 
-  .page > .table-card {
+  .page:not(.spectator) > .table-card {
     grid-area: felt;
   }
 
   /* `position: static` undoes the phone's sticky bottom edge; in a column the
    * card anchors to the top so `pinLadder` still measures it from a fixed top. */
-  .page > .actions {
+  .page:not(.spectator) > .actions {
     grid-area: actions;
     position: static;
   }
 
-  .page > .log-card {
+  .page:not(.spectator) > .log-card {
     grid-area: log;
   }
 
@@ -1593,26 +1606,135 @@ ul {
    * the same cell the mid-game reveal card used — and the stats list spans the
    * whole width below all three columns. Both exist only on the finished
    * screen, so mid-game every rule here matches nothing. */
-  .page > .film-card {
+  .page:not(.spectator) > .film-card {
     grid-area: film;
   }
 
-  .page > .stats-card {
+  .page:not(.spectator) > .stats-card {
     grid-column: 1 / -1;
   }
 
-  .page > .row.gap {
+  .page:not(.spectator) > .row.gap {
     grid-area: footer;
   }
 
   /* A transient toast must not be auto-placed into a column cell: with every
    * explicit cell taken it spans all three on its own implicit row. */
-  .page > .toast {
+  .page:not(.spectator) > .toast {
     grid-column: 1 / -1;
   }
 
   /* The centre column fits a larger felt than the phone's 22rem. */
-  .page > .table-card .table-stage {
+  .page:not(.spectator) > .table-card .table-stage {
     max-width: 28rem;
+  }
+
+  /* The TV / laptop watcher: felt and talk, no controls. Seat names, the
+   * standing claim and the showdown scale up; the chrome does not. */
+  .page.spectator {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(14rem, 18rem);
+    grid-template-areas:
+      "felt log"
+      "line log"
+      "film log"
+      "end log"
+      "stats stats";
+    align-items: start;
+    gap: 1.25rem;
+  }
+
+  .page.spectator > .table-card {
+    grid-area: felt;
+    padding: 1.1rem 1rem 2.4rem;
+  }
+
+  .page.spectator > .watching-line {
+    grid-area: line;
+  }
+
+  .page.spectator > .log-card {
+    grid-area: log;
+  }
+
+  .page.spectator > .film-card {
+    grid-area: film;
+  }
+
+  .page.spectator > .actions-end {
+    grid-area: end;
+  }
+
+  .page.spectator > .stats-card {
+    grid-area: stats;
+  }
+
+  .page.spectator > .toast {
+    grid-column: 1 / -1;
+  }
+
+  .page.spectator > .showdown {
+    grid-column: 1 / -1;
+  }
+
+  .page.spectator > .table-card .table-stage {
+    max-width: min(42rem, 100%);
+  }
+
+  .page.spectator .player {
+    width: 8rem;
+  }
+
+  .page.spectator .avatar {
+    width: 48px;
+    height: 48px;
+    font-size: 1.05rem;
+  }
+
+  .page.spectator .player .name {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--ink);
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    white-space: normal;
+    text-overflow: unset;
+  }
+
+  .page.spectator .table-centre {
+    width: 10.5rem;
+  }
+
+  .page.spectator .table-centre .standing .chip {
+    min-width: 4.6rem;
+    font-size: 2.05rem;
+  }
+
+  .page.spectator .player .claim {
+    font-size: 0.95rem;
+    padding: 0.08rem 0.5rem;
+  }
+
+  .page.spectator .showdown-panel {
+    max-width: 48rem;
+  }
+
+  .page.spectator .showdown-value.chip {
+    min-width: 6rem;
+    font-size: 2.45rem;
+  }
+
+  .page.spectator .showdown-stamp {
+    font-size: 3.1rem;
+  }
+
+  .page.spectator .showdown.mia .showdown-stamp {
+    font-size: 3.6rem;
+  }
+
+  .page.spectator .showdown-who {
+    font-size: 0.95rem;
   }
 }

@@ -18,6 +18,38 @@ export interface SeatPoint {
 }
 
 /**
+ * A spectator holds no chair, so there is no "me at the foot" to rotate
+ * toward. Every watcher uses seat 0 — the first player who sat, usually the
+ * creator — as the origin. A different origin per tab would spin the ring
+ * whenever someone opened the TV URL; a fixed one keeps every screen in the
+ * room looking at the same table.
+ */
+export const SPECTATOR_VIEWER_INDEX = 0;
+
+/**
+ * Which seat the ring is rotated from. `you` on a spectator snapshot is still
+ * the socket's player id (it may even be a seated player's), so "find my seat"
+ * is the wrong question — the `spectator` flag is the one that decides.
+ */
+export function tableViewerIndex(
+  spectator: boolean,
+  you: string,
+  playerIds: readonly string[],
+): number {
+  if (spectator) return SPECTATOR_VIEWER_INDEX;
+  const index = playerIds.indexOf(you);
+  return index < 0 ? 0 : index;
+}
+
+/**
+ * The `you` seat treatment. A spectator is never "you", even when `you` is a
+ * seated player's id (same cookie, watching socket).
+ */
+export function isViewerSeat(spectator: boolean, playerId: string, you: string): boolean {
+  return !spectator && playerId === you;
+}
+
+/**
  * Seat centres on an ellipse, rotated so the viewer is always at the bottom —
  * the way it works at a real table. The ring is drawn as one CSS circle behind
  * the seats; these are only the points the seats hang from. The radius tightens

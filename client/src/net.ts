@@ -65,12 +65,18 @@ export class TableSocket {
   constructor(
     private readonly tableId: string,
     private readonly handlers: SocketHandlers,
+    /**
+     * Forward the page's `?watch=1` onto the upgrade. The Worker is what
+     * canonicalizes that query into `X-Mia-Spectator`; this flag only asks.
+     */
+    private readonly watch = false,
   ) {}
 
   connect(): void {
     if (this.closed || this.socket) return;
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    const url = `${protocol}//${location.host}/api/tables/${encodeURIComponent(this.tableId)}/ws`;
+    const query = this.watch ? "?watch=1" : "";
+    const url = `${protocol}//${location.host}/api/tables/${encodeURIComponent(this.tableId)}/ws${query}`;
     const socket = new WebSocket(url);
     this.socket = socket;
 

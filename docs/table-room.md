@@ -203,10 +203,11 @@ Four things follow from the tag, and each is a bug if it is missed:
   does not keep the room past `EMPTY_TABLE_TTL_MS`. The same holds for
   `connected`: `connectedIds()` skips spectator sockets, so the offline badge
   still means what it says.
-- **It is a state, not an error.** A late arrival with no watch intent (the
-  lobby's Watch link does not carry the query yet) is marked a spectator on the
-  spot and receives a `StateView` with `spectator: true`; the old unsigned
-  "That game already started" error is gone. A spectator that sends anything but
+- **It is a state, not an error.** A late arrival with no watch intent
+  (opening `/t/:id` after the game started, without `?watch=1`) is marked a
+  spectator on the spot and receives a `StateView` with `spectator: true`; the old unsigned
+  "That game already started" error is gone. The lobby's Watch link now carries
+  the query, so that path is explicit intent rather than a late join. A spectator that sends anything but
   `ping` is refused uniformly, because a socket with no seat has no game action
   to take.
 

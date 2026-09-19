@@ -11,7 +11,13 @@
  */
 import { describe, expect, it } from "vitest";
 import { MAX_PLAYERS, MIN_PLAYERS } from "../src/shared/mia";
-import { seatPositions, type SeatPoint } from "../src/shared/seat-positions";
+import {
+  isViewerSeat,
+  SPECTATOR_VIEWER_INDEX,
+  seatPositions,
+  tableViewerIndex,
+  type SeatPoint,
+} from "../src/shared/seat-positions";
 
 /**
  * Screen-space bearing from the ring centre (50, 50): 90° points straight down.
@@ -58,5 +64,33 @@ describe("seatPositions", () => {
         expect(isCyclicPlayerOrder(order, count), `count ${count}, viewer ${viewerIndex} order [${order.join(", ")}]`).toBe(true);
       }
     }
+  });
+});
+
+describe("spectator origin", () => {
+  it("rotates from seat 0 even when the socket's you is a later seat", () => {
+    const ids = ["ada", "bea", "cal"];
+    // A same-cookie watcher still has you === cal. Finding that seat would
+    // spin the TV to cal's chair; the flag is what keeps the room still.
+    expect(tableViewerIndex(true, "cal", ids)).toBe(SPECTATOR_VIEWER_INDEX);
+    expect(SPECTATOR_VIEWER_INDEX).toBe(0);
+    const points = seatPositions(3, tableViewerIndex(true, "cal", ids));
+    expect(points[0]!.y).toBeGreaterThan(Math.max(points[1]!.y, points[2]!.y));
+    expect(points[0]!.x).toBeCloseTo(50, 6);
+  });
+
+  it("never marks a seat as the viewer when the snapshot is a spectator's", () => {
+    for (const id of ["ada", "bea", "cal"]) {
+      expect(isViewerSeat(true, id, "bea")).toBe(false);
+    }
+  });
+
+  it("still centres a seated player on their own chair", () => {
+    const ids = ["ada", "bea", "cal"];
+    expect(tableViewerIndex(false, "bea", ids)).toBe(1);
+    expect(isViewerSeat(false, "bea", "bea")).toBe(true);
+    expect(isViewerSeat(false, "ada", "bea")).toBe(false);
+    const points = seatPositions(3, tableViewerIndex(false, "bea", ids));
+    expect(points[1]!.y).toBeGreaterThan(Math.max(points[0]!.y, points[2]!.y));
   });
 });

@@ -46,7 +46,7 @@ decision to change the product:
   seat the player: the socket is marked a spectator and receives the current
   snapshot with `spectator: true`. The behavior is intentional, and the protocol
   now carries it as a state rather than as an error, which is what the spectator
-  screen (#54) renders from.
+  screen renders from.
 - **A pre-game table with no creator connected can be started by anyone seated.**
   This is the abandoned-host case: refusing would brick the table. The creator,
   while present, is still the only one who may start.
