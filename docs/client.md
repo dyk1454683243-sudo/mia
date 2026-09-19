@@ -114,10 +114,11 @@ this card anyway — the announce ladder only renders on *your* announcing turn.
 The gauge lives *above* the scroller so `pinLadder` still lands the cut on the
 fold; a caption under the box at eight seats would sit below an 812px phone.
 Opening the round is its own kind, not a climb of zero: there is no standing
-claim to be distant from, the fill stays empty, and the copy says any rung is
-legal. A held roll that is itself legal is `honest` — you can say it — rather
-than a painted lie. #49 (the timer ring) and #50 (Glass table) are separate
-plates and do not live here.
+claim to be distant from, the fill stays empty, the heading reads "Opening the
+round" rather than asking how big a lie is, and the copy says any rung is
+legal. A held roll that is itself legal is `honest` — heading "Your roll is
+legal", you can say it — rather than a painted lie. #49 (the timer ring) and
+#50 (Glass table) are separate plates and do not live here.
 
 ## Using the width on desktop
 

@@ -14,7 +14,7 @@
  * - an honest held roll is not drawn as a climb.
  */
 import { describe, expect, it } from "vitest";
-import { gapCopy, gapGauge, gapValueLabel } from "../src/shared/gap-gauge";
+import { gapCopy, gapGauge, gapLabel, gapValueLabel } from "../src/shared/gap-gauge";
 import { legalAnnouncements, MIA, RANKING } from "../src/shared/mia";
 
 describe("gapGauge", () => {
@@ -90,6 +90,14 @@ describe("gapGauge", () => {
     expect(gapGauge(legalAnnouncements(62), null, 62).kind).toBe("empty");
     expect(gapGauge([], 31, 21).kind).toBe("empty");
     expect(gapGauge(legalAnnouncements(null), null, null).kind).toBe("empty");
+  });
+});
+
+describe("gapLabel", () => {
+  it("asks how big a lie only when you must climb", () => {
+    expect(gapLabel(gapGauge(legalAnnouncements(62), 31, 62))).toBe("How big a lie?");
+    expect(gapLabel(gapGauge([...RANKING], 54, null))).toBe("Opening the round");
+    expect(gapLabel(gapGauge(legalAnnouncements(62), 65, 62))).toBe("Your roll is legal");
   });
 });
 

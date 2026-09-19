@@ -91,6 +91,14 @@ function rungsPhrase(rungs: number): string {
   return rungs === 1 ? "one rung" : `${rungs} rungs`;
 }
 
+/** The strip heading. "How big a lie?" is only a question when you must climb. */
+export function gapLabel(gauge: GapGauge): string {
+  if (gauge.kind === "open") return "Opening the round";
+  if (gauge.kind === "honest") return "Your roll is legal";
+  if (gauge.kind === "climb") return "How big a lie?";
+  return "";
+}
+
 /** The sentence under the track. Colour is not the information. */
 export function gapCopy(gauge: GapGauge): string {
   const { kind, held, cheapest, rungs } = gauge;

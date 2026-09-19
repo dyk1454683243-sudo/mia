@@ -11,7 +11,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
-import { gapGauge } from "../src/shared/gap-gauge.ts";
 import { formatValue, MAX_PLAYERS, MIA, MIN_PLAYERS, outranks, RANKING } from "../src/shared/mia.ts";
 import { SHIP_NAMES } from "../src/shared/ships.ts";
 import { api, BASE, createPlayer } from "./lib.ts";
@@ -100,6 +99,26 @@ function sleep(ms: number): Promise<void> {
  */
 function legalClaims(standing: number | null): number[] {
   return standing === null ? [...RANKING] : RANKING.filter((value) => outranks(value, standing));
+}
+
+/**
+ * What the gap gauge must read from the ladder the page already drew.
+ * Cheapest is the last legal claim (RANKING order); rungs are index steps
+ * in that same table. Scripts cannot import `gap-gauge.ts` (it pulls `./mia`
+ * without a `.ts` suffix, and Node's type-strip loader needs the suffix).
+ */
+function expectedGauge(
+  legal: number[],
+  held: number | null,
+  standing: number | null,
+): { kind: string; held: number | null; cheapest: number | null; rungs: number } {
+  const cheapest = legal.length > 0 ? legal[legal.length - 1]! : null;
+  if (held === null || cheapest === null || !RANKING.includes(held)) {
+    return { kind: "empty", held, cheapest, rungs: 0 };
+  }
+  if (standing === null) return { kind: "open", held, cheapest, rungs: 0 };
+  if (legal.includes(held)) return { kind: "honest", held, cheapest, rungs: 0 };
+  return { kind: "climb", held, cheapest, rungs: RANKING.indexOf(held) - RANKING.indexOf(cheapest) };
 }
 
 /** Compare two value sets order-independently. */
@@ -1106,15 +1125,15 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string): Promis
       // The gauge is that same climb, drawn. Expected values come from the
       // engine's legal set and the rung the page already marked `mine` — not
       // from a second ranking, and not from a snapshot field.
-      const expectedGauge = gapGauge(legal, snap.announce.mineValue, snap.standingValue);
+      const expected = expectedGauge(legal, snap.announce.mineValue, snap.standingValue);
       check("the gap gauge is on your announce ladder", snap.gauge.present, `kind=${snap.gauge.kind ?? "none"}`);
       check(
         "the gap gauge reads the existing ladder data",
-        snap.gauge.kind === expectedGauge.kind &&
-          snap.gauge.rungs === expectedGauge.rungs &&
-          snap.gauge.held === expectedGauge.held &&
-          snap.gauge.cheapest === expectedGauge.cheapest,
-        `got ${snap.gauge.kind} ${snap.gauge.held}→${snap.gauge.cheapest} ${snap.gauge.rungs}r vs ${expectedGauge.kind} ${expectedGauge.held}→${expectedGauge.cheapest} ${expectedGauge.rungs}r`,
+        snap.gauge.kind === expected.kind &&
+          snap.gauge.rungs === expected.rungs &&
+          snap.gauge.held === expected.held &&
+          snap.gauge.cheapest === expected.cheapest,
+        `got ${snap.gauge.kind} ${snap.gauge.held}→${snap.gauge.cheapest} ${snap.gauge.rungs}r vs ${expected.kind} ${expected.held}→${expected.cheapest} ${expected.rungs}r`,
       );
       check(
         "the gap gauge degrades on a round opener",

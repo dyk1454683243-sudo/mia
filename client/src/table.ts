@@ -40,7 +40,7 @@ import {
   showdownTone,
   showdownValue,
 } from "../../src/shared/showdown";
-import { gapCopy, gapGauge, gapValueLabel, type GapGauge } from "../../src/shared/gap-gauge";
+import { gapCopy, gapGauge, gapLabel, gapValueLabel, type GapGauge } from "../../src/shared/gap-gauge";
 import { api, escapeHtml, TableSocket } from "./net";
 
 const PIPS: Record<number, string[]> = {
@@ -557,11 +557,12 @@ function rungHint(value: number, rung: Rung): string {
 function renderGapGauge(gauge: GapGauge): string {
   if (gauge.kind === "empty") return "";
   const copy = gapCopy(gauge);
+  const heading = gapLabel(gauge);
   const heldLabel = gauge.held === null ? "" : `${gapValueLabel(gauge.held)} yours`;
   const fillPct = gauge.fill === null ? 0 : Math.round(gauge.fill * 1000) / 10;
   const markPct = gauge.kind === "climb" ? fillPct : 0;
   return `<div class="gap-gauge gap-gauge-${gauge.kind}" data-gap-kind="${gauge.kind}" data-gap-rungs="${gauge.rungs}" data-gap-held="${gauge.held ?? ""}" data-gap-cheapest="${gauge.cheapest ?? ""}" style="--gap-fill: ${fillPct}%; --gap-mark: ${markPct}%;">
-      <p class="gap-gauge-label">How big a lie?</p>
+      <p class="gap-gauge-label">${escapeHtml(heading)}</p>
       <div class="gap-gauge-track" role="img" aria-label="${escapeHtml(copy)}">
         <span class="gap-gauge-fill"></span>
         <span class="gap-gauge-mark"></span>
