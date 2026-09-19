@@ -362,6 +362,27 @@ ring and the whole felt are neutral above and at the round start and red below,
 the viewer's seat draws the ring on their turn, no chair does when it is not, and
 the forced-urgent clone stays neutral under `prefers-reduced-motion: reduce`.
 
+## The palette is a personal mood
+
+The colours are a token block at the top of `client/src/styles.css`. A mood is a
+class on `<html>` and `<body>` plus a second token block — Stammtisch (scrubbed
+oak, beer mats, chalk on slate) and Night Shift (magenta and cyan on deep
+violet). Adding another mood that stays on the dark-on-dark assumptions the
+components were drawn against is that block and nothing else. The two-colour
+press is a genuine light theme and is #53, not this.
+
+The mood is **personal**, not a table setting. It needs no server state and no
+agreement between players. The choice lives in `localStorage` under `mia-mood`
+(see `src/shared/mood.ts`) and is applied by an inline script in both HTML
+pages *before* the stylesheet, so a stored Night Shift does not flash felt-green
+on reload. The picker is a `<select>` in the sticky topbar on the lobby and
+every table state, including the connecting and fatal pages.
+
+`paint()` rebuilds `#app` on every snapshot, so the picker is redrawn from the
+stored value rather than kept as a live widget. Changing it writes storage and
+toggles the class immediately; the next snapshot only has to show the same
+`<option selected>`.
+
 ## The lobby is deliberately dumber
 
 `client/src/lobby.ts` does not use a WebSocket. It polls `/api/tables` and

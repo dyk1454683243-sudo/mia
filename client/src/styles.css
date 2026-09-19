@@ -1,20 +1,162 @@
-/* Mia — dark table-felt, phone first, thumb reachable. */
+/* Mia — dark table-felt, phone first, thumb reachable.
+ * The palette is a token block. A mood is a class on <html>/<body> and
+ * another block below; adding one should not need a component change. */
 
 :root {
   --felt: #0b3d2e;
   --felt-deep: #072a20;
+  --felt-lift: #12513d;
+  --felt-stage-hi: #14624a;
+  --felt-stage-mid: #0c4534;
+  --felt-stage-lo: #07301f;
   --panel: rgba(255, 255, 255, 0.055);
   --panel-solid: #123f33;
   --line: rgba(255, 255, 255, 0.12);
   --ink: #f4efe3;
   --ink-dim: #a9c2b6;
   --gold: #e8c46a;
+  --gold-bright: #f0d68c;
+  --gold-hot: #f6d98d;
+  --gold-mid: #d9a534;
+  --gold-deep: #c99a2e;
   --danger: #e2685f;
+  --danger-ink: #ffd9d5;
+  --danger-ink-strong: #ffd2ce;
+  --danger-ink-soft: #ffc9c4;
   --good: #6fcf97;
+  --good-ink: #c9f0d8;
   --chip: #f3e9d2;
   --chip-ink: #24312c;
+  --die: #f3e9d2;
+  --primary-ink: #2a2313;
+  --mia-hint: #4a3a12;
+  --ghost-fill: rgba(255, 255, 255, 0.07);
+  --input-fill: rgba(0, 0, 0, 0.25);
+  --wash: rgba(255, 255, 255, 0.1);
+  --wash-soft: rgba(255, 255, 255, 0.06);
+  --wash-mid: rgba(255, 255, 255, 0.08);
+  --wash-strong: rgba(255, 255, 255, 0.12);
+  --wash-loud: rgba(255, 255, 255, 0.14);
+  --shade: rgba(0, 0, 0, 0.18);
+  --hidden-die-a: #2c5a4b;
+  --hidden-die-b: #26503f;
+  --hidden-die-ink: rgba(255, 255, 255, 0.5);
+  --log-marker: rgba(255, 255, 255, 0.25);
+  --topbar-from: rgba(7, 42, 32, 0.96);
+  --topbar-to: rgba(7, 42, 32, 0.75);
+  --countdown-ring: rgba(244, 239, 227, 0.85);
+  --countdown-track: rgba(255, 255, 255, 0.16);
+  --urgent-hi: #6b322b;
+  --urgent-mid: #4a211b;
+  --urgent-lo: #2c1310;
+  --page-bg: radial-gradient(circle at 50% 0%, var(--felt-lift) 0%, var(--felt) 45%, var(--felt-deep) 100%);
+  --page-urgent: radial-gradient(circle at 50% 0%, var(--urgent-hi) 0%, var(--urgent-mid) 45%, var(--urgent-lo) 100%);
+  --felt-stage: radial-gradient(ellipse at 50% 38%, var(--felt-stage-hi) 0%, var(--felt-stage-mid) 58%, var(--felt-stage-lo) 100%);
+  --felt-urgent: radial-gradient(ellipse at 50% 38%, var(--urgent-hi) 0%, var(--urgent-mid) 58%, var(--urgent-lo) 100%);
   --radius: 14px;
   --tap: 44px;
+}
+
+/* Stammtisch — scrubbed oak, beer mats, chalk on slate. Daylight. */
+:root.mood-stammtisch,
+body.mood-stammtisch {
+  --felt: #b98f5c;
+  --felt-deep: #a87b49;
+  --felt-lift: #c9a574;
+  --felt-stage-hi: #c9a574;
+  --felt-stage-mid: #b98f5c;
+  --felt-stage-lo: #8f6236;
+  --panel: rgba(255, 248, 235, 0.62);
+  --panel-solid: #e8d3b0;
+  --line: rgba(58, 33, 12, 0.22);
+  --ink: #2c1b0d;
+  --ink-dim: #6b4e31;
+  --gold: #7a3e1d;
+  --gold-bright: #8b4a24;
+  --gold-hot: #9a5228;
+  --gold-mid: #6a3518;
+  --gold-deep: #5c2e14;
+  --danger: #9b2b1f;
+  --danger-ink: #3a120e;
+  --danger-ink-strong: #4a1612;
+  --danger-ink-soft: #6b241c;
+  --good: #3c6b37;
+  --good-ink: #1e3a1c;
+  --chip: #fff6e4;
+  --chip-ink: #2c1b0d;
+  --die: #fff6e4;
+  --primary-ink: #fff6e4;
+  --mia-hint: #f3e2c8;
+  --ghost-fill: rgba(58, 33, 12, 0.08);
+  --input-fill: rgba(58, 33, 12, 0.1);
+  --wash: rgba(58, 33, 12, 0.1);
+  --wash-soft: rgba(58, 33, 12, 0.06);
+  --wash-mid: rgba(58, 33, 12, 0.08);
+  --wash-strong: rgba(58, 33, 12, 0.12);
+  --wash-loud: rgba(58, 33, 12, 0.16);
+  --shade: rgba(58, 33, 12, 0.12);
+  --hidden-die-a: #8f6236;
+  --hidden-die-b: #a87b49;
+  --hidden-die-ink: rgba(44, 27, 13, 0.45);
+  --log-marker: rgba(44, 27, 13, 0.28);
+  --topbar-from: rgba(168, 123, 73, 0.96);
+  --topbar-to: rgba(168, 123, 73, 0.75);
+  --countdown-ring: rgba(44, 27, 13, 0.75);
+  --countdown-track: rgba(58, 33, 12, 0.18);
+  --urgent-hi: #8a3228;
+  --urgent-mid: #5c211c;
+  --urgent-lo: #3a1512;
+}
+
+/* Night Shift — magenta and cyan on deep violet. Late game. */
+:root.mood-night-shift,
+body.mood-night-shift {
+  --felt: #0c0620;
+  --felt-deep: #05030f;
+  --felt-lift: #160b2b;
+  --felt-stage-hi: #2a1458;
+  --felt-stage-mid: #160b2b;
+  --felt-stage-lo: #05030f;
+  --panel: rgba(120, 70, 255, 0.12);
+  --panel-solid: #1a0e3a;
+  --line: rgba(126, 92, 255, 0.34);
+  --ink: #eaf6ff;
+  --ink-dim: #8e7fc4;
+  --gold: #ff4fd8;
+  --gold-bright: #ff4fd8;
+  --gold-hot: #ff4fd8;
+  --gold-mid: #7a3cff;
+  --gold-deep: #7a3cff;
+  --danger: #ff3b6b;
+  --danger-ink: #ffd6e0;
+  --danger-ink-strong: #ffc2d0;
+  --danger-ink-soft: #ffb0c4;
+  --good: #26f5d0;
+  --good-ink: #c8fff4;
+  --chip: #26f5d0;
+  --chip-ink: #05030f;
+  --die: #eaf6ff;
+  --primary-ink: #ffffff;
+  --mia-hint: #f5e6ff;
+  --ghost-fill: rgba(126, 92, 255, 0.12);
+  --input-fill: rgba(5, 3, 15, 0.45);
+  --wash: rgba(126, 92, 255, 0.16);
+  --wash-soft: rgba(126, 92, 255, 0.08);
+  --wash-mid: rgba(126, 92, 255, 0.12);
+  --wash-strong: rgba(126, 92, 255, 0.2);
+  --wash-loud: rgba(126, 92, 255, 0.24);
+  --shade: rgba(5, 3, 15, 0.35);
+  --hidden-die-a: #1a0e3a;
+  --hidden-die-b: #2a1458;
+  --hidden-die-ink: rgba(234, 246, 255, 0.45);
+  --log-marker: rgba(234, 246, 255, 0.25);
+  --topbar-from: rgba(12, 6, 32, 0.96);
+  --topbar-to: rgba(12, 6, 32, 0.75);
+  --countdown-ring: rgba(38, 245, 208, 0.85);
+  --countdown-track: rgba(126, 92, 255, 0.22);
+  --urgent-hi: #6b1a40;
+  --urgent-mid: #3d1028;
+  --urgent-lo: #1a0812;
 }
 
 * {
@@ -30,7 +172,7 @@ body {
 
 body {
   min-height: 100dvh;
-  background: radial-gradient(circle at 50% 0%, #12513d 0%, var(--felt) 45%, var(--felt-deep) 100%);
+  background: var(--page-bg);
   color: var(--ink);
   font: 16px/1.45 ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   overscroll-behavior-y: contain;
@@ -54,7 +196,7 @@ body {
   padding: calc(0.6rem + env(safe-area-inset-top)) 0.25rem 0.6rem;
   margin: 0 -0.75rem 0.75rem;
   padding-inline: 1rem;
-  background: linear-gradient(180deg, rgba(7, 42, 32, 0.96), rgba(7, 42, 32, 0.75));
+  background: linear-gradient(180deg, var(--topbar-from), var(--topbar-to));
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
 }
@@ -81,6 +223,41 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--ink-dim);
+}
+
+.mood-picker {
+  position: relative;
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.mood-picker select {
+  min-height: var(--tap);
+  min-width: 8.2rem;
+  max-width: 10.5rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--input-fill);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .page {
@@ -133,9 +310,9 @@ body {
   margin: 0;
   padding: 0.7rem 0.9rem;
   border-radius: var(--radius);
-  background: rgba(226, 104, 95, 0.18);
-  border: 1px solid rgba(226, 104, 95, 0.5);
-  color: #ffd9d5;
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 50%, transparent);
+  color: var(--danger-ink);
   font-size: 0.92rem;
 }
 
@@ -181,8 +358,8 @@ button:active,
 }
 
 .primary {
-  background: linear-gradient(180deg, #f0d68c, var(--gold));
-  color: #2a2313;
+  background: linear-gradient(180deg, var(--gold-bright), var(--gold));
+  color: var(--primary-ink);
 }
 
 .primary[disabled],
@@ -192,15 +369,15 @@ button[disabled] {
 }
 
 .ghost {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--ghost-fill);
   border-color: var(--line);
   color: var(--ink);
 }
 
 .danger {
-  background: rgba(226, 104, 95, 0.16);
-  border-color: rgba(226, 104, 95, 0.55);
-  color: #ffd2ce;
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  color: var(--danger-ink-strong);
 }
 
 .big {
@@ -223,7 +400,7 @@ input {
   padding: 0.6rem 0.8rem;
   border-radius: 12px;
   border: 1px solid var(--line);
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--input-fill);
   color: var(--ink);
 }
 
@@ -383,8 +560,8 @@ ul {
   margin: 0 auto;
   aspect-ratio: 1 / 1.02;
   border-radius: 50%;
-  border: 2px solid rgba(232, 196, 106, 0.22);
-  background: radial-gradient(ellipse at 50% 38%, #14624a 0%, #0c4534 58%, #07301f 100%);
+  border: 2px solid color-mix(in srgb, var(--gold) 22%, transparent);
+  background: var(--felt-stage);
   box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.45), 0 10px 30px -12px rgba(0, 0, 0, 0.6);
 }
 
@@ -409,8 +586,8 @@ ul {
 
 .player.turn {
   border-color: var(--gold);
-  background: rgba(232, 196, 106, 0.07);
-  box-shadow: 0 0 0 1px rgba(232, 196, 106, 0.4), 0 0 18px rgba(232, 196, 106, 0.12);
+  background: color-mix(in srgb, var(--gold) 7%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--gold) 40%, transparent), 0 0 18px color-mix(in srgb, var(--gold) 12%, transparent);
 }
 
 .player.out {
@@ -423,7 +600,7 @@ ul {
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--wash);
   border: 1.5px solid var(--line);
   font-weight: 800;
   font-size: 0.72rem;
@@ -433,8 +610,8 @@ ul {
 
 .player.turn .avatar {
   border-color: var(--gold);
-  background: rgba(232, 196, 106, 0.2);
-  box-shadow: 0 0 0 4px rgba(232, 196, 106, 0.14);
+  background: color-mix(in srgb, var(--gold) 20%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--gold) 14%, transparent);
 }
 
 /* Names are the full string in the DOM so assistive tech and the harness keep
@@ -557,22 +734,22 @@ ul {
   text-transform: uppercase;
   padding: 0.15rem 0.4rem;
   border-radius: 999px;
-  background: rgba(232, 196, 106, 0.18);
+  background: color-mix(in srgb, var(--gold) 18%, transparent);
   color: var(--gold);
-  border: 1px solid rgba(232, 196, 106, 0.35);
+  border: 1px solid color-mix(in srgb, var(--gold) 35%, transparent);
   white-space: nowrap;
 }
 
 .badge.cup {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--wash-strong);
   color: var(--ink);
   border-color: var(--line);
 }
 
 .badge.turn {
-  background: rgba(111, 207, 151, 0.16);
+  background: color-mix(in srgb, var(--good) 16%, transparent);
   color: var(--good);
-  border-color: rgba(111, 207, 151, 0.4);
+  border-color: color-mix(in srgb, var(--good) 40%, transparent);
 }
 
 /* The countdown ring. One element, used on the viewer's own seat and in the
@@ -583,8 +760,6 @@ ul {
  * with the number for content — the tick can replace the text freely. */
 .countdown {
   --countdown-frac: 1;
-  --countdown-ring: rgba(244, 239, 227, 0.85);
-  --countdown-track: rgba(255, 255, 255, 0.16);
   position: relative;
   z-index: 0;
   display: inline-grid;
@@ -621,27 +796,27 @@ ul {
 @media (prefers-reduced-motion: no-preference) {
   .countdown.urgent {
     --countdown-ring: var(--danger);
-    --countdown-track: rgba(226, 104, 95, 0.2);
-    color: #ffd9d5;
+    --countdown-track: color-mix(in srgb, var(--danger) 20%, transparent);
+    color: var(--danger-ink);
   }
 
   /* The felt desaturates toward red for everyone at the table, not only the
    * player on turn: the clock is shared, and this is what reads in peripheral
    * vision while the reader is looking at the ladder. */
   .table-card.urgent .table-stage {
-    border-color: rgba(226, 104, 95, 0.5);
-    background: radial-gradient(ellipse at 50% 38%, #6b322b 0%, #4a211b 58%, #2c1310 100%);
-    box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.45), 0 0 30px -8px rgba(226, 104, 95, 0.5);
+    border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+    background: var(--felt-urgent);
+    box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.45), 0 0 30px -8px color-mix(in srgb, var(--danger) 50%, transparent);
   }
 
   body:has(.table-card.urgent) {
-    background: radial-gradient(circle at 50% 0%, #6b322b 0%, #4a211b 45%, #2c1310 100%);
+    background: var(--page-urgent);
   }
 }
 
 .badge.muted,
 .badge.out {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--wash-soft);
   color: var(--ink-dim);
   border-color: var(--line);
 }
@@ -656,12 +831,12 @@ ul {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--wash-loud);
 }
 
 .pip.on {
   background: var(--danger);
-  box-shadow: 0 0 6px rgba(226, 104, 95, 0.6);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--danger) 60%, transparent);
 }
 
 .player-dice {
@@ -681,7 +856,7 @@ ul {
   grid-template-columns: repeat(3, 1fr);
   grid-template-rows: repeat(3, 1fr);
   place-items: center;
-  background: var(--chip);
+  background: var(--die);
   border-radius: 22%;
   box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.3);
 }
@@ -699,8 +874,8 @@ ul {
 }
 
 .die.hidden {
-  background: repeating-linear-gradient(45deg, #2c5a4b, #2c5a4b 4px, #26503f 4px, #26503f 8px);
-  color: rgba(255, 255, 255, 0.5);
+  background: repeating-linear-gradient(45deg, var(--hidden-die-a), var(--hidden-die-a) 4px, var(--hidden-die-b) 4px, var(--hidden-die-b) 8px);
+  color: var(--hidden-die-ink);
   font-weight: 700;
   display: inline-flex;
   align-items: center;
@@ -748,12 +923,12 @@ ul {
 }
 
 .chip.double {
-  box-shadow: 0 0 0 2px rgba(232, 196, 106, 0.8) inset;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--gold) 80%, transparent) inset;
 }
 
 .chip.mia {
-  background: linear-gradient(180deg, #f6d98d, #d9a534);
-  color: #2a2313;
+  background: linear-gradient(180deg, var(--gold-hot), var(--gold-mid));
+  color: var(--primary-ink);
   animation: pulse 2s ease-in-out infinite;
 }
 
@@ -785,11 +960,11 @@ ul {
 }
 
 .verdict.caught {
-  color: #ffc9c4;
+  color: var(--danger-ink-soft);
 }
 
 .verdict.believed {
-  color: #c9f0d8;
+  color: var(--good-ink);
 }
 
 /* -------------------------------------------------------------- showdown */
@@ -817,7 +992,7 @@ ul {
   margin: 0;
   padding: 0;
   border: 0;
-  background: radial-gradient(circle at 50% 0%, #12513d 0%, var(--felt) 45%, var(--felt-deep) 100%);
+  background: var(--page-bg);
 }
 
 .showdown-panel {
@@ -926,7 +1101,7 @@ ul {
   width: 3.6rem;
   height: 3.4rem;
   border-radius: 0 0 46% 46% / 0 0 58% 58%;
-  background: linear-gradient(180deg, #f0d68c, #c99a2e);
+  background: linear-gradient(180deg, var(--gold-bright), var(--gold-deep));
   box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.16), 0 8px 18px -8px rgba(0, 0, 0, 0.7);
   opacity: 0;
 }
@@ -938,7 +1113,7 @@ ul {
   top: 0.55rem;
   width: 0.9rem;
   height: 1.15rem;
-  border: 4px solid #c99a2e;
+  border: 4px solid var(--gold-deep);
   border-left: 0;
   border-radius: 0 999px 999px 0;
 }
@@ -970,7 +1145,7 @@ ul {
  * stamp lands; under reduced motion these apply from the first frame. */
 .showdown.caught .showdown-stamp {
   color: var(--danger);
-  text-shadow: 0 0 18px rgba(226, 104, 95, 0.35);
+  text-shadow: 0 0 18px color-mix(in srgb, var(--danger) 35%, transparent);
 }
 
 .showdown.caught .showdown-claimed .showdown-value {
@@ -982,11 +1157,11 @@ ul {
 
 .showdown.believed .showdown-stamp {
   color: var(--good);
-  text-shadow: 0 0 18px rgba(111, 207, 151, 0.35);
+  text-shadow: 0 0 18px color-mix(in srgb, var(--good) 35%, transparent);
 }
 
 .showdown.believed .showdown-actual .dice {
-  filter: drop-shadow(0 0 12px rgba(111, 207, 151, 0.55));
+  filter: drop-shadow(0 0 12px color-mix(in srgb, var(--good) 55%, transparent));
 }
 
 .showdown.mia .showdown-stamp {
@@ -995,11 +1170,11 @@ ul {
   font-size: 2.7rem;
   letter-spacing: 0.18em;
   transform: rotate(4deg);
-  text-shadow: 0 0 22px rgba(232, 196, 106, 0.45);
+  text-shadow: 0 0 22px color-mix(in srgb, var(--gold) 45%, transparent);
 }
 
 .showdown.mia .showdown-claimed .showdown-value {
-  box-shadow: 0 0 0 3px rgba(232, 196, 106, 0.75) inset, 0 0 24px rgba(232, 196, 106, 0.3);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold) 75%, transparent) inset, 0 0 24px color-mix(in srgb, var(--gold) 30%, transparent);
 }
 
 .showdown-loss {
@@ -1072,9 +1247,9 @@ ul {
   justify-content: center;
   min-height: var(--tap);
   margin: 0.8rem 0 0;
-  border: 1px solid rgba(232, 196, 106, 0.4);
+  border: 1px solid color-mix(in srgb, var(--gold) 40%, transparent);
   border-radius: 12px;
-  background: rgba(232, 196, 106, 0.12);
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
   color: var(--ink);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -1196,12 +1371,12 @@ ul {
 
 @keyframes showdown-mia-claim {
   0%, 54% { box-shadow: 0 0 0 0 transparent; }
-  62%, 100% { box-shadow: 0 0 0 3px rgba(232, 196, 106, 0.75) inset, 0 0 24px rgba(232, 196, 106, 0.3); }
+  62%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold) 75%, transparent) inset, 0 0 24px color-mix(in srgb, var(--gold) 30%, transparent); }
 }
 
 @keyframes showdown-believed-glow {
   0%, 54% { filter: drop-shadow(0 0 0 transparent); }
-  66%, 100% { filter: drop-shadow(0 0 12px rgba(111, 207, 151, 0.55)); }
+  66%, 100% { filter: drop-shadow(0 0 12px color-mix(in srgb, var(--good) 55%, transparent)); }
 }
 
 /* Under reduced motion the showdown still shows claimed, actual and the
@@ -1221,7 +1396,7 @@ ul {
   position: sticky;
   bottom: calc(0.5rem + env(safe-area-inset-bottom));
   background: var(--panel-solid);
-  border-color: rgba(232, 196, 106, 0.25);
+  border-color: color-mix(in srgb, var(--gold) 25%, transparent);
 }
 
 /* The announce ladder is taller than a phone viewport. Sticking the card to the
@@ -1264,7 +1439,7 @@ ul {
   overscroll-behavior: contain;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: rgba(0, 0, 0, 0.18);
+  background: var(--shade);
 }
 
 .ladder {
@@ -1290,7 +1465,7 @@ ul {
 .ladder-cut::after {
   content: "";
   flex: 1;
-  border-top: 1px dashed rgba(232, 196, 106, 0.6);
+  border-top: 1px dashed color-mix(in srgb, var(--gold) 60%, transparent);
 }
 
 .announce {
@@ -1300,7 +1475,7 @@ ul {
   width: 100%;
   min-height: var(--tap);
   padding: 0.45rem 0.6rem;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--wash-mid);
   border: 1px solid var(--line);
   color: var(--ink);
   text-align: left;
@@ -1331,12 +1506,12 @@ ul {
 .announce.mine {
   border-style: dashed;
   border-color: var(--good);
-  box-shadow: 0 0 0 1px rgba(111, 207, 151, 0.4) inset;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--good) 40%, transparent) inset;
 }
 
 .announce.mia {
-  background: linear-gradient(180deg, #f6d98d, #d9a534);
-  color: #2a2313;
+  background: linear-gradient(180deg, var(--gold-hot), var(--gold-mid));
+  color: var(--primary-ink);
   font-size: 1.15rem;
   letter-spacing: 0.16em;
 }
@@ -1346,12 +1521,12 @@ ul {
 }
 
 .announce.mia .rung-hint {
-  color: #4a3a12;
+  color: var(--mia-hint);
 }
 
 .announce.rung-standing {
-  border-color: rgba(232, 196, 106, 0.7);
-  box-shadow: 0 0 0 1px rgba(232, 196, 106, 0.35) inset;
+  border-color: color-mix(in srgb, var(--gold) 70%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--gold) 35%, transparent) inset;
 }
 
 /* Everything at or below the standing claim is rendered but not offered. */
@@ -1372,7 +1547,7 @@ ul {
 }
 
 .log li::marker {
-  color: rgba(255, 255, 255, 0.25);
+  color: var(--log-marker);
 }
 
 .log li:first-child {
@@ -1386,7 +1561,7 @@ ul {
 
 .ev-life,
 .ev-eliminated {
-  color: #ffc9c4;
+  color: var(--danger-ink-soft);
 }
 
 /* ---------------------------------------------------------------- endgame */
@@ -1414,7 +1589,7 @@ ul {
   padding: 0.35rem 0.4rem;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.18);
+  background: var(--shade);
 }
 
 .film-who {
@@ -1435,11 +1610,11 @@ ul {
 }
 
 .film-cell.you {
-  border-color: rgba(232, 196, 106, 0.55);
+  border-color: color-mix(in srgb, var(--gold) 55%, transparent);
 }
 
 .film-cell.doubt {
-  border-color: rgba(226, 104, 95, 0.55);
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
 }
 
 .film-cell.doubt .film-value {
@@ -1451,7 +1626,7 @@ ul {
 }
 
 .film-cell.truth.caught .film-value {
-  color: #ffc9c4;
+  color: var(--danger-ink-soft);
 }
 
 .film-cell.truth.mia .film-value {
@@ -1478,7 +1653,7 @@ ul {
   align-items: center;
   padding: 0.3rem 0.2rem;
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.18);
+  background: var(--shade);
 }
 
 .stat-chip b {
@@ -1522,7 +1697,7 @@ ul {
 .stat-row.you {
   margin-inline: -0.35rem;
   border-radius: 10px;
-  background: rgba(232, 196, 106, 0.1);
+  background: color-mix(in srgb, var(--gold) 10%, transparent);
 }
 
 .stat-row .name {

@@ -40,7 +40,10 @@ import {
   showdownTone,
   showdownValue,
 } from "../../src/shared/showdown";
+import { bootMood, moodPickerMarkup } from "./mood";
 import { api, escapeHtml, TableSocket } from "./net";
+
+bootMood();
 
 const PIPS: Record<number, string[]> = {
   1: ["c"],
@@ -757,12 +760,16 @@ function paint(html: string): void {
   pinLadder();
 }
 
+function renderTopbar(title: string, round?: string): string {
+  return `<header class="topbar"><a class="brand" href="/">Mia</a><span class="table-title">${escapeHtml(
+    title,
+  )}</span>${round ? `<span class="round">${round}</span>` : ""}${moodPickerMarkup()}</header>`;
+}
+
 function render(): void {
   const view = state.view;
   const title = state.table?.name ?? view?.state.tableName ?? "Table";
-  const topbar = `<header class="topbar"><a class="brand" href="/">Mia</a><span class="table-title">${escapeHtml(
-    title,
-  )}</span></header>`;
+  const topbar = renderTopbar(title);
 
   // A terminal refusal (a full table) outranks everything: there is no snapshot
   // coming, so "Connecting…" would be a lie the page told forever.
@@ -791,11 +798,7 @@ function render(): void {
   const started = view.state.round > 0;
   const over = view.state.gameOver !== null;
   paint(`
-    <header class="topbar">
-      <a class="brand" href="/">Mia</a>
-      <span class="table-title">${escapeHtml(title)}</span>
-      <span class="round">${over ? "Final" : started ? `Round ${view.state.round}` : "Lobby"}</span>
-    </header>
+    ${renderTopbar(title, over ? "Final" : started ? `Round ${view.state.round}` : "Lobby")}
     <main class="page">
       ${state.error ? `<p class="toast">${escapeHtml(state.error)}</p>` : ""}
       ${started ? renderPlay(view) : renderWaiting(view)}
@@ -847,7 +850,7 @@ async function boot(): Promise<void> {
     state.table = await api.table(tableId);
   } catch (error) {
     app.innerHTML = `
-      <header class="topbar"><a class="brand" href="/">Mia</a></header>
+      ${renderTopbar("Table")}
       <main class="page"><section class="card">
         <h2>Table not found</h2>
         <p class="muted">${escapeHtml(error instanceof Error ? error.message : "Unknown table.")}</p>
