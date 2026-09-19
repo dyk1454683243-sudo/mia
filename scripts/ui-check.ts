@@ -243,9 +243,13 @@ async function verifySpectator(
   const page = await context.newPage();
   watch(page);
   await page.goto(`${BASE}/t/${tableId}?watch=1`, { waitUntil: "networkidle" });
+  // Spectator, seated lobby, or table-full. A missing `?watch=1` at three seats
+  // sits down rather than refusing, and a wait that only knew the other two
+  // hung until Playwright timed out — the watching assertion never ran.
   await page.waitForFunction(
     () =>
       document.querySelector(".page.spectator") !== null ||
+      document.querySelector(".room-card") !== null ||
       (document.querySelector("h2")?.textContent ?? "").includes("Can’t join"),
     { timeout: 15_000 },
   );
@@ -1146,9 +1150,14 @@ async function playGame(page: Page, bots: ChildProcess, tableId: string, spectat
         await shot(spectator, "05s-spectator-play");
       }
     }
-    if (!spectatorStandingChecked && snap.standingValue !== null && snap.seatCount === SEATS) {
+    if (
+      !spectatorStandingChecked &&
+      snap.standingValue !== null &&
+      (snap.phase === "deciding" || snap.phase === "announcing") &&
+      snap.seatCount === SEATS
+    ) {
       const spec = await spectatorShot(spectator);
-      if (spec.standingSize > 0) {
+      if (spec.standingSize > 0 && !spec.showdown) {
         spectatorStandingChecked = true;
         check(
           "SPECTATOR: the standing claim scales up",
