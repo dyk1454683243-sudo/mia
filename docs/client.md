@@ -103,6 +103,22 @@ and takes `MIA_UI_SEATS` to run a smaller table. The share-link step runs before
 the table is filled, because a fresh session cannot take the last seat of a full
 table — a separate, pre-existing bug (see `fix/full-table-join`).
 
+The **gap gauge** sits on that same ladder and nowhere else. It is the distance
+between the roll in your cup and the cheapest legal announcement — last entry of
+`legalMoves.announcements`, counted in `RANKING` index steps by
+`gapGauge` in `src/shared/gap-gauge.ts`. That is the fact the muted "sits below
+the cut" line already knew; the track draws it. There is no second ranking
+(encoded-roll subtraction would call `11` lower than `65`) and no new snapshot
+field: other seats must not see how far you have to climb, and they never get
+this card anyway — the announce ladder only renders on *your* announcing turn.
+The gauge lives *above* the scroller so `pinLadder` still lands the cut on the
+fold; a caption under the box at eight seats would sit below an 812px phone.
+Opening the round is its own kind, not a climb of zero: there is no standing
+claim to be distant from, the fill stays empty, and the copy says any rung is
+legal. A held roll that is itself legal is `honest` — you can say it — rather
+than a painted lie. #49 (the timer ring) and #50 (Glass table) are separate
+plates and do not live here.
+
 ## Using the width on desktop
 
 Phone-first is the product decision, and the base stylesheet carries no width

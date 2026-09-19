@@ -1359,6 +1359,69 @@ ul {
   opacity: 0.45;
 }
 
+/* The gap gauge sits above the ladder scroller, not below it: `pinLadder`
+ * puts the scroller's bottom on the fold at eight seats, so a caption under
+ * the box would land off-screen. Compact on purpose — the extra block only
+ * shrinks the scroller, which `pinLadder` remeasures from the new top. */
+.gap-gauge {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0 0 0.45rem;
+}
+
+.gap-gauge-label {
+  margin: 0;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.gap-gauge-track {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--line);
+}
+
+.gap-gauge-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--gap-fill, 0%);
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--good), var(--gold) 62%, var(--danger));
+  opacity: 0.85;
+}
+
+.gap-gauge-open .gap-gauge-fill,
+.gap-gauge-honest .gap-gauge-fill {
+  display: none;
+}
+
+.gap-gauge-mark {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: var(--gap-mark, 0%);
+  width: 2px;
+  background: var(--ink);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+  transform: translateX(-1px);
+}
+
+.gap-gauge-ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.68rem;
+  color: var(--ink-dim);
+}
+
+.gap-gauge-copy {
+  margin: 0;
+}
+
 /* -------------------------------------------------------------------- log */
 
 .log {

@@ -40,6 +40,7 @@ import {
   showdownTone,
   showdownValue,
 } from "../../src/shared/showdown";
+import { gapCopy, gapGauge, gapValueLabel, type GapGauge } from "../../src/shared/gap-gauge";
 import { api, escapeHtml, TableSocket } from "./net";
 
 const PIPS: Record<number, string[]> = {
@@ -548,6 +549,31 @@ function rungHint(value: number, rung: Rung): string {
   return hints.join(" · ");
 }
 
+/**
+ * The size of the lie, drawn from the same inputs as the rungs. Lives above
+ * the scroller so `pinLadder` still puts the cut on the fold — a line below
+ * the box would sit under an eight-seat table's fold and never be seen.
+ */
+function renderGapGauge(gauge: GapGauge): string {
+  if (gauge.kind === "empty") return "";
+  const copy = gapCopy(gauge);
+  const heldLabel = gauge.held === null ? "" : `${gapValueLabel(gauge.held)} yours`;
+  const fillPct = gauge.fill === null ? 0 : Math.round(gauge.fill * 1000) / 10;
+  const markPct = gauge.kind === "climb" ? fillPct : 0;
+  return `<div class="gap-gauge gap-gauge-${gauge.kind}" data-gap-kind="${gauge.kind}" data-gap-rungs="${gauge.rungs}" data-gap-held="${gauge.held ?? ""}" data-gap-cheapest="${gauge.cheapest ?? ""}" style="--gap-fill: ${fillPct}%; --gap-mark: ${markPct}%;">
+      <p class="gap-gauge-label">How big a lie?</p>
+      <div class="gap-gauge-track" role="img" aria-label="${escapeHtml(copy)}">
+        <span class="gap-gauge-fill"></span>
+        <span class="gap-gauge-mark"></span>
+      </div>
+      <div class="gap-gauge-ends">
+        <span>${escapeHtml(heldLabel)}</span>
+        <span>MIA</span>
+      </div>
+      <p class="gap-gauge-copy muted small">${escapeHtml(copy)}</p>
+    </div>`;
+}
+
 function renderRung(value: number, rung: Rung): string {
   const label = value === MIA ? "MIA" : formatValue(value);
   const classes = ["announce"];
@@ -572,6 +598,10 @@ function renderRung(value: number, rung: Rung): string {
  * The standing claim is a cut line. Rungs at or below it are dimmed with a real
  * `disabled` attribute, while the rung the player holds stays visible below the
  * cut so they can see how far they have to climb.
+ *
+ * The gap gauge above the scroller is that same climb, drawn: last-of-
+ * `announcements` versus the held roll, via `gapGauge`. It is not a second
+ * ranking, and it is not a snapshot field — only this viewer holds the cup.
  */
 function renderAnnounceLadder(
   announcements: number[],
@@ -585,6 +615,7 @@ function renderAnnounceLadder(
   // `legalAnnouncements` preserves `RANKING` order, so the last legal value is
   // the cheapest claim, exactly one rung above the standing one.
   const cheapest = announcements.length > 0 ? announcements[announcements.length - 1]! : null;
+  const gauge = gapGauge(announcements, mineValue, standing?.value ?? null);
   const rungs: string[] = [];
 
   for (const value of RANKING) {
@@ -605,7 +636,7 @@ function renderAnnounceLadder(
     );
   }
 
-  return `<div class="ladder-scroll"><div class="ladder">${rungs.join("")}</div></div>`;
+  return `${renderGapGauge(gauge)}<div class="ladder-scroll"><div class="ladder">${rungs.join("")}</div></div>`;
 }
 
 function renderPlay(view: StateView): string {
@@ -632,18 +663,11 @@ function renderPlay(view: StateView): string {
       turnPlayer?.name ?? "the next player",
     )}${countdown !== null ? ` · ${countdownMarkup(countdown)}` : ""}</p></div>`;
   } else if (game.phase === "announcing") {
-    const held = you?.dice ? rollValue(you.dice[0], you.dice[1]) : null;
-    const heldBelowCut = held !== null && !moves.announcements.includes(held);
     actions = `<div class="card actions actions-tall">
       <p class="prompt">Your dice are secret. Claim something <b>higher than ${
         standing ? valueLabel(standing.value) : "anything"
       }</b>:</p>
       ${renderAnnounceLadder(moves.announcements, you?.dice ?? null, standing)}
-      ${
-        heldBelowCut
-          ? `<p class="muted small">Your ${valueLabel(held)} sits below the cut — claim one of the lit rungs above it.</p>`
-          : ""
-      }
     </div>`;
   } else {
     actions = `<div class="card actions">
